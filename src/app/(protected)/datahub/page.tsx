@@ -167,14 +167,53 @@ export default function DataHubPage() {
     downloadSheet(isEn ? "add-players.xlsx" : "anadir-jugadores.xlsx", [isEn ? { Name: "Sample Athlete", Sex: "male", "Age Group": "U14", Team: "U14 Boys", Position: "Winger", Club: state.club.name, "Data Collection Date (YYYY-MM-DD)": "2026-03-18", DOB: "2012-02-14", "Stature (cm)": 157.4, "Body Mass (kg)": 46.3, "Sitting Height (cm)": 81.5, "Mother Height (cm)": 165, "Father Height (cm)": 178 } : { Nombre: "Ej: Juan Perez", Sexo: "masculino", "Grupo de Edad": "Sub-14", Equipo: "Juvenil A", Posicion: "Delantero", Club: state.club.name, "Fecha de Medicion (AAAA-MM-DD)": "2026-03-18", "Fecha de Nacimiento (AAAA-MM-DD)": "2012-02-14", "Estatura (cm)": 157.4, "Masa Corporal (kg)": 46.3, "Altura Sentado (cm)": 81.5, "Altura Madre (cm)": 165, "Altura Padre (cm)": 178 }], isEn ? "Players" : "Jugadores");
   }
 
-  function downloadMeasurementsTemplate() {
-    const existingNames = state.athletes.map((a) => a.name);
+  async function downloadMeasurementsTemplate(selectedTeams: string[] = []) {
     const isEn = t("datahub.title") === "DataHub";
-    if (existingNames.length > 0) {
-      const rows = existingNames.map((name) => isEn ? { Name: name, "Data Collection Date (YYYY-MM-DD)": "", "Stature (cm)": "", "Body Mass (kg)": "", "Sitting Height (cm)": "" } : { Nombre: name, "Fecha de Medicion (AAAA-MM-DD)": "", "Estatura (cm)": "", "Masa Corporal (kg)": "", "Altura Sentado (cm)": "" });
+    try {
+      const res = await fetch("/api/measurements/template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          athletes: (() => {
+            // Build latest parent heights per athlete from assessments
+            const latestParents = new Map<string, { motherHeightCm?: number | null; fatherHeightCm?: number | null }>();
+            for (const rec of assessments) {
+              const existing = latestParents.get(rec.inputs.athleteName);
+              if (!existing || rec.inputs.dataCollectionDate > (existing as { _date?: string })._date!) {
+                latestParents.set(rec.inputs.athleteName, {
+                  motherHeightCm: rec.inputs.motherHeightCm,
+                  fatherHeightCm: rec.inputs.fatherHeightCm,
+                  _date: rec.inputs.dataCollectionDate,
+                } as { motherHeightCm?: number | null; fatherHeightCm?: number | null; _date?: string });
+              }
+            }
+            return state.athletes.map((a) => ({
+              name: a.name,
+              teamName: a.teamName,
+              motherHeightCm: latestParents.get(a.name)?.motherHeightCm ?? null,
+              fatherHeightCm: latestParents.get(a.name)?.fatherHeightCm ?? null,
+            }));
+          })(),
+          selectedTeams,
+          isEn,
+        }),
+      });
+      if (!res.ok) throw new Error("API error");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = isEn ? "add-measurements.xlsx" : "anadir-mediciones.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback: plain xlsx without colours
+      const rows = state.athletes.map((a) =>
+        isEn
+          ? { Name: a.name, "Data Collection Date (YYYY-MM-DD)": "", "Stature (cm)": "", "Body Mass (kg)": "", "Sitting Height (cm)": "", "Mother Height (cm)": "", "Father Height (cm)": "" }
+          : { Nombre: a.name, "Fecha de Medicion (AAAA-MM-DD)": "", "Estatura (cm)": "", "Masa Corporal (kg)": "", "Altura Sentado (cm)": "", "Altura Madre (cm)": "", "Altura Padre (cm)": "" }
+      );
       downloadSheet(isEn ? "add-measurements.xlsx" : "anadir-mediciones.xlsx", rows, isEn ? "Measurements" : "Mediciones");
-    } else {
-      downloadSheet(isEn ? "add-measurements.xlsx" : "anadir-mediciones.xlsx", [isEn ? { Name: "(no athletes yet)", "Data Collection Date (YYYY-MM-DD)": "", "Stature (cm)": "", "Body Mass (kg)": "", "Sitting Height (cm)": "" } : { Nombre: "(no hay jugadores)", "Fecha de Medicion (AAAA-MM-DD)": "", "Estatura (cm)": "", "Masa Corporal (kg)": "", "Altura Sentado (cm)": "" }], isEn ? "Measurements" : "Mediciones");
     }
   }
 
@@ -263,13 +302,9 @@ export default function DataHubPage() {
             setMaturationValue={setMaturationValue}
             saveMaturation={saveMaturation}
             saveEditPlayer={saveEditPlayer}
-            downloadPlayersTemplate={downloadPlayersTemplate}
             downloadMeasurementsTemplate={downloadMeasurementsTemplate}
-            importPlayersFile={importPlayersFile}
             importMeasurementsFile={importMeasurementsFile}
             feedback={feedback}
-            showAddPlayerModal={showAddPlayerModal}
-            setShowAddPlayerModal={setShowAddPlayerModal}
             showAddMeasurementModal={showAddMeasurementModal}
             setShowAddMeasurementModal={setShowAddMeasurementModal}
             showEditPlayerModal={showEditPlayerModal}

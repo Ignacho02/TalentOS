@@ -9,7 +9,6 @@ import {
   Pencil,
   Plus,
   UploadCloud,
-  UserPlus,
 } from "lucide-react";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -71,13 +70,9 @@ export function MaturationSection({
   setMaturationValue,
   saveMaturation,
   saveEditPlayer,
-  downloadPlayersTemplate,
   downloadMeasurementsTemplate,
-  importPlayersFile,
   importMeasurementsFile,
   feedback,
-  showAddPlayerModal,
-  setShowAddPlayerModal,
   showAddMeasurementModal,
   setShowAddMeasurementModal,
   showEditPlayerModal,
@@ -117,13 +112,9 @@ export function MaturationSection({
   ) => void;
   saveMaturation: (event: React.FormEvent<HTMLFormElement>) => void;
   saveEditPlayer: (event: React.FormEvent<HTMLFormElement>) => void;
-  downloadPlayersTemplate: () => void;
-  downloadMeasurementsTemplate: () => void;
-  importPlayersFile: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  downloadMeasurementsTemplate: (selectedTeams?: string[]) => void | Promise<void>;
   importMeasurementsFile: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   feedback: string;
-  showAddPlayerModal: boolean;
-  setShowAddPlayerModal: (show: boolean) => void;
   showAddMeasurementModal: boolean;
   setShowAddMeasurementModal: (show: boolean) => void;
   showEditPlayerModal: boolean;
@@ -142,7 +133,6 @@ export function MaturationSection({
   const [columnFilters, setColumnFilters] = useState(DEFAULT_COLUMN_FILTERS);
   const [athleteSearch, setAthleteSearch] = useState("");
   const [showColumnFilter, setShowColumnFilter] = useState<string | null>(null);
-  const playersFileRef = useRef<HTMLInputElement>(null);
   const measurementsFileRef = useRef<HTMLInputElement>(null);
 
   const toggleAthleteFilter = (name: string) => {
@@ -242,6 +232,10 @@ export function MaturationSection({
   }, [filteredRows]);
 
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+  const [groupByTeam, setGroupByTeam] = useState(true);
+  const [groupByPHV, setGroupByPHV] = useState(true);
+  const [sortWithinGroup, setSortWithinGroup] = useState<"name" | "age" | "offset">("name");
+  const [downloadTeams, setDownloadTeams] = useState<string[]>([]);
 
   const handleTeamClick = (team: string | null) => {
     setSelectedTeam(team);
@@ -255,45 +249,30 @@ export function MaturationSection({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Team quick filter buttons */}
-      {teams.length > 0 && (
-        <section className="flex flex-wrap gap-2 items-center">
-          <button
-            type="button"
-            onClick={() => handleTeamClick(null)}
-            className={cn(
-              "rounded-xl px-5 py-2.5 text-sm font-semibold transition",
-              selectedTeam === null
-                ? "bg-accent text-white shadow"
-                : "bg-white border border-line text-zinc-600 hover:bg-white/80"
-            )}
-          >
-            {t("datahub.allTeams")}
-          </button>
-          {teams.map((team) => (
-            <button
-              key={team}
-              type="button"
-              onClick={() => handleTeamClick(team)}
-              className={cn(
-                "rounded-xl px-5 py-2.5 text-sm font-semibold transition",
-                selectedTeam === team
-                  ? "bg-accent text-white shadow"
-                  : "bg-white border border-line text-zinc-600 hover:bg-white/80"
-              )}
-            >
-              {team}
-            </button>
-          ))}
-        </section>
-      )}
+    <div className="space-y-4">
+      {/* Add measurement button — above the table panel */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowAddMeasurementModal(true)}
+          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
+        >
+          <Plus className="h-4 w-4" />
+          {t("datahub.addMeasurementTitle")}
+        </button>
+      </div>
 
-      {/* Filtros globales */}
-      <section className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-zinc-700">{t("datahub.viewLabel")}:</span>
-          <div className="flex gap-2">
+      {/* Tabla de datos */}
+      <section className="panel rounded-[1.75rem] p-6 overflow-visible">
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold">{t("datahub.playersListTitle")}</h2>
+          <p className="mt-1 text-sm text-zinc-600">{t("datahub.clickHeaderHint")}</p>
+        </div>
+
+        {/* Toolbar: view + group + sort controls — each group is kept together */}
+        <div className="mb-5 flex flex-wrap gap-2 items-center">
+          {/* View group */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-medium text-zinc-600">{t("datahub.viewLabel")}:</span>
             {[
               { key: "anthropometric", label: t("datahub.viewAnthropometric") },
               { key: "maturation", label: t("datahub.viewMaturation") },
@@ -306,45 +285,59 @@ export function MaturationSection({
                   [option.key]: !prev[option.key as keyof typeof prev],
                 }))}
                 className={cn(
-                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
                   viewMode[option.key as keyof typeof viewMode]
                     ? "bg-accent text-white"
-                    : "bg-white/70 text-zinc-700 hover:bg-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                 )}
               >
                 {option.label}
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={() => { setEditingAthleteId(null); setMaturationForm({ ...emptyForm, clubName: state.club.name }); setShowAddPlayerModal(true); }}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90"
-          >
-            <UserPlus className="h-4 w-4" />
-            {t("datahub.addPlayer")}
-          </button>
-          <button
-            onClick={() => setShowAddMeasurementModal(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-          >
-            <Plus className="h-4 w-4" />
-            {t("datahub.addMeasurementTitle")}
-          </button>
-        </div>
-      </section>
-
-      {/* Tabla de datos */}
-      <section className="panel rounded-[1.75rem] p-6 overflow-visible">
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold">{t("datahub.playersListTitle")}</h2>
-          <p className="mt-2 text-sm text-zinc-600">{t("datahub.clickHeaderHint")}</p>
+          <span className="text-zinc-300 shrink-0">|</span>
+          {/* Group group */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-medium text-zinc-600">{t("datahub.groupLabel")}:</span>
+            <button
+              type="button"
+              onClick={() => setGroupByTeam((v) => !v)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                groupByTeam ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+              )}
+            >
+              {t("datahub.groupByTeam")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupByPHV((v) => !v)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                groupByPHV ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+              )}
+            >
+              {t("datahub.groupByPHV") || "PHV"}
+            </button>
+          </div>
+          <span className="text-zinc-300 shrink-0">|</span>
+          {/* Sort group */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm font-medium text-zinc-600">{t("datahub.sortLabel")}:</span>
+            <select
+              value={sortWithinGroup}
+              onChange={(e) => setSortWithinGroup(e.target.value as "name" | "age" | "offset")}
+              className="rounded-full border border-line bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 outline-none cursor-pointer"
+            >
+              <option value="name">{t("datahub.sortByName")}</option>
+              <option value="age">{t("datahub.sortByAge")}</option>
+              <option value="offset">{t("datahub.sortByOffset")}</option>
+            </select>
+          </div>
         </div>
 
         <div className="table-scroll overflow-x-auto overflow-visible">
-          <table className="min-w-[1450px] text-left text-sm">
+          <table className="w-full min-w-max text-left text-sm">
             <thead>
               <tr>
                 <th className="border-b border-line px-3 py-3"></th>
@@ -825,84 +818,168 @@ export function MaturationSection({
               </tr>
             </thead>
             <tbody suppressHydrationWarning>
-              {filteredData.map((row) => {
-                const athlete = state.athletes.find((candidate) => candidate.id === row.inputs.athleteId);
-                const history = assessments
-                  .filter((item) => item.inputs.athleteId === row.inputs.athleteId)
-                  .sort((a, b) => b.inputs.dataCollectionDate.localeCompare(a.inputs.dataCollectionDate));
-                const open = expandedAthleteId === row.inputs.athleteId;
-                return (
-                  <Fragment key={row.inputs.id}>
-                    <tr key={row.inputs.id} className="cursor-pointer border-t border-line/70 hover:bg-white/50 group" onClick={() => setExpandedAthleteId(open ? null : row.inputs.athleteId)}>
-                      <td className="px-3 py-3 font-medium text-zinc-900">
-                        <div className="flex items-center gap-2">
-                          {open ? <ChevronUp className="h-4 w-4 text-accent" /> : <ChevronDown className="h-4 w-4 text-accent" />}
-                          {row.inputs.athleteName}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); openEditForAthlete(row.inputs.athleteId); }}
-                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
-                            aria-label={`Edit ${row.inputs.athleteName}`}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                      {viewMode.anthropometric && (
-                        <>
-                          <td className="bg-white/35 px-3 py-3 text-ink-soft">{row.inputs.teamName ?? "--"}</td>
-                          <td className="bg-white/35 px-3 py-3 text-ink-soft">{athlete?.position ?? row.inputs.position ?? "--"}</td>
-                          <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dob)}</td>
-                          <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dataCollectionDate)}</td>
-                          <td className="bg-white/35 px-3 py-3">{formatNumber(row.derivedMetrics.chronologicalAge, 2)}</td>
-                          <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.statureCm, 1)} cm</td>
-                          <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.bodyMassKg, 1)} kg / {formatNumber(row.inputs.sittingHeightCm, 1)} cm</td>
-                        </>
-                      )}
-                      {viewMode.maturation && (
-                        <>
-                          <td className="bg-[#eaf4f2] px-3 py-3 font-medium">{row.classification.maturityBand}</td>
-                          <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.classification.primaryOffset, 2)}</td>
-                          <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mooreAphv, 2)}</td>
-                          <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
-                          <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mirwaldOffset, 2)}</td>
-                        </>
-                      )}
-                    </tr>
-                    {open ? <HistoryRow history={history} /> : null}
-                  </Fragment>
-                );
-              })}
+              {(() => {
+                // Band order: Pre → Mid → Post
+                const BAND_ORDER = ["Pre-PHV", "Mid-PHV", "Post-PHV"] as const;
+                const BAND_COLORS: Record<string, string> = {
+                  "Pre-PHV": "bg-sky-50",
+                  "Mid-PHV": "bg-amber-50",
+                  "Post-PHV": "bg-emerald-50",
+                };
+                const BAND_TEXT: Record<string, string> = {
+                  "Pre-PHV": "text-sky-700",
+                  "Mid-PHV": "text-amber-700",
+                  "Post-PHV": "text-emerald-700",
+                };
+                const BAND_BORDER: Record<string, string> = {
+                  "Pre-PHV": "border-sky-200",
+                  "Mid-PHV": "border-amber-200",
+                  "Post-PHV": "border-emerald-200",
+                };
+
+                // Sort helper
+                const sortRows = (rows: typeof filteredData) =>
+                  [...rows].sort((a, b) => {
+                    if (sortWithinGroup === "age") return a.derivedMetrics.chronologicalAge - b.derivedMetrics.chronologicalAge;
+                    if (sortWithinGroup === "offset") return a.classification.primaryOffset - b.classification.primaryOffset;
+                    return a.inputs.athleteName.localeCompare(b.inputs.athleteName);
+                  });
+
+                const renderRow = (row: typeof filteredData[0]) => {
+                  const athlete = state.athletes.find((c) => c.id === row.inputs.athleteId);
+                  const history = assessments
+                    .filter((item) => item.inputs.athleteId === row.inputs.athleteId)
+                    .sort((a, b) => b.inputs.dataCollectionDate.localeCompare(a.inputs.dataCollectionDate));
+                  const open = expandedAthleteId === row.inputs.athleteId;
+                  return (
+                    <Fragment key={row.inputs.id}>
+                      <tr className="cursor-pointer border-t border-line/70 hover:bg-white/50 group" onClick={() => setExpandedAthleteId(open ? null : row.inputs.athleteId)}>
+                        <td className="px-3 py-3 font-medium text-zinc-900">
+                          <div className="flex items-center gap-2">
+                            {open ? <ChevronUp className="h-4 w-4 text-accent" /> : <ChevronDown className="h-4 w-4 text-accent" />}
+                            {row.inputs.athleteName}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openEditForAthlete(row.inputs.athleteId); }}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
+                              aria-label={`Edit ${row.inputs.athleteName}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                        {viewMode.anthropometric && (
+                          <>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{row.inputs.teamName ?? "--"}</td>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{athlete?.position ?? row.inputs.position ?? "--"}</td>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dob)}</td>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dataCollectionDate)}</td>
+                            <td className="bg-white/35 px-3 py-3">{formatNumber(row.derivedMetrics.chronologicalAge, 2)}</td>
+                            <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.statureCm, 1)} cm</td>
+                            <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.bodyMassKg, 1)} kg / {formatNumber(row.inputs.sittingHeightCm, 1)} cm</td>
+                          </>
+                        )}
+                        {viewMode.maturation && (
+                          <>
+                            <td className="bg-[#eaf4f2] px-3 py-3 font-medium">{row.classification.maturityBand}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.classification.primaryOffset, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mooreAphv, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mirwaldOffset, 2)}</td>
+                          </>
+                        )}
+                      </tr>
+                      {open ? <HistoryRow history={history} /> : null}
+                    </Fragment>
+                  );
+                };
+
+                const totalCols = 1 + (viewMode.anthropometric ? 7 : 0) + (viewMode.maturation ? 5 : 0);
+
+                // No grouping at all
+                if (!groupByTeam && !groupByPHV) {
+                  return sortRows(filteredData).map(renderRow);
+                }
+
+                // PHV only (no team grouping)
+                if (!groupByTeam && groupByPHV) {
+                  return BAND_ORDER.map((band) => {
+                    const bandRows = sortRows(filteredData.filter((r) => r.classification.maturityBand === band));
+                    if (bandRows.length === 0) return null;
+                    return (
+                      <Fragment key={band}>
+                        <tr>
+                          <td colSpan={totalCols} className={`px-3 py-1.5 border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
+                            <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
+                            <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
+                          </td>
+                        </tr>
+                        {bandRows.map(renderRow)}
+                      </Fragment>
+                    );
+                  });
+                }
+
+                // Team only (no PHV sub-grouping)
+                const teamNames = Array.from(new Set(filteredData.map((r) => r.inputs.teamName ?? ""))).sort();
+
+                if (groupByTeam && !groupByPHV) {
+                  return teamNames.map((team) => {
+                    const teamRows = sortRows(filteredData.filter((r) => (r.inputs.teamName ?? "") === team));
+                    if (teamRows.length === 0) return null;
+                    return (
+                      <Fragment key={team || "__no_team__"}>
+                        <tr>
+                          <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2">
+                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                              {team || t("datahub.noTeam")}
+                            </span>
+                            <span className="ml-2 text-xs text-zinc-400">({teamRows.length})</span>
+                          </td>
+                        </tr>
+                        {teamRows.map(renderRow)}
+                      </Fragment>
+                    );
+                  });
+                }
+
+                // Both: team → PHV band
+                return teamNames.map((team) => {
+                  const teamRows = filteredData.filter((r) => (r.inputs.teamName ?? "") === team);
+                  if (teamRows.length === 0) return null;
+                  return (
+                    <Fragment key={team || "__no_team__"}>
+                      <tr>
+                        <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2">
+                          <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                            {team || t("datahub.noTeam")}
+                          </span>
+                          <span className="ml-2 text-xs text-zinc-400">({teamRows.length})</span>
+                        </td>
+                      </tr>
+                      {BAND_ORDER.map((band) => {
+                        const bandRows = sortRows(teamRows.filter((r) => r.classification.maturityBand === band));
+                        if (bandRows.length === 0) return null;
+                        return (
+                          <Fragment key={band}>
+                            <tr>
+                              <td colSpan={totalCols} className={`px-3 py-1.5 border-t border-zinc-200 ${BAND_COLORS[band]}`}>
+                                <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
+                                <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
+                              </td>
+                            </tr>
+                            {bandRows.map(renderRow)}
+                          </Fragment>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>
       </section>
-
-      {/* Modal: Add Player */}
-      {showAddPlayerModal && (
-        <ModalShell
-          title={t("datahub.addNewPlayerTitle")}
-          body={t("datahub.addNewPlayerBody")}
-          onClose={() => setShowAddPlayerModal(false)}
-          downloadTemplate={downloadPlayersTemplate}
-          downloadLabel={t("common.downloadTemplate")}
-          uploadLabel={t("datahub.uploadExcel")}
-          fileRef={playersFileRef}
-          onUploadClick={() => playersFileRef.current?.click()}
-          onUploadChange={importPlayersFile}
-          feedback={feedback}
-          t={t}
-        >
-          <form onSubmit={saveMaturation} className="space-y-6" noValidate>
-            <AddPlayerFormBody
-              maturationForm={maturationForm}
-              setMaturationValue={setMaturationValue}
-              onCancel={() => setShowAddPlayerModal(false)}
-              t={t}
-            />
-          </form>
-        </ModalShell>
-      )}
 
       {/* Modal: Add Measurement */}
       {showAddMeasurementModal && (
@@ -910,13 +987,16 @@ export function MaturationSection({
           title={t("datahub.addMeasurementTitle")}
           body={t("datahub.addMeasurementBody")}
           onClose={() => { setShowAddMeasurementModal(false); setEditingAthleteId(null); }}
-          downloadTemplate={downloadMeasurementsTemplate}
+          downloadTemplate={() => downloadMeasurementsTemplate(downloadTeams)}
           downloadLabel={t("common.downloadTemplate")}
           uploadLabel={t("datahub.uploadExcel")}
           fileRef={measurementsFileRef}
           onUploadClick={() => measurementsFileRef.current?.click()}
           onUploadChange={importMeasurementsFile}
           feedback={feedback}
+          teams={[...new Set(state.athletes.map((a) => a.teamName).filter(Boolean))] as string[]}
+          downloadTeams={downloadTeams}
+          setDownloadTeams={setDownloadTeams}
           t={t}
         >
           <form onSubmit={saveMaturation} className="space-y-6" noValidate>
@@ -1072,6 +1152,9 @@ function ModalShell({
   onUploadClick,
   onUploadChange,
   feedback,
+  teams,
+  downloadTeams,
+  setDownloadTeams,
   t,
   children,
 }: {
@@ -1085,9 +1168,31 @@ function ModalShell({
   onUploadClick: () => void;
   onUploadChange: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   feedback: string;
+  teams?: string[];
+  downloadTeams?: string[];
+  setDownloadTeams?: (teams: string[]) => void;
   t: (key: string) => string;
   children: React.ReactNode;
 }) {
+  const toggleTeam = (team: string) => {
+    if (!setDownloadTeams || !downloadTeams) return;
+    setDownloadTeams(
+      downloadTeams.includes(team)
+        ? downloadTeams.filter((t) => t !== team)
+        : [...downloadTeams, team]
+    );
+  };
+
+  const selectAll = () => {
+    if (!setDownloadTeams || !teams) return;
+    setDownloadTeams([...teams]);
+  };
+
+  const clearAll = () => {
+    if (!setDownloadTeams) return;
+    setDownloadTeams([]);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -1100,49 +1205,98 @@ function ModalShell({
         className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between relative">
-          <div>
-            <h3 id="modal-title" className="text-xl font-semibold">{title}</h3>
-            <p className="text-sm text-zinc-600">{body}</p>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
+        <div className="mb-6 relative">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h3 id="modal-title" className="text-xl font-bold text-zinc-900">{title}</h3>
+              <p className="text-sm text-zinc-600 mt-0.5">{body}</p>
+            </div>
             <button
               type="button"
-              onClick={downloadTemplate}
-              className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 transition hover:bg-blue-100"
-              aria-label={downloadLabel}
+              onClick={onClose}
+              className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition shrink-0 ml-4"
+              aria-label={t("datahub.close")}
             >
-              <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
-              {downloadLabel}
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
             </button>
-            <button
-              type="button"
-              onClick={onUploadClick}
-              className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 transition hover:bg-emerald-100"
-              aria-label={uploadLabel}
-            >
-              <UploadCloud className="h-4 w-4" aria-hidden="true" />
-              {uploadLabel}
-            </button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onUploadChange} />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-0 right-0 rounded-full p-1 text-red-500 hover:bg-red-50 transition"
-            aria-label={t("datahub.close")}
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
+
+          <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 space-y-3">
+            {/* Team selector */}
+            {teams && teams.length > 0 && setDownloadTeams && downloadTeams !== undefined && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-zinc-700">{t("datahub.selectTeamsForDownload") || "Seleccionar equipos para la plantilla"}</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={selectAll} className="text-xs text-accent hover:underline">{t("datahub.selectAll") || "Todos"}</button>
+                    <span className="text-zinc-300">|</span>
+                    <button type="button" onClick={clearAll} className="text-xs text-zinc-500 hover:underline">{t("datahub.clearAll") || "Ninguno"}</button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {teams.map((team) => {
+                    const selected = downloadTeams.includes(team);
+                    return (
+                      <button
+                        key={team}
+                        type="button"
+                        onClick={() => toggleTeam(team)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition",
+                          selected
+                            ? "border-accent bg-accent/10 text-accent"
+                            : "border-line bg-white text-zinc-600 hover:border-accent/50 hover:bg-accent/5"
+                        )}
+                      >
+                        <span className={cn("h-2 w-2 rounded-full flex-shrink-0", selected ? "bg-accent" : "bg-zinc-300")} />
+                        {team}
+                      </button>
+                    );
+                  })}
+                </div>
+                {downloadTeams.length === 0 && (
+                  <p className="text-xs text-zinc-400 mt-1">{t("datahub.allTeamsIfNone") || "Si no seleccionas ninguno, se incluirán todos los jugadores."}</p>
+                )}
+              </div>
+            )}
+
+            {/* Download + Upload buttons */}
+            <div>
+              <p className="text-sm text-zinc-600 mb-3 text-center">{t("datahub.bulkAddTitle")}</p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="flex items-center gap-2 rounded-lg bg-white border border-line px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition shadow-sm"
+                  aria-label={downloadLabel}
+                >
+                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                  {downloadLabel}
+                </button>
+                <label className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 cursor-pointer transition shadow-sm">
+                  <UploadCloud className="h-4 w-4" aria-hidden="true" />
+                  {uploadLabel}
+                  <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onUploadChange} />
+                </label>
+              </div>
+              {feedback && (
+                <div className={cn("mt-3 p-2 text-center text-sm font-medium rounded-lg", feedback.includes("✅") || feedback === "saved" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800")}>
+                  {feedback === "saved" ? t("datahub.playerAddedOk") : feedback === "duplicate" ? t("datahub.measurementExists") : feedback}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 py-3">
+            <div className="h-px bg-line flex-1"></div>
+            <span className="text-xs font-semibold uppercase text-zinc-400">{t("datahub.bulkAddManualOpts")}</span>
+            <div className="h-px bg-line flex-1"></div>
+          </div>
         </div>
         {children}
-        {feedback && (
-          <div className="mt-4 rounded-lg border border-line bg-white/70 px-4 py-3 text-sm text-zinc-700">
-            {feedback === "saved" ? t("datahub.playerAddedOk") : feedback === "duplicate" ? t("datahub.measurementExists") : feedback}
-          </div>
-        )}
+
       </div>
     </div>
   );

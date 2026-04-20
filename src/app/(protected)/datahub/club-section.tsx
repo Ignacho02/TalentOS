@@ -5,9 +5,41 @@ import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import { cn } from "@/lib/utils";
-import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, FileSpreadsheet, UploadCloud, Eye, Play, FileText } from "lucide-react";
+import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, FileSpreadsheet, UploadCloud, Eye, Play, FileText, Zap, Brain, Target, Dumbbell } from "lucide-react";
 import type { PerformanceArea, PerformanceDefinition } from "@/lib/types";
 import { performancePresets, performanceAreaLabels } from "./performance-constants";
+
+const areaStyles: Record<string, {
+  icon: React.ElementType;
+  chipClass: string;
+  badgeClass: string;
+  iconClass: string;
+}> = {
+  physical: {
+    icon: Zap,
+    chipClass: "border-orange-200 bg-orange-50 text-orange-800 hover:border-orange-400 hover:bg-orange-100",
+    badgeClass: "bg-orange-100 text-orange-700",
+    iconClass: "text-orange-500",
+  },
+  technicalTactical: {
+    icon: Target,
+    chipClass: "border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-400 hover:bg-blue-100",
+    badgeClass: "bg-blue-100 text-blue-700",
+    iconClass: "text-blue-500",
+  },
+  psychological: {
+    icon: Brain,
+    chipClass: "border-purple-200 bg-purple-50 text-purple-800 hover:border-purple-400 hover:bg-purple-100",
+    badgeClass: "bg-purple-100 text-purple-700",
+    iconClass: "text-purple-500",
+  },
+  motorSkills: {
+    icon: Dumbbell,
+    chipClass: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-400 hover:bg-emerald-100",
+    badgeClass: "bg-emerald-100 text-emerald-700",
+    iconClass: "text-emerald-500",
+  },
+};
 
 function downloadSheet(filename: string, rows: Array<Record<string, unknown>>, sheet: string) {
   const workbook = XLSX.utils.book_new();
@@ -140,6 +172,7 @@ export function ClubSection() {
           addDef={addDef}
           delDef={delDef}
           handleMedia={handleMedia}
+          updatePerformanceDefinition={updatePerformanceDefinition as (id: string, updates: Partial<PerformanceDefinition>) => void}
           t={t}
         />
       )}
@@ -1556,6 +1589,7 @@ function TestBatteryTab({
   addDef,
   delDef,
   handleMedia,
+  updatePerformanceDefinition,
   t,
 }: {
   testBatteryArea: PerformanceArea;
@@ -1568,8 +1602,50 @@ function TestBatteryTab({
   addDef: (e: React.FormEvent) => void;
   delDef: (id: string) => void;
   handleMedia: (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => void;
+  updatePerformanceDefinition: (id: string, updates: Partial<PerformanceDefinition>) => void;
   t: (key: string) => string;
 }) {
+  const [selectedTestDef, setSelectedTestDef] = useState<PerformanceDefinition | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editFields, setEditFields] = useState<{ name: string; unit: string; attempts: number; isRating: boolean; scoringStrategy: "best" | "average"; interpretation: "higher_better" | "lower_better"; description: string; mediaUrl: string; mediaType: "image" | "video" | undefined }>({ name: "", unit: "", attempts: 1, isRating: false, scoringStrategy: "best", interpretation: "higher_better", description: "", mediaUrl: "", mediaType: undefined });
+
+  function openDetail(def: PerformanceDefinition) {
+    setSelectedTestDef(def);
+    setEditMode(false);
+    setEditFields({ name: def.name, unit: def.unit, attempts: def.attempts, isRating: def.isRating ?? false, scoringStrategy: def.scoringStrategy ?? "best", interpretation: def.interpretation ?? "higher_better", description: def.description ?? "", mediaUrl: def.mediaUrl ?? "", mediaType: def.mediaType });
+  }
+
+  function closeDetail() {
+    setSelectedTestDef(null);
+    setEditMode(false);
+  }
+
+  function saveEdit() {
+    if (!selectedTestDef) return;
+    updatePerformanceDefinition(selectedTestDef.id, {
+      name: editFields.name.trim() || selectedTestDef.name,
+      nameKey: undefined,
+      unit: editFields.unit.trim() || selectedTestDef.unit,
+      attempts: editFields.attempts,
+      isRating: editFields.isRating,
+      scoringStrategy: editFields.scoringStrategy,
+      interpretation: editFields.interpretation,
+      description: editFields.description || undefined,
+      descriptionKey: undefined,
+      mediaUrl: editFields.mediaUrl || undefined,
+      mediaType: editFields.mediaType,
+    });
+    closeDetail();
+  }
+
+  function handleEditMedia(e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => { setEditFields(c => ({ ...c, mediaUrl: ev.target?.result as string, mediaType: type })); };
+    r.readAsDataURL(f);
+  }
+
   return (
     <section className="panel rounded-[1.75rem] p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -1594,268 +1670,59 @@ function TestBatteryTab({
 
       {/* Area selector */}
       <section className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        {(Object.keys(performanceAreaLabels) as PerformanceArea[]).map(item => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setTestBatteryArea(item as PerformanceArea)}
-            className={cn(
-              "rounded-2xl border-2 px-5 py-4 text-left transition-all duration-200 hover:shadow-lg",
-              testBatteryArea === item
-                ? "border-accent bg-accent text-white shadow-md"
-                : "border-gray-300 bg-white hover:bg-gray-50"
-            )}
-          >
-            <p className="text-lg font-semibold">{t(performanceAreaLabels[item as PerformanceArea])}</p>
-            <p className={cn("mt-1 text-sm", testBatteryArea === item ? "text-white/85" : "text-zinc-600")}>
-              {item === "physical" ? t("datahub.physicalDesc") : item === "technicalTactical" ? t("datahub.technicalTacticalDesc") : item === "psychological" ? t("datahub.psychologicalDesc") : t("datahub.motorSkillsDesc")}
-            </p>
-          </button>
-        ))}
+        {(Object.keys(performanceAreaLabels) as PerformanceArea[]).map(item => {
+          const style = areaStyles[item] ?? areaStyles.physical;
+          const AreaIcon = style.icon;
+          const isActive = testBatteryArea === item;
+          return (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setTestBatteryArea(item as PerformanceArea)}
+              className={cn(
+                "rounded-2xl border-2 px-5 py-4 text-left transition-all duration-200 hover:shadow-lg",
+                isActive ? "border-accent bg-accent text-white shadow-md" : "border-gray-300 bg-white hover:bg-gray-50"
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <AreaIcon className={cn("h-5 w-5", isActive ? "text-white/90" : style.iconClass)} />
+                <p className="text-base font-semibold leading-tight">{t(performanceAreaLabels[item as PerformanceArea])}</p>
+              </div>
+              <p className={cn("text-sm", isActive ? "text-white/80" : "text-zinc-500")}>
+                {item === "physical" ? t("datahub.physicalDesc") : item === "technicalTactical" ? t("datahub.technicalTacticalDesc") : item === "psychological" ? t("datahub.psychologicalDesc") : t("datahub.motorSkillsDesc")}
+              </p>
+            </button>
+          );
+        })}
       </section>
 
-      <div className="space-y-6">
-        {/* Available tests - shown first */}
-        {areaTestDefs.length > 0 && (
-          <div className="rounded-[1.75rem] border border-line bg-white/50 p-6">
-            <div className="mb-5">
-              <h3 className="text-lg font-semibold text-zinc-900">{t("datahub.testsAvailable")}</h3>
-              <p className="mt-1 text-sm text-zinc-600">{areaTestDefs.length} {t("datahub.testsRegistered")}</p>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-3">
-              {areaTestDefs.map(d => (
-                <div key={d.id} className="rounded-2xl border border-line bg-white/70 px-4 py-3">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex-1 text-left">
-                      <p className="font-semibold text-zinc-900">{d.nameKey ? t(d.nameKey) : d.name}</p>
-                      <p className="mt-1 text-sm text-zinc-600">
-                        {d.unit} · {d.attempts} {t("datahub.attemptsShort")} · {d.scoringStrategy === "average" ? t("datahub.avgShort") : d.interpretation === "lower_better" ? t("datahub.bestMinShort") : t("datahub.bestMaxShort")}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => delDef(d.id)}
-                      className="rounded-full p-2 hover:bg-red-100 text-red-600 transition flex-shrink-0"
-                      title={t("datahub.delete")}
-                    >
-                      <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" />
-                      </svg>
-                    </button>
-                  </div>
-                  {(d.description || d.mediaUrl) && (
-                    <div className="mt-3 pt-3 border-t border-line/50 space-y-2">
-                      {(d.descriptionKey || d.description) && <p className="text-xs text-zinc-600 line-clamp-2">{d.descriptionKey ? t(d.descriptionKey) : d.description}</p>}
-                      {d.mediaUrl && (
-                        <div className="rounded-lg overflow-hidden h-20 bg-zinc-200">
-                          {d.mediaType === "image" ? (
-                            <img src={d.mediaUrl} alt="preview" className="h-full w-full object-cover" />
-                          ) : (
-                            <video src={d.mediaUrl} className="h-full w-full object-cover" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+      {/* Chips list */}
+      {areaTestDefs.length > 0 ? (
+        <div className="rounded-[1.75rem] border border-line bg-white/50 p-6">
+          <div className="mb-5">
+            <h3 className="text-lg font-semibold text-zinc-900">{t("datahub.testsAvailable")}</h3>
+            <p className="mt-1 text-sm text-zinc-600">{areaTestDefs.length} {t("datahub.testsRegistered")}</p>
           </div>
-        )}
-
-        {/* Add test form - Modal Overlay */}
-        {showAddTestForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-sm p-4">
-            <div
-              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[2.5rem] bg-white p-8 shadow-2xl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="mb-6 flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-bold text-zinc-900">{t("datahub.addMetricTitle")}</h3>
-                  <p className="mt-1 text-zinc-600">{t("datahub.addMetricBody")}</p>
-                </div>
+          <div className="flex flex-wrap gap-2">
+            {areaTestDefs.map(d => {
+              const style = areaStyles[d.area] ?? areaStyles.physical;
+              const AreaIcon = style.icon;
+              return (
                 <button
-                  onClick={() => setShowAddTestForm(false)}
-                  className="rounded-full bg-zinc-100 p-2 text-zinc-500 hover:bg-zinc-200"
+                  key={d.id}
+                  type="button"
+                  onClick={() => { openDetail(d); }}
+                  className={cn("inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-all duration-150", style.chipClass)}
                 >
-                  <X className="h-6 w-6" />
+                  <AreaIcon className={cn("h-3.5 w-3.5 flex-shrink-0", style.iconClass)} />
+                  {d.nameKey ? t(d.nameKey) : d.name}
                 </button>
-              </div>
-
-              <form onSubmit={addDef} className="space-y-6">
-                {/* Preset Selector */}
-                <div className="rounded-3xl border-2 border-accent/20 bg-accent/5 p-5">
-                  <label className="block text-sm font-bold text-accent mb-2 uppercase tracking-tight">{t("datahub.usePreset") || "Usar test predefinido"}</label>
-                  <select
-                    className="w-full rounded-2xl border border-accent/30 bg-white px-4 py-3 text-zinc-700 outline-none focus:ring-4 focus:ring-accent/10"
-                    onChange={(e) => {
-                      const preset = performancePresets[testBatteryArea].find(p => p.name === e.target.value);
-                      if (preset) {
-                        setNewDef({
-                          name: preset.name,
-                          nameKey: preset.nameKey,
-                          descriptionKey: preset.descriptionKey,
-                          unit: preset.unit,
-                          attempts: preset.scoringStrategy === "average" ? 3 : 1,
-                          isRating: preset.isRating,
-                          scoringStrategy: preset.scoringStrategy,
-                          interpretation: preset.interpretation,
-                          description: "", // Reset manual description
-                          mediaUrl: "",
-                          mediaType: undefined,
-                          subCategory: undefined,
-                        });
-                      }
-                    }}
-                    value=""
-                  >
-                    <option value="" disabled>{t("datahub.selectPreset") || "-- Seleccionar test --"}</option>
-                    {performancePresets[testBatteryArea].map(p => (
-                      <option key={p.name} value={p.name}>{p.nameKey ? t(p.nameKey) : p.name}</option>
-                    ))}
-                  </select>
-                  <p className="mt-2 text-xs text-zinc-500 italic px-1">
-                    {t("datahub.presetHint") || "Selecciona un test común para rellenar los campos automáticamente."}
-                  </p>
-                </div>
-
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.metricName")}</label>
-                    <input
-                      className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      placeholder={t("datahub.exampleMetricNames")}
-                      value={newDef.nameKey ? t(newDef.nameKey) : newDef.name}
-                      onChange={e => setNewDef(c => ({ ...c, name: e.target.value, nameKey: undefined, descriptionKey: undefined }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.metricUnit")}</label>
-                    <input
-                      className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      placeholder={t("datahub.exampleMetricUnit")}
-                      value={newDef.unit}
-                      onChange={e => setNewDef(c => ({ ...c, unit: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.attemptsCount")}</label>
-                    <input
-                      type="number"
-                      min={1}
-                      className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      placeholder={t("datahub.exampleAttempts")}
-                      value={newDef.attempts}
-                      onChange={e => setNewDef(c => ({ ...c, attempts: Number(e.target.value) || 1 }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.resultType")}</label>
-                    <select
-                      className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      value={newDef.isRating ? "rating" : "numeric"}
-                      onChange={e => setNewDef(c => ({ ...c, isRating: e.target.value === "rating" }))}
-                    >
-                      <option value="numeric">{t("datahub.resultNumeric")}</option>
-                      <option value="rating">{t("datahub.resultRating")}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.metricGoal")}</label>
-                    <select
-                      className={cn(
-                        "w-full rounded-2xl border border-line px-4 py-4 text-zinc-900 outline-none transition",
-                        newDef.attempts === 1 ? "bg-zinc-100 opacity-50 cursor-not-allowed" : "bg-zinc-50 focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      )}
-                      value={newDef.scoringStrategy}
-                      disabled={newDef.attempts === 1}
-                      onChange={e => setNewDef(c => ({ ...c, scoringStrategy: e.target.value as "best" | "average" }))}
-                    >
-                      <option value="best">{t("datahub.calcBest")}</option>
-                      <option value="average">{t("datahub.calcAverage")}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.metricInterpretation")}</label>
-                    <select
-                      className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                      value={newDef.interpretation}
-                      onChange={e => setNewDef(c => ({ ...c, interpretation: e.target.value as "higher_better" | "lower_better" }))}
-                    >
-                      <option value="higher_better">{t("datahub.interpretHigher")}</option>
-                      <option value="lower_better">{t("datahub.interpretLower")}</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-zinc-700 mb-2">{t("datahub.testDescriptionOptional")}</label>
-                  <textarea
-                    className="w-full rounded-2xl border border-line bg-zinc-50 px-4 py-4 text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20 resize-none"
-                    placeholder={t("datahub.exampleTestDescription")}
-                    rows={3}
-                    value={newDef.descriptionKey ? t(newDef.descriptionKey) : newDef.description}
-                    onChange={e => setNewDef(c => ({ ...c, description: e.target.value, descriptionKey: undefined }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-zinc-700 mb-3">{t("datahub.mediaOptional")}</label>
-                  <div className="flex gap-4">
-                    <label className="flex-1 cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 hover:bg-zinc-100 transition text-zinc-500">
-                        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <span className="font-semibold">{t("datahub.image")}</span>
-                      </div>
-                      <input type="file" accept="image/*" className="hidden" onChange={e => handleMedia(e, "image")} />
-                    </label>
-                    <label className="flex-1 cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 hover:bg-zinc-100 transition text-zinc-500">
-                        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span className="font-semibold">{t("datahub.video")}</span>
-                      </div>
-                      <input type="file" accept="video/*" className="hidden" onChange={e => handleMedia(e, "video")} />
-                    </label>
-                  </div>
-                  {newDef.mediaUrl && (
-                    <div className="mt-4 rounded-3xl border border-line bg-zinc-50 p-4 relative group">
-                      <button
-                        onClick={() => setNewDef(c => ({ ...c, mediaUrl: "", mediaType: undefined }))}
-                        className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                      <p className="text-xs text-zinc-600 mb-2 font-bold uppercase tracking-widest">{t("datahub.selectedMedia")} - {newDef.mediaType}</p>
-                      {newDef.mediaType === "image" ? (
-                        <img src={newDef.mediaUrl} alt="preview" className="h-40 w-full rounded-2xl object-cover" />
-                      ) : (
-                        <video src={newDef.mediaUrl} className="h-40 w-full rounded-2xl object-cover" controls />
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddTestForm(false)}
-                    className="flex-1 rounded-2xl border border-line py-4 font-bold text-zinc-700 hover:bg-zinc-50 transition"
-                  >
-                    {t("datahub.cancel")}
-                  </button>
-                  <button className="flex-2 rounded-2xl bg-accent px-8 py-4 font-bold text-slate-950 hover:bg-accent-strong transition shadow-lg shadow-accent/20">
-                    {t("datahub.createMetric")}
-                  </button>
-                </div>
-              </form>
-            </div>
+              );
+            })}
           </div>
-        )}
-
-        {areaTestDefs.length === 0 && !showAddTestForm && (
+        </div>
+      ) : (
+        !showAddTestForm && (
           <div className="rounded-[1.75rem] border border-dashed border-line bg-white/30 p-12 text-center">
             <Beaker className="h-12 w-12 mx-auto mb-4 text-zinc-400" />
             <p className="text-sm text-zinc-600 mb-4">{t("club.noTestsDefined")}</p>
@@ -1868,8 +1735,417 @@ function TestBatteryTab({
               {t("club.addTest")}
             </button>
           </div>
-        )}
-      </div>
+        )
+      )}
+
+      {/* Test Detail / Edit — centred overlay, same style as Modal */}
+      {selectedTestDef && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+          onClick={closeDetail}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="mb-5 flex items-start justify-between shrink-0">
+              <div className="flex-1 min-w-0 pr-3">
+                {editMode ? (
+                  <input
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2 text-xl font-bold text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
+                    value={editFields.name}
+                    onChange={e => setEditFields(c => ({ ...c, name: e.target.value }))}
+                  />
+                ) : (
+                  <h3 className="text-xl font-bold text-zinc-900 leading-tight">{selectedTestDef.nameKey ? t(selectedTestDef.nameKey) : selectedTestDef.name}</h3>
+                )}
+                {(() => {
+                  const style = areaStyles[selectedTestDef.area] ?? areaStyles.physical;
+                  const AreaIcon = style.icon;
+                  return (
+                    <span className={cn("inline-flex items-center gap-1.5 mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium", style.badgeClass)}>
+                      <AreaIcon className="h-3 w-3" />
+                      {t(performanceAreaLabels[selectedTestDef.area as PerformanceArea] ?? selectedTestDef.area)}
+                    </span>
+                  );
+                })()}
+              </div>
+              <button
+                type="button"
+                onClick={closeDetail}
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto pr-1 -mr-1 space-y-4">
+              {editMode ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.metricUnit")}</label>
+                      <input
+                        className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none focus:bg-white focus:border-accent/50"
+                        value={editFields.unit}
+                        onChange={e => setEditFields(c => ({ ...c, unit: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.attemptsCount")}</label>
+                      <input
+                        type="number" min={1}
+                        className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none focus:bg-white focus:border-accent/50"
+                        value={editFields.attempts}
+                        onChange={e => setEditFields(c => ({ ...c, attempts: Number(e.target.value) || 1 }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.resultType")}</label>
+                      <select
+                        className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none focus:bg-white focus:border-accent/50"
+                        value={editFields.isRating ? "rating" : "numeric"}
+                        onChange={e => setEditFields(c => ({ ...c, isRating: e.target.value === "rating" }))}
+                      >
+                        <option value="numeric">{t("datahub.resultNumeric")}</option>
+                        <option value="rating">{t("datahub.resultRating")}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.metricGoal")}</label>
+                      <select
+                        className={cn("w-full rounded-lg border border-line px-3 py-2.5 text-sm text-zinc-900 outline-none transition", editFields.attempts === 1 ? "bg-zinc-100 opacity-50 cursor-not-allowed" : "bg-zinc-50 focus:bg-white focus:border-accent/50")}
+                        value={editFields.scoringStrategy}
+                        disabled={editFields.attempts === 1}
+                        onChange={e => setEditFields(c => ({ ...c, scoringStrategy: e.target.value as "best" | "average" }))}
+                      >
+                        <option value="best">{t("datahub.calcBest")}</option>
+                        <option value="average">{t("datahub.calcAverage")}</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.metricInterpretation")}</label>
+                      <select
+                        className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none focus:bg-white focus:border-accent/50"
+                        value={editFields.interpretation}
+                        onChange={e => setEditFields(c => ({ ...c, interpretation: e.target.value as "higher_better" | "lower_better" }))}
+                      >
+                        <option value="higher_better">{t("datahub.interpretHigher")}</option>
+                        <option value="lower_better">{t("datahub.interpretLower")}</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.testDescriptionOptional")}</label>
+                    <textarea
+                      className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 outline-none focus:bg-white focus:border-accent/50 resize-none"
+                      rows={3}
+                      value={editFields.description}
+                      onChange={e => setEditFields(c => ({ ...c, description: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 mb-2">{t("datahub.mediaOptional")}</label>
+                    <div className="flex gap-3">
+                      <label className="flex-1 cursor-pointer">
+                        <div className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-zinc-200 bg-zinc-50 py-3 hover:bg-zinc-100 transition text-zinc-500 text-sm font-medium">
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          {t("datahub.image")}
+                        </div>
+                        <input type="file" accept="image/*" className="hidden" onChange={e => handleEditMedia(e, "image")} />
+                      </label>
+                      <label className="flex-1 cursor-pointer">
+                        <div className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-zinc-200 bg-zinc-50 py-3 hover:bg-zinc-100 transition text-zinc-500 text-sm font-medium">
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          {t("datahub.video")}
+                        </div>
+                        <input type="file" accept="video/*" className="hidden" onChange={e => handleEditMedia(e, "video")} />
+                      </label>
+                    </div>
+                    {editFields.mediaUrl && (
+                      <div className="mt-3 rounded-xl border border-line bg-zinc-50 p-3 relative group">
+                        <button type="button" onClick={() => setEditFields(c => ({ ...c, mediaUrl: "", mediaType: undefined }))} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"><X className="h-3 w-3" /></button>
+                        {editFields.mediaType === "image" ? (
+                          <img src={editFields.mediaUrl} alt="preview" className="h-28 w-full rounded-lg object-cover" />
+                        ) : (
+                          <video src={editFields.mediaUrl} className="h-28 w-full rounded-lg object-cover" controls />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricUnit")}</p>
+                      <p className="font-medium text-zinc-900">{selectedTestDef.unit}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.attemptsCount")}</p>
+                      <p className="font-medium text-zinc-900">{selectedTestDef.attempts}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricGoal")}</p>
+                      <p className="font-medium text-zinc-900">{selectedTestDef.scoringStrategy === "average" ? t("datahub.calcAverage") : t("datahub.calcBest")}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricInterpretation")}</p>
+                      <p className="font-medium text-zinc-900">{selectedTestDef.interpretation === "lower_better" ? t("datahub.interpretLower") : t("datahub.interpretHigher")}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.resultType")}</p>
+                      <p className="font-medium text-zinc-900">{selectedTestDef.isRating ? t("datahub.resultRating") : t("datahub.resultNumeric")}</p>
+                    </div>
+                  </div>
+                  {(selectedTestDef.descriptionKey || selectedTestDef.description) && (
+                    <p className="text-sm text-zinc-600 leading-relaxed border-t border-line pt-3">
+                      {selectedTestDef.descriptionKey ? t(selectedTestDef.descriptionKey) : selectedTestDef.description}
+                    </p>
+                  )}
+                  {selectedTestDef.mediaUrl && (
+                    <div className="rounded-xl overflow-hidden border border-line">
+                      {selectedTestDef.mediaType === "image" ? (
+                        <img src={selectedTestDef.mediaUrl} alt="preview" className="w-full object-cover max-h-48" />
+                      ) : (
+                        <video src={selectedTestDef.mediaUrl} className="w-full max-h-48 object-cover" controls />
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Footer actions */}
+              <div className="flex items-center gap-3 pt-3 border-t border-line">
+                {editMode ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setEditMode(false)}
+                      className="flex-1 rounded-xl border border-line py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+                    >
+                      {t("datahub.cancel")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveEdit}
+                      className="flex-1 rounded-xl bg-accent py-2.5 text-sm font-semibold text-slate-950 hover:bg-accent-strong transition shadow-md shadow-accent/20"
+                    >
+                      {t("datahub.save")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { delDef(selectedTestDef.id); closeDetail(); }}
+                      className="flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t("datahub.delete")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditMode(true)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-slate-950 hover:bg-accent-strong transition shadow-md shadow-accent/20"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                      {t("datahub.edit")}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add test — centred overlay, same style as Modal */}
+      {showAddTestForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+          onClick={() => setShowAddTestForm(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between shrink-0">
+              <h3 className="text-xl font-bold text-zinc-900">{t("datahub.addMetricTitle")}</h3>
+              <button
+                type="button"
+                onClick={() => setShowAddTestForm(false)}
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={addDef} className="overflow-y-auto pr-1 -mr-1 space-y-4">
+              {/* Preset Selector */}
+              <div className="rounded-xl border-2 border-accent/20 bg-accent/5 p-4">
+                <label className="block text-xs font-bold text-accent mb-2 uppercase tracking-tight">{t("datahub.usePreset") || "Usar test predefinido"}</label>
+                <select
+                  className="w-full rounded-lg border border-accent/30 bg-white px-3 py-2.5 text-sm text-zinc-700 outline-none focus:ring-2 focus:ring-accent/10 font-sans"
+                  onChange={(e) => {
+                    const preset = performancePresets[testBatteryArea].find(p => p.name === e.target.value);
+                    if (preset) {
+                      setNewDef({
+                        name: preset.name,
+                        nameKey: preset.nameKey,
+                        descriptionKey: preset.descriptionKey,
+                        unit: preset.unit,
+                        attempts: preset.scoringStrategy === "average" ? 3 : 1,
+                        isRating: preset.isRating,
+                        scoringStrategy: preset.scoringStrategy,
+                        interpretation: preset.interpretation,
+                        description: "",
+                        mediaUrl: "",
+                        mediaType: undefined,
+                        subCategory: undefined,
+                      });
+                    }
+                  }}
+                  value=""
+                >
+                  <option value="" disabled>{t("datahub.selectPreset") || "-- Seleccionar test --"}</option>
+                  {performancePresets[testBatteryArea].map(p => (
+                    <option key={p.name} value={p.name}>{p.nameKey ? t(p.nameKey) : p.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-xs text-zinc-500 italic">
+                  {t("datahub.presetHint") || "Selecciona un test común para rellenar los campos automáticamente."}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.metricName")}</label>
+                  <input
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    placeholder={t("datahub.exampleMetricNames")}
+                    value={newDef.nameKey ? t(newDef.nameKey) : newDef.name}
+                    onChange={e => setNewDef(c => ({ ...c, name: e.target.value, nameKey: undefined, descriptionKey: undefined }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.metricUnit")}</label>
+                  <input
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    placeholder={t("datahub.exampleMetricUnit")}
+                    value={newDef.unit}
+                    onChange={e => setNewDef(c => ({ ...c, unit: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.attemptsCount")}</label>
+                  <input
+                    type="number" min={1}
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    placeholder={t("datahub.exampleAttempts")}
+                    value={newDef.attempts}
+                    onChange={e => setNewDef(c => ({ ...c, attempts: Number(e.target.value) || 1 }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.resultType")}</label>
+                  <select
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    value={newDef.isRating ? "rating" : "numeric"}
+                    onChange={e => setNewDef(c => ({ ...c, isRating: e.target.value === "rating" }))}
+                  >
+                    <option value="numeric">{t("datahub.resultNumeric")}</option>
+                    <option value="rating">{t("datahub.resultRating")}</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.metricGoal")}</label>
+                  <select
+                    className={cn("w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none font-sans transition", newDef.attempts === 1 ? "bg-zinc-100 opacity-50 cursor-not-allowed" : "bg-zinc-50 focus:bg-white focus:border-accent/50")}
+                    value={newDef.scoringStrategy}
+                    disabled={newDef.attempts === 1}
+                    onChange={e => setNewDef(c => ({ ...c, scoringStrategy: e.target.value as "best" | "average" }))}
+                  >
+                    <option value="best">{t("datahub.calcBest")}</option>
+                    <option value="average">{t("datahub.calcAverage")}</option>
+                  </select>
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <label className="text-xs font-medium text-zinc-500">{t("datahub.metricInterpretation")}</label>
+                  <select
+                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    value={newDef.interpretation}
+                    onChange={e => setNewDef(c => ({ ...c, interpretation: e.target.value as "higher_better" | "lower_better" }))}
+                  >
+                    <option value="higher_better">{t("datahub.interpretHigher")}</option>
+                    <option value="lower_better">{t("datahub.interpretLower")}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-zinc-500">{t("datahub.testDescriptionOptional")}</label>
+                <textarea
+                  className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans resize-none"
+                  placeholder={t("datahub.exampleTestDescription")}
+                  rows={3}
+                  value={newDef.descriptionKey ? t(newDef.descriptionKey) : newDef.description}
+                  onChange={e => setNewDef(c => ({ ...c, description: e.target.value, descriptionKey: undefined }))}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-500 mb-2 block">{t("datahub.mediaOptional")}</label>
+                <div className="flex gap-3">
+                  <label className="flex-1 cursor-pointer">
+                    <div className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-200 bg-zinc-50 py-4 hover:bg-zinc-100 transition text-zinc-500 text-sm font-medium">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      {t("datahub.image")}
+                    </div>
+                    <input type="file" accept="image/*" className="hidden" onChange={e => handleMedia(e, "image")} />
+                  </label>
+                  <label className="flex-1 cursor-pointer">
+                    <div className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-200 bg-zinc-50 py-4 hover:bg-zinc-100 transition text-zinc-500 text-sm font-medium">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      {t("datahub.video")}
+                    </div>
+                    <input type="file" accept="video/*" className="hidden" onChange={e => handleMedia(e, "video")} />
+                  </label>
+                </div>
+                {newDef.mediaUrl && (
+                  <div className="mt-3 rounded-xl border border-line bg-zinc-50 p-3 relative group">
+                    <button type="button" onClick={() => setNewDef(c => ({ ...c, mediaUrl: "", mediaType: undefined }))} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"><X className="h-3 w-3" /></button>
+                    <p className="text-xs text-zinc-500 mb-2 font-semibold uppercase tracking-wide">{t("datahub.selectedMedia")} — {newDef.mediaType}</p>
+                    {newDef.mediaType === "image" ? (
+                      <img src={newDef.mediaUrl} alt="preview" className="h-32 w-full rounded-lg object-cover" />
+                    ) : (
+                      <video src={newDef.mediaUrl} className="h-32 w-full rounded-lg object-cover" controls />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddTestForm(false)}
+                  className="flex-1 rounded-xl border border-line py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+                >
+                  {t("datahub.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-accent py-2.5 text-sm font-semibold text-slate-950 hover:bg-accent-strong transition shadow-md shadow-accent/20"
+                >
+                  {t("datahub.createMetric")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
