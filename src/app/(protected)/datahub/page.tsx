@@ -31,7 +31,7 @@ function downloadSheet(filename: string, rows: Array<Record<string, unknown>>, s
 export default function DataHubPage() {
   const { t } = useLocale();
   const searchParams = useSearchParams();
-  const { state, assessments, addRecord, importRecords, importPerformanceEntries } = useAppState();
+  const { state, assessments, addRecord, updateRecord, importRecords, importPerformanceEntries } = useAppState();
   
   // Initialize section and performanceArea from URL params (lazy initialization)
   const initialState = useMemo(() => {
@@ -304,6 +304,7 @@ export default function DataHubPage() {
             saveEditPlayer={saveEditPlayer}
             downloadMeasurementsTemplate={downloadMeasurementsTemplate}
             importMeasurementsFile={importMeasurementsFile}
+            updateRecord={updateRecord}
             feedback={feedback}
             showAddMeasurementModal={showAddMeasurementModal}
             setShowAddMeasurementModal={setShowAddMeasurementModal}

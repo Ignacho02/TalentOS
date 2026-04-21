@@ -2,13 +2,14 @@
 
 import { Fragment, useMemo, useRef, useState } from "react";
 import { Range } from "react-range";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
-  Pencil,
   Plus,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -72,6 +73,7 @@ export function MaturationSection({
   saveEditPlayer,
   downloadMeasurementsTemplate,
   importMeasurementsFile,
+  updateRecord,
   feedback,
   showAddMeasurementModal,
   setShowAddMeasurementModal,
@@ -114,6 +116,7 @@ export function MaturationSection({
   saveEditPlayer: (event: React.FormEvent<HTMLFormElement>) => void;
   downloadMeasurementsTemplate: (selectedTeams?: string[]) => void | Promise<void>;
   importMeasurementsFile: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  updateRecord: (id: string, updates: Partial<AnthropometricRecordInput>) => void;
   feedback: string;
   showAddMeasurementModal: boolean;
   setShowAddMeasurementModal: (show: boolean) => void;
@@ -133,6 +136,8 @@ export function MaturationSection({
   const [columnFilters, setColumnFilters] = useState(DEFAULT_COLUMN_FILTERS);
   const [athleteSearch, setAthleteSearch] = useState("");
   const [showColumnFilter, setShowColumnFilter] = useState<string | null>(null);
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<(AnthropometricRecordInput & { id: string }) | null>(null);
   const measurementsFileRef = useRef<HTMLInputElement>(null);
 
   const toggleAthleteFilter = (name: string) => {
@@ -847,33 +852,22 @@ export function MaturationSection({
 
                 const renderRow = (row: typeof filteredData[0]) => {
                   const athlete = state.athletes.find((c) => c.id === row.inputs.athleteId);
-                  const history = assessments
-                    .filter((item) => item.inputs.athleteId === row.inputs.athleteId)
-                    .sort((a, b) => b.inputs.dataCollectionDate.localeCompare(a.inputs.dataCollectionDate));
-                  const open = expandedAthleteId === row.inputs.athleteId;
+                  const isSelected = selectedAthleteId === row.inputs.athleteId;
                   return (
                     <Fragment key={row.inputs.id}>
-                      <tr className="cursor-pointer border-t border-line/70 hover:bg-white/50 group" onClick={() => setExpandedAthleteId(open ? null : row.inputs.athleteId)}>
+                      <tr
+                        className={cn("cursor-pointer border-t border-line/70 hover:bg-white/50 transition", isSelected && "bg-accent/5")}
+                        onClick={() => setSelectedAthleteId(isSelected ? null : row.inputs.athleteId)}
+                      >
                         <td className="px-3 py-3 font-medium text-zinc-900">
-                          <div className="flex items-center gap-2">
-                            {open ? <ChevronUp className="h-4 w-4 text-accent" /> : <ChevronDown className="h-4 w-4 text-accent" />}
-                            {row.inputs.athleteName}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); openEditForAthlete(row.inputs.athleteId); }}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
-                              aria-label={`Edit ${row.inputs.athleteName}`}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <span className={cn(isSelected && "text-accent")}>{row.inputs.athleteName}</span>
                         </td>
                         {viewMode.anthropometric && (
                           <>
                             <td className="bg-white/35 px-3 py-3 text-ink-soft">{row.inputs.teamName ?? "--"}</td>
                             <td className="bg-white/35 px-3 py-3 text-ink-soft">{athlete?.position ?? row.inputs.position ?? "--"}</td>
-                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dob)}</td>
-                            <td className="bg-white/35 px-3 py-3 text-ink-soft">{formatDate(row.inputs.dataCollectionDate)}</td>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft" suppressHydrationWarning>{formatDate(row.inputs.dob)}</td>
+                            <td className="bg-white/35 px-3 py-3 text-ink-soft" suppressHydrationWarning>{formatDate(row.inputs.dataCollectionDate)}</td>
                             <td className="bg-white/35 px-3 py-3">{formatNumber(row.derivedMetrics.chronologicalAge, 2)}</td>
                             <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.statureCm, 1)} cm</td>
                             <td className="bg-white/35 px-3 py-3">{formatNumber(row.inputs.bodyMassKg, 1)} kg / {formatNumber(row.inputs.sittingHeightCm, 1)} cm</td>
@@ -889,7 +883,6 @@ export function MaturationSection({
                           </>
                         )}
                       </tr>
-                      {open ? <HistoryRow history={history} /> : null}
                     </Fragment>
                   );
                 };
@@ -981,6 +974,230 @@ export function MaturationSection({
         </div>
       </section>
 
+      {/* Athlete detail modal — same pattern as add-measurement */}
+      {selectedAthleteId && (() => {
+        const athlete = state.athletes.find((a) => a.id === selectedAthleteId);
+        const history = assessments
+          .filter((r) => r.inputs.athleteId === selectedAthleteId)
+          .sort((a, b) => a.inputs.dataCollectionDate.localeCompare(b.inputs.dataCollectionDate));
+        if (!athlete) return null;
+        const latest = history.length > 0 ? history[history.length - 1] : null;
+        const chartData = history.map((r) => ({
+          date: r.inputs.dataCollectionDate.slice(0, 7),
+          stature: r.inputs.statureCm,
+          offset: parseFloat(r.classification.primaryOffset.toFixed(2)),
+          pah: r.methodOutputs.percentageAdultHeight,
+        }));
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+            onClick={() => { setSelectedAthleteId(null); setEditingRecord(null); }}
+          >
+            <div
+              className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-line shrink-0">
+                <div className="flex items-center gap-4">
+                  {athlete.photoUrl ? (
+                    <img src={athlete.photoUrl} alt={athlete.name} className="h-14 w-14 rounded-full object-cover border border-line flex-shrink-0" />
+                  ) : (
+                    <div className="h-14 w-14 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xl font-bold text-zinc-400">{athlete.name.charAt(0)}</span>
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">{athlete.name}</h3>
+                    <p className="text-sm text-zinc-500 mt-0.5">{athlete.teamName ?? "—"} · {athlete.position ?? "—"} · {athlete.sex === "male" ? t("datahub.male") : t("datahub.female")}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedAthleteId(null); setEditingRecord(null); }}
+                  className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition shrink-0"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Scrollable body */}
+              <div className="overflow-y-auto px-6 py-5 space-y-6">
+                {/* Latest measurements */}
+                {latest ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.measurement")} — {formatDate(latest.inputs.dataCollectionDate)}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: t("datahub.stature"), value: `${formatNumber(latest.inputs.statureCm, 1)} cm` },
+                        { label: t("datahub.bodyMassKg"), value: `${formatNumber(latest.inputs.bodyMassKg, 1)} kg` },
+                        { label: t("datahub.sittingHeightCm"), value: `${formatNumber(latest.inputs.sittingHeightCm, 1)} cm` },
+                        { label: t("datahub.group"), value: latest.classification.maturityBand, accent: true },
+                        { label: t("datahub.offset"), value: formatNumber(latest.classification.primaryOffset, 2) ?? "—" },
+                        { label: "% PAH", value: latest.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(latest.methodOutputs.percentageAdultHeight, 1)}%` : "—" },
+                        { label: t("datahub.age"), value: `${formatNumber(latest.derivedMetrics.chronologicalAge, 2)} ${t("datahub.years")}` },
+                        { label: "Mirwald", value: formatNumber(latest.methodOutputs.mirwaldOffset, 2) ?? "—" },
+                      ].map(({ label, value, accent }) => (
+                        <div key={label} className="rounded-xl bg-zinc-50 px-3 py-2.5">
+                          <p className="text-xs text-zinc-500 mb-0.5">{label}</p>
+                          <p className={cn("text-sm font-semibold", accent ? "text-accent" : "text-zinc-900")}>{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-400 text-center py-4">{t("datahub.noData") || "Sin mediciones registradas."}</p>
+                )}
+
+                {/* Edit latest measurement */}
+                {latest && (
+                  <div>
+                    {editingRecord?.id === latest.inputs.id ? (
+                      <div className="rounded-xl border border-accent/20 bg-accent/5 p-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-accent mb-1">{t("datahub.editPlayerTitle")}</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.measurement")}</label>
+                            <input type="date" value={editingRecord.dataCollectionDate} onChange={(e) => setEditingRecord((r) => r ? { ...r, dataCollectionDate: e.target.value } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.statureCm")}</label>
+                            <input type="number" step="0.1" value={editingRecord.statureCm || ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, statureCm: parseFloat(e.target.value) || 0 } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.bodyMassKg")}</label>
+                            <input type="number" step="0.1" value={editingRecord.bodyMassKg || ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, bodyMassKg: parseFloat(e.target.value) || 0 } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.sittingHeightCm")}</label>
+                            <input type="number" step="0.1" value={editingRecord.sittingHeightCm || ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, sittingHeightCm: parseFloat(e.target.value) || 0 } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.motherHeightCm")}</label>
+                            <input type="number" step="0.1" value={editingRecord.motherHeightCm ?? ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, motherHeightCm: e.target.value ? parseFloat(e.target.value) : null } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.fatherHeightCm")}</label>
+                            <input type="number" step="0.1" value={editingRecord.fatherHeightCm ?? ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, fatherHeightCm: e.target.value ? parseFloat(e.target.value) : null } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => setEditingRecord(null)} className="flex-1 rounded-xl border border-line py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition">{t("datahub.cancel")}</button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editingRecord) {
+                                const { id, ...updates } = editingRecord;
+                                updateRecord(id, updates);
+                                setEditingRecord(null);
+                              }
+                            }}
+                            className="flex-1 rounded-xl bg-accent py-2 text-sm font-medium text-slate-950 hover:bg-accent-strong transition"
+                          >
+                            {t("datahub.save")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditingRecord({ ...latest.inputs })}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl border border-line py-2.5 text-sm font-medium text-zinc-600 hover:border-accent hover:text-accent hover:bg-accent/5 transition"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        {t("datahub.edit")} {t("datahub.measurement").toLowerCase()}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Evolutionary charts */}
+                {chartData.length >= 2 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.historyMeasurements")}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.stature")} (cm)</p>
+                        <ResponsiveContainer width="100%" height={120}>
+                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                            <Line type="monotone" dataKey="stature" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.offset")}</p>
+                        <ResponsiveContainer width="100%" height={120}>
+                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                            <Line type="monotone" dataKey="offset" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {chartData.some((d) => d.pah !== null) && (
+                        <div>
+                          <p className="text-xs text-zinc-500 mb-1 text-center">% PAH</p>
+                          <ResponsiveContainer width="100%" height={120}>
+                            <LineChart data={chartData.filter((d) => d.pah !== null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                              <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                              <Line type="monotone" dataKey="pah" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* History table */}
+                {history.length > 1 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-2">{t("datahub.historyMeasurements")} ({history.length})</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-max text-xs text-left">
+                        <thead>
+                          <tr className="text-zinc-400 border-b border-line">
+                            <th className="py-1.5 pr-4 font-medium">{t("datahub.date")}</th>
+                            <th className="py-1.5 pr-4 font-medium">{t("datahub.stature")}</th>
+                            <th className="py-1.5 pr-4 font-medium">{t("datahub.bodyMassKg")}</th>
+                            <th className="py-1.5 pr-4 font-medium">Sit. cm</th>
+                            <th className="py-1.5 pr-4 font-medium">{t("datahub.group")}</th>
+                            <th className="py-1.5 pr-4 font-medium">{t("datahub.offset")}</th>
+                            <th className="py-1.5 font-medium">%PAH</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...history].reverse().map((r) => (
+                            <tr key={r.inputs.id} className="border-t border-line/40">
+                              <td className="py-1.5 pr-4 text-zinc-600">{formatDate(r.inputs.dataCollectionDate)}</td>
+                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.statureCm, 1)} cm</td>
+                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.bodyMassKg, 1)} kg</td>
+                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.sittingHeightCm, 1)} cm</td>
+                              <td className="py-1.5 pr-4 font-medium">{r.classification.maturityBand}</td>
+                              <td className="py-1.5 pr-4">{formatNumber(r.classification.primaryOffset, 2)}</td>
+                              <td className="py-1.5">{r.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(r.methodOutputs.percentageAdultHeight, 1)}%` : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Modal: Add Measurement */}
       {showAddMeasurementModal && (
         <ModalShell
@@ -1007,6 +1224,20 @@ export function MaturationSection({
               setMaturationForm={setMaturationForm}
               emptyForm={emptyForm}
               clubName={state.club.name}
+              latestParentHeights={(() => {
+                const map: Record<string, { motherHeightCm?: number | null; fatherHeightCm?: number | null }> = {};
+                for (const rec of assessments) {
+                  const prev = map[rec.inputs.athleteId];
+                  if (!prev || rec.inputs.dataCollectionDate > (prev as { _date?: string })._date!) {
+                    map[rec.inputs.athleteId] = {
+                      motherHeightCm: rec.inputs.motherHeightCm,
+                      fatherHeightCm: rec.inputs.fatherHeightCm,
+                      _date: rec.inputs.dataCollectionDate,
+                    } as { motherHeightCm?: number | null; fatherHeightCm?: number | null; _date?: string };
+                  }
+                }
+                return map;
+              })()}
               t={t}
             />
             <AddMeasurementFormBody
@@ -1371,6 +1602,7 @@ function AthleteSelector({
   setMaturationForm,
   emptyForm,
   clubName,
+  latestParentHeights,
   t,
 }: {
   editingAthleteId: string | null;
@@ -1379,37 +1611,71 @@ function AthleteSelector({
   setMaturationForm: (form: AnthropometricRecordInput) => void;
   emptyForm: AnthropometricRecordInput;
   clubName: string;
+  latestParentHeights: Record<string, { motherHeightCm?: number | null; fatherHeightCm?: number | null }>;
   t: (key: string) => string;
 }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selectedAthlete = athletes.find((a) => a.id === editingAthleteId);
+  const filtered = query.trim()
+    ? athletes.filter((a) => a.name.toLowerCase().includes(query.toLowerCase()))
+    : athletes;
+
+  function selectAthlete(athlete: typeof athletes[0]) {
+    setEditingAthleteId(athlete.id);
+    setQuery(athlete.name);
+    setOpen(false);
+    const prevParents = latestParentHeights[athlete.id] ?? {};
+    setMaturationForm({
+      ...emptyForm,
+      athleteName: athlete.name,
+      sex: athlete.sex as "male" | "female",
+      ageGroup: athlete.ageGroup,
+      clubName,
+      teamName: athlete.teamName,
+      position: athlete.position,
+      dob: athlete.dob,
+      motherHeightCm: prevParents.motherHeightCm ?? null,
+      fatherHeightCm: prevParents.fatherHeightCm ?? null,
+    });
+  }
+
   return (
-    <div className="mb-4">
+    <div className="mb-4 relative">
       <Field label={t("datahub.selectAthlete")}>
-        <select
-          value={editingAthleteId ?? ""}
-          onChange={(e) => {
-            const athlete = athletes.find((a) => a.id === e.target.value);
-            if (athlete) {
-              setEditingAthleteId(athlete.id);
-              setMaturationForm({
-                ...emptyForm,
-                athleteName: athlete.name,
-                sex: athlete.sex as "male" | "female",
-                ageGroup: athlete.ageGroup,
-                clubName,
-                teamName: athlete.teamName,
-                position: athlete.position,
-                dob: athlete.dob,
-              });
-            }
-          }}
-          className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans"
-        >
-          <option value="" disabled>{t("datahub.selectAthlete")}</option>
-          {athletes.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
+        <input
+          type="text"
+          autoComplete="off"
+          placeholder={t("datahub.searchPlayerPlaceholder")}
+          value={query}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) setEditingAthleteId(null); }}
+          className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans w-full outline-none focus:border-accent/50"
+        />
       </Field>
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full rounded-xl border border-line bg-white shadow-lg max-h-52 overflow-y-auto">
+          {filtered.slice(0, 20).map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); selectAthlete(a); }}
+              className={cn(
+                "w-full text-left px-4 py-2.5 text-sm hover:bg-accent/5 transition",
+                a.id === editingAthleteId && "bg-accent/10 text-accent font-medium"
+              )}
+            >
+              <span className="font-medium">{a.name}</span>
+              {a.teamName && <span className="ml-2 text-xs text-zinc-400">{a.teamName}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {selectedAthlete && query === selectedAthlete.name && (
+        <p className="mt-1 text-xs text-zinc-500 px-1">
+          {selectedAthlete.teamName ?? "—"} · {selectedAthlete.sex === "male" ? t("datahub.male") : t("datahub.female")} · {selectedAthlete.dob}
+        </p>
+      )}
     </div>
   );
 }
@@ -1439,6 +1705,12 @@ function AddMeasurementFormBody({
         </Field>
         <Field label={t("datahub.sittingHeightCm")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleSittingHeight")} value={maturationForm.sittingHeightCm || ""} onChange={(e) => setMaturationValue("sittingHeightCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        </Field>
+        <Field label={t("datahub.motherHeightCm")}>
+          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.motherHeightCm ?? ""} onChange={(e) => setMaturationValue("motherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        </Field>
+        <Field label={t("datahub.fatherHeightCm")}>
+          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm ?? ""} onChange={(e) => setMaturationValue("fatherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
         </Field>
       </div>
       <div className="flex justify-end gap-3">
