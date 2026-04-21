@@ -16,11 +16,10 @@ export function formatNumber(value: number | null | undefined, digits = 2) {
 }
 
 export function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+  // Parse YYYY-MM-DD directly to avoid UTC offset shifting the date
+  const [year, month, day] = value.split("-").map(Number);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${String(day).padStart(2,"0")} ${months[(month ?? 1) - 1]} ${year}`;
 }
 
 export function toSlug(value: string) {

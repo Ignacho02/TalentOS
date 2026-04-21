@@ -32,6 +32,7 @@ interface AppStateContextValue {
   assessments: MaturationResult[];
   addRecord: (input: AnthropometricRecordInput) => boolean;
   importRecords: (rows: AnthropometricRecordInput[]) => number;
+  updateRecord: (id: string, updates: Partial<AnthropometricRecordInput>) => void;
   addPerformanceEntry: (input: PerformanceEntryInput) => void;
   importPerformanceEntries: (rows: PerformanceEntryInput[]) => number;
   setLocale: (locale: Locale) => void;
@@ -252,6 +253,24 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const { athlete, team } = buildAthleteFromInput(current, input);
         added = true;
 
+        // Inherit parent heights from most recent previous record if not provided
+        let enrichedInput = input;
+        if (input.motherHeightCm == null || input.fatherHeightCm == null) {
+          const prevRecords = current.records
+            .filter((r) => r.athleteName.toLowerCase() === input.athleteName.toLowerCase())
+            .sort((a, b) => b.dataCollectionDate.localeCompare(a.dataCollectionDate));
+          const prevWithParents = prevRecords.find(
+            (r) => r.motherHeightCm != null || r.fatherHeightCm != null
+          );
+          if (prevWithParents) {
+            enrichedInput = {
+              ...input,
+              motherHeightCm: input.motherHeightCm ?? prevWithParents.motherHeightCm,
+              fatherHeightCm: input.fatherHeightCm ?? prevWithParents.fatherHeightCm,
+            };
+          }
+        }
+
         return {
           ...current,
           teams:
@@ -269,12 +288,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                   : existing,
               )
             : [...current.athletes, athlete],
-          records: [...current.records, buildRecord(athlete.id, input)],
+          records: [...current.records, buildRecord(athlete.id, enrichedInput)],
         };
       });
     });
 
     return added;
+  };
+
+  const updateRecord = (id: string, updates: Partial<AnthropometricRecordInput>) => {
+    setState((current) => ({
+      ...current,
+      records: current.records.map((r) =>
+        r.id === id ? { ...r, ...updates } : r
+      ),
+    }));
   };
 
   const importRecords = (rows: AnthropometricRecordInput[]) => {
@@ -314,7 +342,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           athleteMap.set(athlete.id, athlete);
         }
 
-        newRecords.push(buildRecord(athlete.id, row));
+        // Inherit parent heights from most recent previous record if not provided
+        let enrichedRow = row;
+        if (row.motherHeightCm == null || row.fatherHeightCm == null) {
+          const prevRecs = [...current.records, ...newRecords]
+            .filter((r) => r.athleteName.toLowerCase() === row.athleteName.toLowerCase())
+            .sort((a, b) => b.dataCollectionDate.localeCompare(a.dataCollectionDate));
+          const prevWithParents = prevRecs.find((r) => r.motherHeightCm != null || r.fatherHeightCm != null);
+          if (prevWithParents) {
+            enrichedRow = {
+              ...row,
+              motherHeightCm: row.motherHeightCm ?? prevWithParents.motherHeightCm,
+              fatherHeightCm: row.fatherHeightCm ?? prevWithParents.fatherHeightCm,
+            };
+          }
+        }
+        newRecords.push(buildRecord(athlete.id, enrichedRow));
       }
 
       return {
@@ -518,6 +561,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       state,
       assessments,
       addRecord,
+      updateRecord,
       importRecords,
       addPerformanceEntry,
       importPerformanceEntries,
