@@ -8,11 +8,14 @@ export function formatNumber(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "--";
   }
-
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  }).format(value);
+  // toFixed is deterministic on both server and client — no locale dependency
+  const fixed = value.toFixed(digits);
+  // Trim trailing decimal zeros: "1.20" → "1.2", "1.00" → "1"
+  const trimmed = digits > 0 ? fixed.replace(/\.?0+$/, "") : fixed;
+  // Add thousand separators manually (always dot-free, comma-as-separator) to stay consistent
+  const parts = trimmed.split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return parts.join(".");
 }
 
 export function formatDate(value: string) {

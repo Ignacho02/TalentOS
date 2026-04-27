@@ -2,421 +2,2040 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { Calendar, Download, MapPin, Plus, UploadCloud } from "lucide-react";
+import ExcelJS from "exceljs";
+import {
+  ClipboardList, Calendar, ChevronDown, ChevronRight,
+  ChevronsUpDown, Download, Dumbbell, Edit2, FileSpreadsheet, MapPin, Plus, Search,
+  Trash2, Trophy, UploadCloud, User, X,
+} from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
-import type { PerformanceArea, PerformanceEntryInput, PerformanceEntry, PerformanceDefinition } from "@/lib/types";
+import type {
+  PerformanceArea, PerformanceEntryInput, PerformanceEntry, PerformanceDefinition, TrainingLoadEntry,
+} from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { performanceAreaLabels, emptyPerformanceForm } from "./performance-constants";
 
-export function PerformanceSection({ area, setArea, performanceEntries }: { area: PerformanceArea; setArea: (v: PerformanceArea) => void; performanceEntries: PerformanceEntry[] }) {
-  const { addPerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
-  const { t } = useLocale();
+// ─── Constants ────────────────────────────────────────────────────────────────
+const AREA_ORDER: PerformanceArea[] = [
+  "physical", "technicalTactical", "psychological", "motorSkills",
+];
+
+const AREA_COLOURS: Record<PerformanceArea, string> = {
+  physical:          "bg-blue-50 text-blue-700 border-blue-200",
+  technicalTactical: "bg-violet-50 text-violet-700 border-violet-200",
+  psychological:     "bg-amber-50 text-amber-700 border-amber-200",
+  motorSkills:       "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
+const AREA_HEADER_BG: Record<PerformanceArea, string> = {
+  physical:          "bg-blue-50/60",
+  technicalTactical: "bg-violet-50/60",
+  psychological:     "bg-amber-50/60",
+  motorSkills:       "bg-emerald-50/60",
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type GroupMode = "team" | "position";
+type SortColumn = { testId: string; dir: "asc" | "desc" } | null;
+
+// ─── Main component ───────────────────────────────────────────────────────────
+export function PerformanceSection({
+  area,
+  setArea,
+  performanceEntries,
+}: {
+  area: PerformanceArea;
+  setArea: (v: PerformanceArea) => void;
+  performanceEntries: PerformanceEntry[];
+}) {
+  const { addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
+  const { t, locale } = useLocale();
+
+  // ── Tab: only 3 main tabs now ──────────────────────────────────────────────
   const [perfTab, setPerfTab] = useState<"tests" | "trainingLoad" | "gps">("tests");
-  const [perfForm, setPerfForm] = useState<PerformanceEntryInput>({ ...emptyPerformanceForm, area });
-  const [perfFeedback, setPerfFeedback] = useState("");
+
+  // ── Add-result modal ───────────────────────────────────────────────────────
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // ── Players-view state ─────────────────────────────────────────────────────
+  const [playerSearch,  setPlayerSearch]  = useState("");
+  const [filterTeams,   setFilterTeams]   = useState<string[]>([]);   // multi-select
+  const [filterPositions, setFilterPositions] = useState<string[]>([]); // multi-select
+  const [groupByTeam,   setGroupByTeam]   = useState(false);
+  const [groupByPos,    setGroupByPos]    = useState(false);
+  const [sortBy,        setSortBy]        = useState<"name" | "age">("name");
+  const [sortCol,       setSortCol]       = useState<SortColumn>(null); // column sort
+  // panel = { areaKey, athleteId } when a row is clicked
+  const [selectedPanel, setSelectedPanel]  = useState<{ areaKey: PerformanceArea; athleteId: string } | null>(null);
+
+  // ── Add-result form ────────────────────────────────────────────────────────
+  const [perfForm,      setPerfForm]      = useState<PerformanceEntryInput>({ ...emptyPerformanceForm, area });
+  const [perfFeedback,  setPerfFeedback]  = useState("");
   const [athleteSearch, setAthleteSearch] = useState("");
-  const [showList, setShowList] = useState(false);
-  const [groupBy, setGroupBy] = useState<"none" | "team" | "athlete" | "test">("none");
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [attempts, setAttempts] = useState<number[]>([]);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
+  const [showAthList,   setShowAthList]   = useState(false);
+  const [attempts,      setAttempts]      = useState<number[]>([]);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Training load state
-  const [tlAthlete, setTlAthlete] = useState("");
-  const [tlDate, setTlDate] = useState(new Date().toISOString().split("T")[0]);
+  // ── Training load ──────────────────────────────────────────────────────────
+  // Training load — new bulk entry panel
+  const [tlType,        setTlType]        = useState<"training" | "match">("training");
+  const [tlMinutes,     setTlMinutes]     = useState(60);
+  const [tlTeamId,      setTlTeamId]      = useState("");  // will be set to first team
+  const [tlNotes,       setTlNotes]       = useState("");
+  const [tlRpeMap,      setTlRpeMap]      = useState<Record<string, number>>({});  // athleteId → rpe
+  const [tlAttendedMap, setTlAttendedMap] = useState<Record<string, boolean>>({});
+  const [tlShowPanel,   setTlShowPanel]   = useState(false);
+  const [tlUseRpe,      setTlUseRpe]      = useState(true);
+  const [tlMinutesMap,  setTlMinutesMap]  = useState<Record<string, number>>({});
+  // Keep legacy single-athlete state for compat
+  const [tlAthlete,  setTlAthlete]  = useState("");
+  const [tlDate,     setTlDate]     = useState(new Date().toISOString().split("T")[0]);
   const [tlAttended, setTlAttended] = useState(true);
-  const [tlType, setTlType] = useState<"training" | "match">("training");
-  const [tlMinutes, setTlMinutes] = useState(60);
-  const [tlRpe, setTlRpe] = useState(5);
-  const [tlNotes, setTlNotes] = useState("");
+  const [tlRpe,      setTlRpe]      = useState(5);
 
-  // Calendar state
+  // ── Calendar ───────────────────────────────────────────────────────────────
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // ── Outside-click for athlete dropdown ────────────────────────────────────
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setShowList(false); };
+    const h = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
+        setShowAthList(false);
+    };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
+  // ── Derived: form ──────────────────────────────────────────────────────────
   const testDefs = state.performanceDefinitions.filter(d => d.area === area);
-  const selDef = testDefs.find(d => d.name === perfForm.testName);
-  const filteredAthletes = state.athletes.filter(a => a.name.toLowerCase().includes(athleteSearch.toLowerCase()));
-  const ratings = [{ v: "Bronce", l: "Bronce" }, { v: "Plata", l: "Plata" }, { v: "Oro", l: "Oro" }, { v: "Platino", l: "Platino" }];
+  const selDef   = testDefs.find(d => d.name === perfForm.testName);
+  const searchedAthletes = state.athletes.filter(a =>
+    a.name.toLowerCase().includes(athleteSearch.toLowerCase())
+  );
+  const ratings = [
+    { v: "Bronce", l: "Bronce" }, { v: "Plata",   l: "Plata"   },
+    { v: "Oro",    l: "Oro"    }, { v: "Platino", l: "Platino" },
+  ];
 
   useEffect(() => {
-    if (!perfForm.testName && testDefs.length) { setPerfForm(c => ({ ...c, testName: testDefs[0].name, unit: testDefs[0].unit })); }
-    if (selDef && selDef.attempts !== attempts.length) setAttempts(new Array(selDef.attempts).fill(0));
+    if (!perfForm.testName && testDefs.length)
+      setPerfForm(c => ({ ...c, testName: testDefs[0].name, unit: testDefs[0].unit }));
+    if (selDef && selDef.attempts !== attempts.length)
+      setAttempts(new Array(selDef.attempts).fill(0));
   }, [area, testDefs, perfForm.testName, selDef, attempts.length]);
 
-  function downloadPerformanceTemplate() {
-    const wb = XLSX.utils.book_new();
-    const sampleTest = testDefs[0];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ Name: "Sample Athlete", Area: area, Team: "U14 Boys", Position: "Winger", "Test Name": sampleTest?.name ?? "Test", Unit: sampleTest?.unit ?? "unit", Value: 1, "Measurement Date": "2026-03-18", Notes: "" }]), "Performance");
-    XLSX.writeFile(wb, "performance-template.xlsx");
+  // ── Derived: table data ────────────────────────────────────────────────────
+  const latestMap = useMemo(() => {
+    const m = new Map<string, PerformanceEntry>();
+    for (const e of performanceEntries) {
+      const k = `${e.athleteId ?? e.athleteName}::${e.testName}`;
+      const cur = m.get(k);
+      if (!cur || e.measurementDate > cur.measurementDate) m.set(k, e);
+    }
+    return m;
+  }, [performanceEntries]);
+
+  const testsByArea = useMemo(() => {
+    const out = {} as Record<PerformanceArea, PerformanceDefinition[]>;
+    for (const a of AREA_ORDER)
+      out[a] = state.performanceDefinitions.filter(d => d.area === a);
+    return out;
+  }, [state.performanceDefinitions]);
+
+  const allTeams     = useMemo(() =>
+    Array.from(new Set(state.athletes.map(a => a.teamName).filter(Boolean))).sort() as string[],
+    [state.athletes]
+  );
+  const allPositions = useMemo(() =>
+    Array.from(new Set(state.athletes.map(a => a.position).filter(Boolean))).sort() as string[],
+    [state.athletes]
+  );
+
+  // Helper: latest entry for a given athlete + test name
+  const resultFor = (athleteId: string, athleteName: string, testName: string) =>
+    latestMap.get(`${athleteId}::${testName}`) ??
+    latestMap.get(`${athleteName}::${testName}`);
+
+  // Filter + base sort
+  const filteredPlayers = useMemo(() => {
+    let list = state.athletes.filter(a => {
+      const ms = !playerSearch || a.name.toLowerCase().includes(playerSearch.toLowerCase());
+      const mt = filterTeams.length === 0 || filterTeams.includes(a.teamName ?? "");
+      const mp = filterPositions.length === 0 || filterPositions.includes(a.position ?? "");
+      return ms && mt && mp;
+    });
+
+    // Base sort (name / age) – column sort overrides below
+    if (!sortCol) {
+      list = list.sort((a, b) =>
+        sortBy === "age"
+          ? (a.dob ?? "").localeCompare(b.dob ?? "")
+          : a.name.localeCompare(b.name)
+      );
+    } else {
+      // Sort by column test value
+      list = [...list].sort((a, b) => {
+        // find definition to know if lower is better
+        const def = state.performanceDefinitions.find(d => d.id === sortCol.testId);
+        const ea  = resultFor(a.id, a.name, def?.name ?? "");
+        const eb  = resultFor(b.id, b.name, def?.name ?? "");
+        const va  = ea?.value ?? null;
+        const vb  = eb?.value ?? null;
+        // nulls go to end
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        const diff = va - vb;
+        return sortCol.dir === "asc" ? diff : -diff;
+      });
+    }
+    return list;
+  }, [state.athletes, playerSearch, filterTeams, filterPositions, sortBy, sortCol, latestMap]);
+
+  // Group
+  const groupedPlayers = useMemo(() => {
+    if (!groupByTeam && !groupByPos)
+      return [{ label: null as string | null, players: filteredPlayers }];
+    const m = new Map<string, typeof filteredPlayers>();
+    for (const a of filteredPlayers) {
+      const parts: string[] = [];
+      if (groupByTeam) parts.push(a.teamName ?? t("datahub.noTeam"));
+      if (groupByPos)  parts.push(a.position ?? t("datahub.noTeam"));
+      const k = parts.join(" · ");
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(a);
+    }
+    return Array.from(m.entries())
+      .sort(([ka], [kb]) => ka.localeCompare(kb))
+      .map(([label, players]) => ({ label, players }));
+  }, [groupByTeam, groupByPos, filteredPlayers, t]);
+
+  const hasActiveFilters = playerSearch || filterTeams.length > 0 || filterPositions.length > 0;
+  const areasWithTests   = AREA_ORDER.filter(a => testsByArea[a]?.length > 0);
+
+  // Toggle column sort
+  function toggleColSort(defId: string) {
+    setSortCol(prev => {
+      if (!prev || prev.testId !== defId) return { testId: defId, dir: "asc" };
+      if (prev.dir === "asc") return { testId: defId, dir: "desc" };
+      return null; // third click clears
+    });
   }
 
-  async function importPerformanceFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
-    const normalized = rows.map<PerformanceEntryInput | null>((row) => {
-      const athleteName = String(row["Name"] ?? "").trim();
-      const testName = String(row["Test Name"] ?? "").trim();
-      const measurementDate = String(row["Measurement Date"] ?? "").trim();
-      const value = Number(row["Value"] ?? 0);
-      if (!athleteName || !testName || !measurementDate || !Number.isFinite(value)) return null;
-      const areaRaw = String(row["Area"] ?? "").trim();
-      return { athleteName, area: areaRaw === "technicalTactical" ? "technicalTactical" : areaRaw === "psychological" ? "psychological" : "physical", teamName: String(row["Team"] ?? "").trim(), position: String(row["Position"] ?? "").trim(), testName, unit: String(row["Unit"] ?? "").trim(), value, measurementDate, notes: String(row["Notes"] ?? "").trim() || undefined };
-    }).filter((row): row is PerformanceEntryInput => Boolean(row));
-    importPerformanceEntries(normalized);
-    setPerfFeedback(`imported:${normalized.length}`);
+  // ── Calendar helpers ───────────────────────────────────────────────────────
+  const calYear  = calendarDate.getFullYear();
+  const calMonth = calendarDate.getMonth();
+  const startDay = (() => { const d = new Date(calYear, calMonth, 1).getDay(); return d === 0 ? 6 : d - 1; })();
+  const daysInMo = new Date(calYear, calMonth + 1, 0).getDate();
+  const { trainingLoadEntries } = state;
+  const entriesForDate   = (date: string) => trainingLoadEntries.filter(e => e.date === date);
+  const totalLoadForDate = (date: string) => entriesForDate(date).reduce((s, e) => s + e.load, 0);
+  const loadColor        = (load: number) =>
+    load === 0 ? "bg-white" :
+    load < 200 ? "bg-green-100 border-green-300" :
+    load < 400 ? "bg-yellow-100 border-yellow-300" :
+    load < 600 ? "bg-orange-100 border-orange-300" :
+                 "bg-red-100 border-red-300";
+  const tlLoad     = tlAttended ? tlMinutes * tlRpe : 0;
+  const monthNames = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const dayNames   = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+
+  // ── Excel helpers ──────────────────────────────────────────────────────────
+  async function downloadTemplate() {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "MaturationApp";
+
+    const teams      = state.teams;
+    const allAthletes = state.athletes;
+    const isEN       = locale === "en";
+
+    // ── Locale labels ─────────────────────────────────────────────────────────
+    const AREA_LABELS: Record<PerformanceArea, string> = {
+      physical:          isEN ? "Physical"           : "Físico",
+      technicalTactical: isEN ? "Technical-Tactical" : "Técnico-Táctico",
+      psychological:     isEN ? "Psychological"      : "Psicológico",
+      motorSkills:       isEN ? "Motor Skills"       : "Motricidad",
+    };
+    const AREA_FILL: Record<PerformanceArea, string> = {
+      physical: "DBEAFE", technicalTactical: "EDE9FE",
+      psychological: "FEF3C7", motorSkills: "D1FAE5",
+    };
+    const COL = {
+      team:    isEN ? "Team"              : "Equipo",
+      player:  isEN ? "Player"            : "Jugador",
+      test:    isEN ? "Test"              : "Test",
+      date:    isEN ? "Date (YYYY-MM-DD)" : "Fecha (YYYY-MM-DD)",
+      notes:   isEN ? "Notes"             : "Notas",
+      value:   isEN ? "Value"             : "Valor",
+      attempt: isEN ? "Attempt"           : "Intento",
+    };
+
+    // Build lookup: teamName → player names[]
+    const teamPlayerMap = new Map<string, string[]>();
+    teams.forEach(team => {
+      const players = allAthletes
+        .filter(a => a.teamId === team.id || a.teamName === team.name)
+        .map(a => a.name);
+      teamPlayerMap.set(team.name, players);
+    });
+    const teamNames = teams.map(t => t.name);
+
+    // Inline list formula (max 255 chars for Excel data validation)
+    function listFormula(items: string[]): string {
+      // Excel data validation list: items separated by comma, wrapped in quotes
+      const joined = items.map(s => s.replace(/"/g, "")).join(",");
+      // Truncate if over 255 chars (Excel limit for inline lists)
+      if (joined.length > 250) {
+        let truncated = "";
+        for (const item of items) {
+          const next = truncated ? truncated + "," + item : item;
+          if (next.length > 250) break;
+          truncated = next;
+        }
+        return `"${truncated}"`;
+      }
+      return `"${joined}"`;
+    }
+
+    // ── Sheet 1: Instructions ─────────────────────────────────────────────────
+    const instrTitle = isEN ? "Instructions" : "Instrucciones";
+    const instrSheet = wb.addWorksheet(instrTitle);
+    (instrSheet as any).tabColor = { argb: "FF1D4ED8" };
+
+    // Title
+    instrSheet.mergeCells("A1:G1");
+    const titleCell = instrSheet.getCell("A1");
+    titleCell.value = isEN
+      ? "📋  HOW TO FILL IN THIS FILE"
+      : "📋  CÓMO RELLENAR ESTE ARCHIVO";
+    titleCell.font      = { bold: true, size: 14, color: { argb: "FF1F2937" } };
+    titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    titleCell.alignment = { vertical: "middle", horizontal: "center" };
+    instrSheet.getRow(1).height = 36;
+    instrSheet.addRow([]);
+
+    const steps = isEN ? [
+      ["1.", "Open the sheet for the area you want (e.g. 'Physical')."],
+      ["2.", "Column A – select the Team from the dropdown."],
+      ["3.", "Column B – select the Player from the dropdown."],
+      ["4.", "Column C – select the Test from the dropdown. See the test table below to know which value columns to fill in."],
+      ["5.", "Column D – enter the date in YYYY-MM-DD format (e.g. 2026-04-25)."],
+      ["6.", "Column E – optional notes."],
+      ["7.", "For tests with 1 value: fill the 'Value' column."],
+      ["8.", "For tests with multiple attempts: fill 'Attempt 1', 'Attempt 2', etc. The app calculates the final score automatically."],
+    ] : [
+      ["1.", "Abre la pestaña del área que quieras rellenar (ej. 'Físico')."],
+      ["2.", "Columna A – selecciona el Equipo en el desplegable."],
+      ["3.", "Columna B – selecciona el Jugador en el desplegable."],
+      ["4.", "Columna C – selecciona el Test en el desplegable. Consulta la tabla de tests de abajo para saber qué columnas rellenar."],
+      ["5.", "Columna D – introduce la fecha en formato AAAA-MM-DD (ej. 2026-04-25)."],
+      ["6.", "Columna E – notas opcionales."],
+      ["7.", "Para tests de 1 valor: rellena la columna 'Valor'."],
+      ["8.", "Para tests con varios intentos: rellena 'Intento 1', 'Intento 2', etc. La app calcula el resultado final automáticamente."],
+    ];
+
+    steps.forEach(([num, text]) => {
+      const r = instrSheet.addRow([num, text]);
+      r.height = 20;
+      r.getCell(1).font = { bold: true, size: 10, color: { argb: "FF4B5563" } };
+      r.getCell(2).font = { size: 10, color: { argb: "FF374151" } };
+      instrSheet.mergeCells(r.number, 2, r.number, 7);
+    });
+
+    instrSheet.addRow([]);
+
+    // Test guide table
+    const ghHeaders = isEN
+      ? ["Test", "Area", "Unit", "Attempts", "Scoring", "Fill column(s)"]
+      : ["Test", "Área", "Unidad", "Intentos", "Criterio", "Rellenar columna(s)"];
+
+    const ghRow = instrSheet.addRow(ghHeaders);
+    ghRow.height = 22;
+    ghRow.eachCell(cell => {
+      cell.font  = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+      cell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D4ED8" } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.border = { bottom: { style: "thin", color: { argb: "FFE5E7EB" } }, right: { style: "thin", color: { argb: "FFE5E7EB" } } };
+    });
+
+    let guideIdx = 0;
+    for (const ak of AREA_ORDER) {
+      const defs = (state.performanceDefinitions ?? []).filter(d => d.area === ak);
+      for (const d of defs) {
+        const n = d.attempts ?? 1;
+        let scoring = "";
+        let fillCols = "";
+        if (n === 1) {
+          scoring  = isEN ? "Single value"       : "Valor único";
+          fillCols = isEN ? "'Value'"             : "'Valor'";
+        } else if (d.scoringStrategy === "average") {
+          scoring  = isEN ? `Average of ${n}`    : `Media de ${n}`;
+          fillCols = isEN
+            ? Array.from({length:n},(_,i)=>`'Attempt ${i+1}'`).join(", ")
+            : Array.from({length:n},(_,i)=>`'Intento ${i+1}'`).join(", ");
+        } else if (d.interpretation === "lower_better") {
+          scoring  = isEN ? `Best (min) of ${n}` : `Mejor (mín) de ${n}`;
+          fillCols = isEN
+            ? Array.from({length:n},(_,i)=>`'Attempt ${i+1}'`).join(", ")
+            : Array.from({length:n},(_,i)=>`'Intento ${i+1}'`).join(", ");
+        } else {
+          scoring  = isEN ? `Best (max) of ${n}` : `Mejor (máx) de ${n}`;
+          fillCols = isEN
+            ? Array.from({length:n},(_,i)=>`'Attempt ${i+1}'`).join(", ")
+            : Array.from({length:n},(_,i)=>`'Intento ${i+1}'`).join(", ");
+        }
+        const bgFill = AREA_FILL[ak];
+        const gr = instrSheet.addRow([(d.nameKey ? t(d.nameKey) : null) || d.name, AREA_LABELS[ak], d.unit, n, scoring, fillCols]);
+        gr.height = 18;
+        gr.eachCell((cell, ci) => {
+          cell.font      = { size: 9, color: { argb: "FF374151" } };
+          cell.alignment = { vertical: "middle", horizontal: ci === 1 ? "center" : "left" };
+          cell.border    = { bottom: { style: "hair", color: { argb: "FFE5E7EB" } }, right: { style: "hair", color: { argb: "FFE5E7EB" } } };
+          cell.fill      = guideIdx % 2 === 0
+            ? { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } }
+            : { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } };
+        });
+        gr.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + bgFill } };
+        guideIdx++;
+      }
+    }
+
+    instrSheet.getColumn(1).width = 28; instrSheet.getColumn(2).width = 18;
+    instrSheet.getColumn(3).width = 10; instrSheet.getColumn(4).width = 10;
+    instrSheet.getColumn(5).width = 22; instrSheet.getColumn(6).width = 40;
+
+    // ── One data sheet per area ───────────────────────────────────────────────
+    for (const areaKey of AREA_ORDER) {
+      const defs = (state.performanceDefinitions ?? []).filter(d => d.area === areaKey);
+      if (defs.length === 0) continue;
+
+      const ws   = wb.addWorksheet(AREA_LABELS[areaKey]);
+      const fill = AREA_FILL[areaKey];
+      (ws as any).tabColor = { argb: "FF" + fill };
+
+      const headerFill: ExcelJS.Fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + fill } };
+      const headerFont: Partial<ExcelJS.Font> = { bold: true, size: 10, color: { argb: "FF374151" } };
+      const border: Partial<ExcelJS.Borders>  = {
+        bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
+        right:  { style: "thin", color: { argb: "FFD1D5DB" } },
+      };
+
+      const maxAttempts = Math.max(...defs.map(d => d.attempts ?? 1));
+      const hasSingle   = defs.some(d => (d.attempts ?? 1) === 1);
+      const hasMulti    = defs.some(d => (d.attempts ?? 1) > 1);
+
+      const extraHeaders: string[] = [];
+      if (hasSingle) extraHeaders.push(COL.value);
+      if (hasMulti)  for (let i = 1; i <= maxAttempts; i++) extraHeaders.push(`${COL.attempt} ${i}`);
+
+      const allHeaders = [COL.team, COL.player, COL.test, COL.date, COL.notes, ...extraHeaders];
+      const totalCols  = allHeaders.length;
+
+      const headerRow = ws.addRow(allHeaders);
+      headerRow.height = 24;
+      headerRow.eachCell(cell => {
+        cell.fill = headerFill; cell.font = headerFont; cell.border = border;
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+      });
+
+      ws.getColumn(1).width = 20; ws.getColumn(2).width = 22; ws.getColumn(3).width = 32;
+      ws.getColumn(4).width = 18; ws.getColumn(5).width = 20;
+      for (let i = 6; i <= totalCols; i++) ws.getColumn(i).width = 13;
+      ws.views = [{ state: "frozen", ySplit: 1 }];
+
+      // Test options — translated names (instructions sheet explains the columns)
+      const testOptions = defs.map(d => (d.nameKey ? t(d.nameKey) : null) || d.name);
+
+      // Inline list formulas (will always work, no cross-sheet refs)
+      const teamFormula = listFormula(teamNames);
+      const testFormula = listFormula(testOptions);
+
+      for (let r = 2; r <= 201; r++) {
+        const row = ws.addRow([]); row.height = 18;
+
+        // Team — inline list
+        row.getCell(1).dataValidation = {
+          type: "list", allowBlank: true,
+          formulae: [teamFormula],
+          showErrorMessage: false,
+        };
+        row.getCell(1).alignment = { vertical: "middle" };
+
+        // Player — inline list of ALL players (INDIRECT cross-sheet doesn't work reliably)
+        const allPlayerNames = allAthletes.map(a => a.name);
+        row.getCell(2).dataValidation = {
+          type: "list", allowBlank: true,
+          formulae: [listFormula(allPlayerNames)],
+          showErrorMessage: false,
+        };
+        row.getCell(2).alignment = { vertical: "middle" };
+
+        // Test — inline list
+        row.getCell(3).dataValidation = {
+          type: "list", allowBlank: true,
+          formulae: [testFormula],
+          showErrorMessage: false,
+        };
+        row.getCell(3).alignment = { vertical: "middle" };
+
+        row.getCell(4).numFmt = "yyyy-mm-dd";
+        row.getCell(4).alignment = { vertical: "middle", horizontal: "center" };
+
+        if (r % 2 === 0) {
+          for (let ci = 1; ci <= totalCols; ci++) {
+            row.getCell(ci).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+          }
+        }
+      }
+    }
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    const buf  = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = "performance-template.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const wb   = XLSX.read(await file.arrayBuffer(), { type: "array" });
+
+    const AREA_SHEET_NAMES: Record<string, PerformanceArea> = {
+      "Físico":              "physical",
+      "Fisico":              "physical",
+      "Physical":            "physical",
+      "Técnico-Táctico":     "technicalTactical",
+      "Tecnico-Tactico":     "technicalTactical",
+      "Technical-Tactical":  "technicalTactical",
+      "Psicológico":         "psychological",
+      "Psicologico":         "psychological",
+      "Psychological":       "psychological",
+      "Motricidad":          "motorSkills",
+      "Motor Skills":        "motorSkills",
+    };
+
+    const allImported: PerformanceEntryInput[] = [];
+
+    for (const sheetName of wb.SheetNames) {
+      if (sheetName.startsWith("_")) continue; // skip config
+      if (sheetName === "Instructions" || sheetName === "Instrucciones") continue;
+      const areaKey = AREA_SHEET_NAMES[sheetName] ?? "physical";
+      // range:1 skips the guide row (row 1) so row 2 becomes the header
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { range: 1 });
+
+      for (const row of rows) {
+        const athleteName     = String(row["Jugador"] ?? row["Player"] ?? row["Name"] ?? "").trim();
+        const testName        = String(row["Test"] ?? row["Test Name"] ?? "").trim();
+        const rawDate         = row["Fecha (YYYY-MM-DD)"] ?? row["Date (YYYY-MM-DD)"] ?? row["Measurement Date"] ?? "";
+        const measurementDate = formatExcelDate(rawDate);
+        const teamName        = String(row["Equipo"] ?? row["Team"] ?? "").trim();
+        const notes           = String(row["Notas"] ?? row["Notes"] ?? "").trim() || undefined;
+        if (!athleteName || !testName || !measurementDate) continue;
+
+        // Find test definition to know attempts + unit + scoring
+        const def = state.performanceDefinitions.find(d => d.name === testName && d.area === areaKey);
+        const numAttempts = def?.attempts ?? 1;
+
+        if (numAttempts === 1) {
+          const value = parseFloat(String(row["Valor"] ?? row["Value"] ?? "0"));
+          if (!isFinite(value)) continue;
+          allImported.push({ athleteName, testName, measurementDate, teamName, notes, area: areaKey, unit: def?.unit ?? "", value });
+        } else {
+          // Multiple attempts — try both ES and EN column names
+          const nums: number[] = [];
+          for (let i = 1; i <= numAttempts; i++) {
+            const v = parseFloat(String(row[`Intento ${i}`] ?? row[`Attempt ${i}`] ?? ""));
+            if (isFinite(v)) nums.push(v);
+          }
+          if (nums.length === 0) continue;
+          let value = 0;
+          if (def?.scoringStrategy === "average") {
+            value = nums.reduce((a, b) => a + b, 0) / nums.length;
+          } else if (def?.interpretation === "lower_better") {
+            value = Math.min(...nums);
+          } else {
+            value = Math.max(...nums);
+          }
+          allImported.push({ athleteName, testName, measurementDate, teamName, notes, area: areaKey, unit: def?.unit ?? "", value, attemptCount: nums.length });
+        }
+      }
+    }
+
+    if (allImported.length > 0) {
+      importPerformanceEntries(allImported);
+      setPerfFeedback(`imported:${allImported.length}`);
+    } else {
+      setPerfFeedback("duplicate");
+    }
     e.target.value = "";
   }
 
-  function sv<K extends keyof PerformanceEntryInput>(k: K, v: PerformanceEntryInput[K]) { setPerfForm(c => ({ ...c, [k]: v })); }
+  function formatExcelDate(raw: unknown): string {
+    if (!raw) return "";
+    // If Excel serial number
+    if (typeof raw === "number") {
+      const d = new Date(Math.round((raw - 25569) * 86400 * 1000));
+      return d.toISOString().split("T")[0];
+    }
+    const s = String(raw).trim();
+    // Already ISO
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // DD/MM/YYYY
+    const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
+    return s;
+  }
+
+  function sv<K extends keyof PerformanceEntryInput>(k: K, v: PerformanceEntryInput[K]) {
+    setPerfForm(c => ({ ...c, [k]: v }));
+  }
 
   function savePerf(e: React.FormEvent) {
     e.preventDefault();
-    const athlete = state.athletes.find(a => a.id === perfForm.athleteId || a.name.toLowerCase() === perfForm.athleteName.toLowerCase());
-    const data: PerformanceEntryInput = selDef?.isRating ? perfForm : { ...perfForm, ratingLevel: undefined, ratingValue: undefined };
-    addPerformanceEntry({ ...data, teamName: perfForm.teamName || athlete?.teamName, position: perfForm.position || athlete?.position });
+    const ath  = state.athletes.find(a =>
+      a.id === perfForm.athleteId || a.name.toLowerCase() === perfForm.athleteName.toLowerCase()
+    );
+    const data = selDef?.isRating ? perfForm : { ...perfForm, ratingLevel: undefined, ratingValue: undefined };
+    addPerformanceEntry({ ...data, teamName: perfForm.teamName || ath?.teamName, position: perfForm.position || ath?.position });
     setPerfFeedback("saved");
     setPerfForm({ ...emptyPerformanceForm, area });
+    setAthleteSearch("");
+    setTimeout(() => {
+      setPerfFeedback("");
+      setShowAddModal(false);
+    }, 1500);
   }
 
-  const latest = useMemo(() => {
-    const g = new Map<string, PerformanceEntry[]>();
-    for (const e of performanceEntries) { const k = `${e.athleteName}::${e.testName}`; const b = g.get(k) ?? []; b.push(e); g.set(k, b); }
-    return Array.from(g.values()).map(es => es.sort((a, b) => b.measurementDate.localeCompare(a.measurementDate))[0]);
-  }, [performanceEntries]);
-
-  const filtered = useMemo(() => latest.filter(e => !search || [e.athleteName, e.teamName ?? "", e.position ?? "", e.testName].join(" ").toLowerCase().includes(search.toLowerCase())), [latest, search]);
-
-  const grouped = useMemo(() => {
-    if (groupBy === "none") return [{ group: "", rows: filtered }];
-    const m = new Map<string, typeof filtered>();
-    filtered.forEach(e => { const g = groupBy === "team" ? e.teamName ?? t("datahub.noTeam") : groupBy === "athlete" ? e.athleteName : e.testName; const b = m.get(g) ?? []; b.push(e); m.set(g, b); });
-    return Array.from(m.entries()).map(([g, r]) => ({ group: g, rows: r }));
-  }, [filtered, groupBy]);
-
-  const tlLoad = tlAttended ? tlMinutes * tlRpe : 0;
-
-  // Training load entries
-  const { trainingLoadEntries } = state;
-
-  // Calendar helpers
-  const calendarYear = calendarDate.getFullYear();
-  const calendarMonth = calendarDate.getMonth();
-  const firstDayOfMonth = new Date(calendarYear, calendarMonth, 1);
-  const lastDayOfMonth = new Date(calendarYear, calendarMonth + 1, 0);
-  const startDay = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1; // Monday start
-  const daysInMonth = lastDayOfMonth.getDate();
-
-  const getEntriesForDate = (date: string) => {
-    return trainingLoadEntries.filter(e => e.date === date);
-  };
-
-  const getTotalLoadForDate = (date: string) => {
-    return getEntriesForDate(date).reduce((sum, e) => sum + e.load, 0);
-  };
-
-  const getLoadColor = (load: number) => {
-    if (load === 0) return "bg-white";
-    if (load < 200) return "bg-green-100 border-green-300";
-    if (load < 400) return "bg-yellow-100 border-yellow-300";
-    if (load < 600) return "bg-orange-100 border-orange-300";
-    return "bg-red-100 border-red-300";
-  };
-
-  const navigateMonth = (direction: number) => {
-    setCalendarDate(new Date(calendarYear, calendarMonth + direction, 1));
-  };
-
-  const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-  const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <div className="flex gap-2">
-        <button type="button" onClick={() => setPerfTab("tests")} className={cn("flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition", perfTab === "tests" ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}><Plus className="h-4 w-4" />{t("perfTab.tests")}</button>
-        <button type="button" onClick={() => setPerfTab("trainingLoad")} className={cn("flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition", perfTab === "trainingLoad" ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}><Calendar className="h-4 w-4" />{t("perfTab.trainingLoad")}</button>
-        <button type="button" onClick={() => setPerfTab("gps")} className={cn("flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition", perfTab === "gps" ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}><MapPin className="h-4 w-4" />GPS</button>
+
+      {/* ── Tab bar: 3 main tabs ─────────────────────────────────────────── */}
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: "tests",        icon: <ClipboardList className="h-4 w-4" />, label: t("perfTab.tests") || "Evaluaciones / Tests" },
+          { id: "trainingLoad", icon: <Calendar className="h-4 w-4" />,    label: t("perfTab.trainingLoad") },
+          { id: "gps",          icon: <MapPin className="h-4 w-4" />,      label: "GPS" },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setPerfTab(tab.id as typeof perfTab)}
+            className={cn(
+              "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
+              perfTab === tab.id
+                ? "bg-accent text-white"
+                : "bg-white border border-line text-zinc-600 hover:bg-zinc-50"
+            )}
+          >
+            {tab.icon}{tab.label}
+          </button>
+        ))}
       </div>
 
-      {perfTab === "tests" && <div className="space-y-6">
-        {/* Area selector */}
-        <section className="grid gap-3 md:grid-cols-3">
-          {(Object.keys(performanceAreaLabels) as PerformanceArea[]).map(item => (
-            <button key={item} onClick={() => { setArea(item as PerformanceArea); sv("area", item as PerformanceArea); }} className={cn("rounded-2xl border-2 px-5 py-4 text-left transition-all duration-200 hover:shadow-lg", area === item ? "border-accent bg-accent text-white shadow-md" : "border-gray-300 bg-white hover:bg-gray-50")}>
-              <p className="text-lg font-semibold">{t(performanceAreaLabels[item as PerformanceArea])}</p>
-              <p className={cn("mt-1 text-sm", area === item ? "text-white/85" : "text-zinc-600")}>{item === "physical" ? t("datahub.physicalDesc") : item === "technicalTactical" ? t("datahub.technicalTacticalDesc") : t("datahub.psychologicalDesc")}</p>
+      {/* ════════════════════ TESTS / EVALUACIONES TAB ═════════════════════ */}
+      {perfTab === "tests" && (
+        <section className="panel rounded-[1.75rem] p-6 overflow-visible space-y-4">
+          {/* Header row */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">{t("datahub.playersListTitle")}</h2>
+              <p className="mt-1 text-sm text-zinc-600">
+                Últimos resultados por jugador, separados por área de rendimiento.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setPerfForm({ ...emptyPerformanceForm, area }); setAthleteSearch(""); setPerfFeedback(""); setShowAddModal(true); }}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition"
+            >
+              <Plus className="h-4 w-4" />
+              {t("datahub.addResult") || "Añadir resultado"}
             </button>
-          ))}
-        </section>
+          </div>
 
-        {/* Record form */}
-        <section className="panel rounded-[1.75rem] p-6">
-          <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div><h2 className="text-xl font-semibold">{t("datahub.manualRecordOf")} {t(performanceAreaLabels[area])}</h2><p className="mt-2 text-sm text-zinc-600">{t("datahub.registerResultsBody")}</p></div>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={downloadPerformanceTemplate} className="inline-flex items-center gap-2 rounded-full border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 transition hover:bg-white"><Download className="h-4 w-4" />{t("datahub.excelTemplate")}</button>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 transition hover:bg-white"><UploadCloud className="h-4 w-4" />{t("datahub.uploadExcel")}<input type="file" accept=".xlsx,.xls" className="hidden" onChange={importPerformanceFile} /></label>
+          {/* ── Toolbar ── */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Group */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-medium text-zinc-600">{t("datahub.groupLabel")}:</span>
+              <button
+                type="button"
+                onClick={() => setGroupByTeam(v => !v)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                  groupByTeam ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                )}
+              >
+                {t("datahub.groupByTeam")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupByPos(v => !v)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                  groupByPos ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                )}
+              >
+                {t("datahub.groupByPlayer") === "Agrupar por jugador" ? "Posición" : "Position"}
+              </button>
+            </div>
+            <span className="text-zinc-300 shrink-0">|</span>
+
+            {/* Sort */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-medium text-zinc-600">{t("datahub.sortLabel")}:</span>
+              <select
+                value={sortBy}
+                onChange={e => { setSortBy(e.target.value as "name" | "age"); setSortCol(null); }}
+                className="rounded-full border border-line bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 outline-none cursor-pointer"
+              >
+                <option value="name">{t("datahub.sortByName")}</option>
+                <option value="age">{t("datahub.sortByAge")}</option>
+              </select>
             </div>
           </div>
-          {testDefs.length === 0 ? (
-            <div className="rounded-xl border border-line bg-white/50 p-8 text-center">
-              <p className="text-zinc-600">{t("club.noTestsDefined")}</p>
+
+          {/* ── Filters ── */}
+          <div className="flex flex-wrap gap-3 items-start">
+            {/* Search */}
+            <div className="relative flex-1 min-w-48">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder={t("datahub.searchPlayerPlaceholder")}
+                value={playerSearch}
+                onChange={e => setPlayerSearch(e.target.value)}
+                className="w-full rounded-full border border-line bg-white/70 pl-9 pr-4 py-2 text-sm outline-none focus:border-accent/50"
+              />
             </div>
-          ) : (
-            <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerf}>
-              <Field label={t("datahub.player")}>
-                <div className="relative" ref={ref}>
-                  <input type="text" className="w-full rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.searchOrTypeName")} value={athleteSearch} onChange={e => { setAthleteSearch(e.target.value); setShowList(true); }} onFocus={() => setShowList(true)} />
-                  {showList && athleteSearch.length > 0 && <div className="absolute top-full left-0 right-0 mt-1 rounded-2xl border border-line bg-white shadow-lg z-50 max-h-64 overflow-y-auto">{filteredAthletes.length > 0 ? filteredAthletes.map(a => <button key={a.id} type="button" onClick={() => { sv("athleteName", a.name); setAthleteSearch(a.name); setShowList(false); }} className="w-full px-4 py-3 text-left hover:bg-accent/10 border-b border-line/50 last:border-b-0 transition text-zinc-700"><div className="font-medium">{a.name}</div>{a.teamName && <div className="text-xs text-zinc-500">{a.teamName}</div>}</button>) : <div className="px-4 py-3 text-sm text-zinc-500">{t("datahub.noMatchingPlayers")}</div>}</div>}
-                  {perfForm.athleteName && <div className="mt-2 inline-block rounded-full bg-accent/20 px-3 py-1 text-sm text-accent border border-accent/30">{perfForm.athleteName}</div>}
-                </div>
-              </Field>
-              <Field label={t("datahub.measurement")}><input type="date" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" value={perfForm.measurementDate} onChange={e => sv("measurementDate", e.target.value)} /></Field>
-              <Field label={t("datahub.test")}><select className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" value={perfForm.testName} onChange={e => sv("testName", e.target.value)}>{testDefs.map(d => <option key={d.id} value={d.name}>{d.name} ({d.unit})</option>)}</select></Field>
-              <Field label={t("datahub.unit")}><input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" value={perfForm.unit} onChange={e => sv("unit", e.target.value)} /></Field>
-              {selDef?.isRating ? (
-                <>
-                  <Field label={t("datahub.rating")}>
-                    <div className="grid grid-cols-2 gap-2">
-                      {ratings.map(r => (
-                        <button key={r.v} type="button" onClick={() => sv("ratingLevel", r.v)} className={cn("rounded-2xl border px-4 py-3 text-sm font-medium transition", perfForm.ratingLevel === r.v ? "border-accent bg-accent text-white" : "border-line bg-white/70 text-zinc-700 hover:bg-white")}>
-                          {r.l}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                  <Field label={t("datahub.numericValueOptional")}>
-                    <input type="number" step="0.1" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.exampleRatingValue")} value={perfForm.ratingValue ?? ""} onChange={e => sv("ratingValue", Number(e.target.value))} />
-                  </Field>
-                </>
-              ) : selDef && selDef.attempts > 1 ? (
-                <Field label={`${t("datahub.valuesWithAttempts")} (${selDef.attempts} ${t("datahub.attemptsShort")} - ${selDef.scoringStrategy === "average" ? t("datahub.avgShort") : selDef.interpretation === "lower_better" ? t("datahub.bestMinShort") : t("datahub.bestMaxShort")})`} className="md:col-span-2">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    {Array.from({ length: selDef.attempts }, (_, i) => (
-                      <input 
-                        key={i} 
-                        type="number" 
-                        step="0.01" 
-                        className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" 
-                        placeholder={`${t("datahub.attemptLabel")} ${i + 1}`} 
-                        value={attempts[i] || ""} 
-                        onChange={e => { 
-                          const nv = [...attempts]; 
-                          nv[i] = Number(e.target.value) || 0; 
-                          setAttempts(nv); 
-                          const vv = nv.filter(v => v > 0); 
-                          let cv = 0; 
-                          if (vv.length > 0) { 
-                            if (selDef.scoringStrategy === "average") {
-                              cv = vv.reduce((a, b) => a + b, 0) / vv.length;
-                            } else if (selDef.interpretation === "lower_better") {
-                              cv = Math.min(...vv);
-                            } else {
-                              cv = Math.max(...vv);
-                            }
-                          } 
-                          sv("value", cv); 
-                        }} 
-                      />
-                    ))}
-                  </div>
-                </Field>
-              ) : (
-                <Field label={t("datahub.value")}>
-                  <input type="number" step="0.01" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.exampleValue")} value={perfForm.value || ""} onChange={e => sv("value", Number(e.target.value))} />
-                </Field>
+
+            {/* Multi-select: Teams */}
+            <MultiSelectPill
+              label={filterTeams.length === 0 ? t("datahub.allTeams") : filterTeams.join(", ")}
+              options={allTeams}
+              selected={filterTeams}
+              onToggle={v => setFilterTeams(prev =>
+                prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]
               )}
-              <Field label={t("common.notes")} className="md:col-span-2"><input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.exampleNotes")} value={perfForm.notes ?? ""} onChange={e => sv("notes", e.target.value)} /></Field>
-              <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-medium text-slate-950 md:col-span-2 hover:bg-accent-strong"><Plus className="h-4 w-4" />{t("datahub.addTest")}</button>
-              {perfFeedback && <p className="mt-4 rounded-2xl border border-line bg-white/70 px-4 py-3 text-sm text-zinc-700 md:col-span-2">{perfFeedback === "saved" ? t("datahub.testAddedOk") : perfFeedback === "duplicate" ? t("datahub.cannotImportRows") : t("datahub.importedRows").replace("{count}", perfFeedback.split(":")[1] ?? "0")}</p>}
-            </form>
-          )}
-        </section>
+              onClear={() => setFilterTeams([])}
+            />
 
-        <section className="panel rounded-[1.75rem] p-6">
-          <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div><h2 className="text-xl font-semibold">{t("datahub.registeredTestsTitle")}</h2><p className="mt-2 text-sm text-zinc-600">{t("datahub.registerListHint")}</p></div>
-            <div className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-3 xl:gap-4">
-              <input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.searchPlayerTeamTest")} value={search} onChange={e => setSearch(e.target.value)} />
-              <select className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" value={groupBy} onChange={e => setGroupBy(e.target.value as typeof groupBy)}><option value="none">{t("datahub.groupNone")}</option><option value="team">{t("datahub.groupByTeam")}</option><option value="athlete">{t("datahub.groupByPlayer")}</option><option value="test">{t("datahub.groupByTest")}</option></select>
-              <div className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"><p className="text-xs uppercase tracking-[0.14em] text-zinc-500">{t("datahub.history")}</p><p className="text-sm text-zinc-700">{t("datahub.historyExpandHint")}</p></div>
-            </div>
+            {/* Multi-select: Positions */}
+            <MultiSelectPill
+              label={filterPositions.length === 0 ? t("datahub.position") : filterPositions.join(", ")}
+              options={allPositions}
+              selected={filterPositions}
+              onToggle={v => setFilterPositions(prev =>
+                prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]
+              )}
+              onClear={() => setFilterPositions([])}
+            />
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => { setPlayerSearch(""); setFilterTeams([]); setFilterPositions([]); }}
+                className="rounded-full border border-line px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 flex items-center gap-1"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
-          {filtered.length === 0 ? (
-            <div className="rounded-xl border border-line bg-white/50 p-8 text-center">
-              <p className="text-zinc-600">{t("datahub.noResultsYet")}</p>
-            </div>
+
+          {/* ── Table ── */}
+          {filteredPlayers.length === 0 ? (
+            <p className="text-sm text-zinc-500 py-6 text-center">
+              {hasActiveFilters ? t("datahub.noMatches") : t("club.noPlayers")}
+            </p>
           ) : (
-            <div className="space-y-6">{grouped.map(({ group, rows }) => <div key={group || "all"}>{group && <div className="mb-3 rounded-2xl bg-white/70 px-4 py-3 text-sm font-semibold text-zinc-900">{group}</div>}<div className="table-scroll overflow-x-auto rounded-[1.5rem] border border-line bg-white/40"><table className="min-w-full text-left text-sm"><thead className="text-zinc-600"><tr><th className="border-b border-line px-3 py-3">{t("datahub.player")}</th><th className="border-b border-line px-3 py-3">{t("datahub.team")}</th><th className="border-b border-line px-3 py-3">{t("datahub.test")}</th><th className="border-b border-line px-3 py-3">{t("datahub.result")}</th><th className="border-b border-line px-3 py-3">{t("datahub.latestDate")}</th><th className="border-b border-line px-3 py-3">{t("datahub.attemptsCount")}</th></tr></thead><tbody suppressHydrationWarning>{rows.map(entry => { const key = `${entry.athleteName}::${entry.testName}`; const open = expandedKey === key; const hist = performanceEntries.filter(it => it.athleteName === entry.athleteName && it.testName === entry.testName).sort((a, b) => b.measurementDate.localeCompare(a.measurementDate)); const dv = entry.ratingLevel ? `${entry.ratingLevel}${entry.ratingValue ? ` · ${formatNumber(entry.ratingValue, 1)} ${entry.unit}` : ""}` : `${formatNumber(entry.value, 2)} ${entry.unit}`; return <Fragment key={key}><tr className="cursor-pointer border-t border-line/70 hover:bg-white/50" onClick={() => setExpandedKey(open ? null : key)}><td className="px-3 py-3 font-medium text-zinc-900">{entry.athleteName}</td><td className="px-3 py-3 text-zinc-600">{entry.teamName ?? "--"}</td><td className="px-3 py-3 text-zinc-700">{entry.testName}</td><td className="px-3 py-3 text-zinc-900">{dv}</td><td className="px-3 py-3 text-zinc-600">{formatDate(entry.measurementDate)}</td><td className="px-3 py-3 text-zinc-600">{entry.attemptCount ?? selDef?.attempts ?? 1}</td></tr>{open && <PerfHistRow history={hist} />}</Fragment>; })}</tbody></table></div></div>)}</div>
+            <div className="space-y-6">
+              {areasWithTests.map(areaKey => {
+                const defs = testsByArea[areaKey] ?? [];
+                if (defs.length === 0) return null;
+                const colCount = 1 + defs.length;
+                return (
+                  <div key={areaKey}>
+                    {/* Area title */}
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className={cn("inline-block rounded-full border px-3 py-1 text-xs font-bold", AREA_COLOURS[areaKey])}>
+                        {t(performanceAreaLabels[areaKey])}
+                      </span>
+                      <div className="h-px flex-1 bg-zinc-100" />
+                    </div>
+
+                    <div className={cn("overflow-x-auto rounded-2xl border border-line bg-white/40", AREA_HEADER_BG[areaKey])}>
+                      <table className="w-full min-w-max text-left text-sm">
+                        <thead>
+                          <tr className="text-zinc-500">
+                            <th className={cn("border-b border-line px-3 py-3 text-center min-w-[180px]", AREA_HEADER_BG[areaKey])}>
+                              <span className="text-[11px] font-medium text-zinc-500 whitespace-nowrap">
+                                {t("datahub.player") || "Jugador"}
+                              </span>
+                            </th>
+                            {defs.map(def => {
+                              const isActive = sortCol?.testId === def.id;
+                              return (
+                                <th
+                                  key={def.id}
+                                  className={cn("border-b border-line px-3 py-3 text-[11px] font-medium whitespace-nowrap", AREA_HEADER_BG[areaKey])}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleColSort(def.id)}
+                                    className="flex items-center gap-1 hover:text-zinc-900 transition group"
+                                  >
+                                    <span>{(def.nameKey ? t(def.nameKey) : null) || def.name}</span>
+                                    <span className="text-zinc-400 ml-0.5">({def.unit})</span>
+                                    <span className={cn(
+                                      "ml-1 flex flex-col leading-none transition",
+                                      isActive ? "text-accent" : "text-zinc-300 group-hover:text-zinc-400"
+                                    )}>
+                                      {isActive && sortCol?.dir === "asc"  && <span className="text-[9px]">▲</span>}
+                                      {isActive && sortCol?.dir === "desc" && <span className="text-[9px]">▼</span>}
+                                      {!isActive && <ChevronsUpDown className="h-3 w-3" />}
+                                    </span>
+                                  </button>
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+
+                        <tbody suppressHydrationWarning>
+                          {groupedPlayers.map(({ label, players }) => (
+                            <Fragment key={label ?? "__all__"}>
+                              {label && (
+                                <tr>
+                                  <td colSpan={colCount} className="px-3 pt-4 pb-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-1.5 w-1.5 rounded-full bg-accent" />
+                                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</span>
+                                      <div className="h-px flex-1 bg-zinc-100" />
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+
+                              {players.map(athlete => {
+                                const isSelected = selectedPanel?.areaKey === areaKey && selectedPanel?.athleteId === athlete.id;
+                                return (
+                                  <Fragment key={athlete.id}>
+                                    <tr
+                                      onClick={() => setSelectedPanel({ areaKey, athleteId: athlete.id })}
+                                      className={cn(
+                                        "border-t border-line/50 hover:bg-white/60 transition cursor-pointer",
+                                        isSelected && "bg-accent/5"
+                                      )}
+                                    >
+                                      {/* Player cell */}
+                                      <td className="px-3 py-3 min-w-[180px]">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="h-8 w-8 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center overflow-hidden shrink-0">
+                                            {(athlete as { photoUrl?: string }).photoUrl ? (
+                                              <img src={(athlete as { photoUrl?: string }).photoUrl} alt="" className="h-full w-full object-cover" />
+                                            ) : (
+                                              <User className="h-4 w-4 text-zinc-400" />
+                                            )}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="font-semibold text-zinc-900 truncate leading-tight">{athlete.name}</p>
+                                            <p className="text-[10px] text-zinc-400 font-medium truncate">
+                                              {athlete.teamName ?? "—"} · {athlete.position ?? "—"}
+                                            </p>
+                                          </div>
+                                          <ChevronRight className="h-3.5 w-3.5 text-zinc-300 ml-auto shrink-0" />
+                                        </div>
+                                      </td>
+
+                                      {/* Result cells — only this area's tests */}
+                                      {defs.map(def => {
+                                        const entry = resultFor(athlete.id, athlete.name, def.name);
+                                        if (!entry) {
+                                          return <td key={def.id} className="px-3 py-3 text-zinc-300 text-center text-xs">—</td>;
+                                        }
+                                        const display = entry.ratingLevel ? entry.ratingLevel : formatNumber(entry.value, 2);
+                                        const isColSorted = sortCol?.testId === def.id;
+                                        return (
+                                          <td key={def.id} className={cn("px-3 py-3", isColSorted && "bg-accent/5")}>
+                                            <div className="flex flex-col gap-0.5" suppressHydrationWarning>
+                                              <span className="font-semibold text-zinc-900" suppressHydrationWarning>{display}</span>
+                                              <span className="text-[10px] text-zinc-400" suppressHydrationWarning>{formatDate(entry.measurementDate)}</span>
+                                            </div>
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+
+
+                                  </Fragment>
+                                );
+                              })}
+                            </Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </section>
-      </div>}
+      )}
 
-      {perfTab === "trainingLoad" && <div className="space-y-6">
-        <section className="panel rounded-[1.75rem] p-6">
-          <h2 className="text-xl font-semibold mb-4">{t("trainingLoad.addEntry")}</h2>
-          <form onSubmit={e => { e.preventDefault(); if (tlAthlete) { addTrainingLoadEntry({ athleteId: tlAthlete, date: tlDate, attended: tlAttended, sessionType: tlType, minutesPlayed: tlAttended ? tlMinutes : 0, rpe: tlAttended ? tlRpe : 0, notes: tlNotes || undefined }); setTlMinutes(60); setTlRpe(5); setTlNotes(""); setTlAthlete(""); } }} className="grid gap-4 md:grid-cols-2">
-            <Field label={t("datahub.player")}><select value={tlAthlete} onChange={e => setTlAthlete(e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"><option value="">{t("club.selectTeam")}</option>{state.athletes.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-            <Field label={t("datahub.measurement")}><input type="date" value={tlDate} onChange={e => setTlDate(e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" /></Field>
-            <Field label={t("trainingLoad.sessionType")}><select value={tlType} onChange={e => setTlType(e.target.value as "training" | "match")} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"><option value="training">{t("trainingLoad.training")}</option><option value="match">{t("trainingLoad.match")}</option></select></Field>
-            <Field label={t("trainingLoad.attended")}><select value={tlAttended ? "yes" : "no"} onChange={e => setTlAttended(e.target.value === "yes")} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"><option value="yes">{t("common.yes")}</option><option value="no">{t("common.no")}</option></select></Field>
-            {tlAttended && <><Field label={t("trainingLoad.minutes")}><input type="number" min={0} value={tlMinutes} onChange={e => setTlMinutes(Number(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" /></Field><Field label={t("trainingLoad.rpe")}><div className="flex gap-2">{[1,2,3,4,5,6,7,8,9,10].map(v => <button key={v} type="button" onClick={() => setTlRpe(v)} className={cn("flex-1 rounded-xl py-2 text-sm font-medium transition", tlRpe === v ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>{v}</button>)}</div></Field><div className="md:col-span-2 rounded-xl bg-accent/10 px-4 py-3 text-center"><span className="text-sm font-medium text-zinc-700">{t("trainingLoad.load")}: </span><span className="text-2xl font-bold text-accent">{tlLoad}</span><span className="text-xs text-zinc-500 ml-2">({tlMinutes} min × RPE {tlRpe})</span></div></>}
-            <Field label={t("common.notes")} className="md:col-span-2"><input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" placeholder={t("datahub.exampleNotes")} value={tlNotes} onChange={e => setTlNotes(e.target.value)} /></Field>
-            <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-medium text-slate-950 md:col-span-2 hover:bg-accent-strong"><Plus className="h-4 w-4" />{t("trainingLoad.addEntry")}</button>
-          </form>
-        </section>
-        <section className="panel rounded-[1.75rem] p-6">
-          <h2 className="text-xl font-semibold mb-4">{t("trainingLoad.calendar")}</h2>
-          
-          {/* Calendar header */}
-          <div className="flex items-center justify-between mb-6">
-            <button onClick={() => navigateMonth(-1)} className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
-              ← {t("datahub.previous")}
+      {/* ══════════════════════ PLAYER AREA DETAIL MODAL ══════════════════════ */}
+      {selectedPanel && (() => {
+        const athlete = state.athletes.find(a => a.id === selectedPanel.athleteId);
+        if (!athlete) return null;
+        const areaKey = selectedPanel.areaKey;
+        const defs    = testsByArea[areaKey] ?? [];
+        return (
+          <PlayerAreaModal
+            athlete={athlete}
+            areaKey={areaKey}
+            defs={defs}
+            performanceEntries={performanceEntries}
+            updatePerformanceEntry={updatePerformanceEntry}
+            deletePerformanceEntry={deletePerformanceEntry}
+            onClose={() => setSelectedPanel(null)}
+            onAddResult={() => {
+              sv("athleteName", athlete.name);
+              sv("teamName",    athlete.teamName ?? "");
+              sv("position",    athlete.position ?? "");
+              setAthleteSearch(athlete.name);
+              setSelectedPanel(null);
+              setShowAddModal(true);
+            }}
+            t={t}
+          />
+        );
+      })()}
+
+
+      {/* ══════════════════════ TRAINING LOAD TAB ══════════════════════ */}
+      {perfTab === "trainingLoad" && (
+        <section className="panel rounded-[1.75rem] p-6 space-y-4">
+          {/* ── Month nav ── */}
+          <div className="flex items-center justify-between">
+            <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
+              className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
+              ←
             </button>
-            <h3 className="text-lg font-semibold text-zinc-900">
-              {monthNames[calendarMonth]} {calendarYear}
-            </h3>
-            <button onClick={() => navigateMonth(1)} className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
-              {t("datahub.next")} →
+            <h2 className="text-lg font-semibold text-zinc-900">{monthNames[calMonth]} {calYear}</h2>
+            <button onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
+              className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
+              →
             </button>
           </div>
 
-          {/* Calendar grid */}
-          <div className="rounded-xl border border-line bg-white/50 overflow-hidden">
-            {/* Day names header */}
+          {/* ── Calendar grid ── */}
+          <div className="rounded-2xl border border-line bg-white/50 overflow-hidden">
             <div className="grid grid-cols-7 bg-zinc-50 border-b border-line">
-              {dayNames.map(day => (
-                <div key={day} className="py-3 text-center text-xs font-medium text-zinc-600 uppercase tracking-wide">
-                  {day}
-                </div>
+              {dayNames.map(d => (
+                <div key={d} className="py-2.5 text-center text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">{d}</div>
               ))}
             </div>
-
-            {/* Calendar days */}
             <div className="grid grid-cols-7">
-              {/* Empty cells for days before the first day of the month */}
               {Array.from({ length: startDay }).map((_, i) => (
-                <div key={`empty-${i}`} className="min-h-24 border-b border-r border-line/30 bg-zinc-50/50" />
+                <div key={`e${i}`} className="min-h-20 border-b border-r border-line/30 bg-zinc-50/50" />
               ))}
-
-              {/* Days of the month */}
-              {Array.from({ length: daysInMonth }).map((_, dayIndex) => {
-                const day = dayIndex + 1;
-                const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const entries = getEntriesForDate(dateStr);
-                const totalLoad = getTotalLoadForDate(dateStr);
-                const isSelected = selectedDate === dateStr;
-                const isToday = dateStr === new Date().toISOString().split("T")[0];
-
+              {Array.from({ length: daysInMo }).map((_, di) => {
+                const day = di + 1;
+                const ds  = `${calYear}-${String(calMonth + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                const ens = entriesForDate(ds);
+                const tl  = totalLoadForDate(ds);
+                const isSel   = selectedDate === ds;
+                const isToday = ds === new Date().toISOString().split("T")[0];
+                // Aggregate: unique sessions by type
+                const hasTraining = ens.some(e => e.sessionType === "training");
+                const hasMatch    = ens.some(e => e.sessionType === "match");
                 return (
                   <div
-                    key={dateStr}
-                    onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                    key={ds}
+                    onClick={() => {
+                      if (isSel) { setSelectedDate(null); setTlShowPanel(false); }
+                      else { setSelectedDate(ds); setTlDate(ds); setTlShowPanel(false); }
+                    }}
                     className={cn(
-                      "min-h-24 border-b border-r border-line/30 p-2 cursor-pointer transition hover:bg-white/80",
-                      getLoadColor(totalLoad),
-                      isSelected && "ring-2 ring-accent ring-inset",
+                      "min-h-20 border-b border-r border-line/30 p-1.5 cursor-pointer transition hover:bg-white/80 select-none",
+                      loadColor(tl),
+                      isSel && "ring-2 ring-accent ring-inset",
                       isToday && "bg-accent/5"
                     )}
                   >
-                    <div className="flex items-start justify-between mb-1">
-                      <span className={cn(
-                        "text-sm font-medium",
-                        isToday ? "text-accent" : "text-zinc-700"
-                      )}>
-                        {day}
-                      </span>
-                      {totalLoad > 0 && (
-                        <span className="text-xs font-semibold text-zinc-600">
-                          {totalLoad}
-                        </span>
-                      )}
+                    <div className="flex items-start justify-between">
+                      <span className={cn("text-sm font-semibold leading-none", isToday ? "text-accent" : "text-zinc-700")}>{day}</span>
+                      {tl > 0 && <span className="text-[10px] font-bold text-zinc-500">{tl}</span>}
                     </div>
-                    {entries.length > 0 && (
-                      <div className="space-y-1">
-                        {entries.slice(0, 2).map((entry, idx) => {
-                          const athlete = state.athletes.find(a => a.id === entry.athleteId);
-                          return (
-                            <div key={idx} className="text-xs text-zinc-700 truncate">
-                              <span className="font-medium">{athlete?.name ?? "Unknown"}</span>
-                              <span className="text-zinc-500 ml-1">({entry.sessionType === "match" ? "P" : "E"})</span>
-                            </div>
-                          );
-                        })}
-                        {entries.length > 2 && (
-                          <div className="text-xs text-zinc-500">+{entries.length - 2} más</div>
-                        )}
-                      </div>
-                    )}
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      {/* One badge per unique (sessionType + team) */}
+                      {(() => {
+                        // group entries by sessionType+teamId to get distinct sessions
+                        const seen = new Map<string, { type: "training"|"match"; teamName: string }>();
+                        ens.forEach(e => {
+                          const ath = state.athletes.find(a => a.id === e.athleteId);
+                          const teamName = ath?.teamName ?? "";
+                          const key = `${e.sessionType}::${teamName}`;
+                          if (!seen.has(key)) seen.set(key, { type: e.sessionType as "training"|"match", teamName });
+                        });
+                        return Array.from(seen.values()).map(({ type, teamName }) => (
+                          <div key={`${type}::${teamName}`}
+                            className={cn("flex items-center gap-0.5 rounded-full px-1.5 py-0.5 w-fit",
+                              type === "match" ? "bg-purple-50" : "bg-blue-50")}>
+                            {type === "match"
+                              ? <Trophy className={cn("h-2.5 w-2.5 shrink-0 text-purple-500")} />
+                              : <Dumbbell className={cn("h-2.5 w-2.5 shrink-0 text-blue-500")} />}
+                            {teamName && (
+                              <span className={cn("text-[8px] font-semibold truncate max-w-[52px]",
+                                type === "match" ? "text-purple-600" : "text-blue-600")}>
+                                {teamName}
+                              </span>
+                            )}
+                          </div>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Selected date details */}
+          {/* ── Selected date panel ── */}
           {selectedDate && (
-            <div className="mt-6 rounded-xl border border-line bg-white/70 p-4">
-              <h4 className="font-semibold text-zinc-900 mb-3">
-                {t("trainingLoad.entriesForDate")}: {formatDate(selectedDate)}
-              </h4>
-              {getEntriesForDate(selectedDate).length === 0 ? (
-                <p className="text-sm text-zinc-500">{t("trainingLoad.noEntriesForDate")}</p>
-              ) : (
-                <div className="space-y-2">
-                  {getEntriesForDate(selectedDate).map((entry, idx) => {
-                    const athlete = state.athletes.find(a => a.id === entry.athleteId);
-                    return (
-                      <div key={idx} className="rounded-lg border border-line bg-white/50 p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-zinc-900">{athlete?.name ?? "Unknown"}</p>
-                            <p className="text-sm text-zinc-600">
-                              {entry.sessionType === "match" ? t("trainingLoad.match") : t("trainingLoad.training")}
-                              {entry.attended && ` · ${entry.minutesPlayed} min · RPE ${entry.rpe}`}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-accent">{entry.load}</p>
-                            <p className="text-xs text-zinc-500">{t("trainingLoad.load")}</p>
-                          </div>
-                        </div>
-                        {entry.notes && <p className="mt-2 text-xs text-zinc-600 italic">{entry.notes}</p>}
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="rounded-2xl border border-line bg-white/70 p-5 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-zinc-900">{formatDate(selectedDate)}</h3>
+                <button
+                  type="button"
+                  onClick={() => setTlShowPanel(v => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 transition"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {locale === "en" ? "Add session" : "Añadir sesión"}
+                </button>
+              </div>
+
+              {/* Existing entries for selected date */}
+              {entriesForDate(selectedDate).length > 0 && (
+                <SessionList
+                  entries={entriesForDate(selectedDate)}
+                  athletes={state.athletes}
+                  locale={locale}
+                  allEntries={trainingLoadEntries}
+                />
               )}
+
+              {/* Add session inline panel */}
+              {tlShowPanel && (() => {
+                const isMatch = tlType === "match";
+                // Sessions are always per team — require a team to be selected
+                const selectedTeam  = state.teams.find(tm => tm.id === tlTeamId);
+                const teamAthletes  = tlTeamId
+                  ? state.athletes.filter(a => a.teamId === tlTeamId || a.teamName === selectedTeam?.name)
+                  : [];
+
+                return (
+                  <div className="rounded-2xl border-2 border-accent/30 bg-accent/5 p-4 space-y-4">
+
+                    {/* ── Config row ── */}
+                    <div className="flex flex-wrap gap-3 items-end">
+                      {/* Type */}
+                      <div className="grid gap-1">
+                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
+                        <div className="flex gap-2">
+                          {(["training", "match"] as const).map(st => (
+                            <button key={st} type="button"
+                              onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
+                              className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                                tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
+                              {st === "training" ? (locale === "en" ? "Training" : "Entrenamiento") : (locale === "en" ? "Match" : "Partido")}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Team — mandatory */}
+                      <div className="grid gap-1">
+                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
+                        <select value={tlTeamId}
+                          onChange={e => setTlTeamId(e.target.value)}
+                          className={cn("rounded-xl border bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none",
+                            !tlTeamId ? "border-red-300" : "border-line")}>
+                          <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
+                          {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                        </select>
+                      </div>
+
+                      {/* Global minutes */}
+                      <div className="grid gap-1">
+                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Minutes (default)" : "Minutos (defecto)"}</label>
+                        <input type="number" min={0} max={300} value={tlMinutes}
+                          onChange={e => setTlMinutes(Number(e.target.value) || 0)}
+                          className="w-24 rounded-xl border border-line bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                      </div>
+
+                      {/* RPE toggle — hidden for match (auto 10) */}
+                      {!isMatch && (
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">RPE</label>
+                          <button type="button"
+                            onClick={() => setTlUseRpe((v) => !v)}
+                            className={cn("flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border transition",
+                              tlUseRpe ? "bg-accent/10 border-accent/30 text-accent" : "bg-white border-line text-zinc-400")}>
+                            <span className={cn("w-7 h-4 rounded-full transition flex items-center px-0.5",
+                              tlUseRpe ? "bg-accent" : "bg-zinc-200")}>
+                              <span className={cn("w-3 h-3 rounded-full bg-white shadow-sm transition-transform",
+                                tlUseRpe ? "translate-x-3" : "translate-x-0")} />
+                            </span>
+                            {tlUseRpe ? (locale === "en" ? "On" : "Activo") : (locale === "en" ? "Off" : "Sin RPE")}
+                          </button>
+                        </div>
+                      )}
+                      {isMatch && (
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">RPE</label>
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-red-600">Auto 10</span>
+                        </div>
+                      )}
+
+                      {/* Notes */}
+                      <div className="grid gap-1 flex-1 min-w-32">
+                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes" : "Notas"}</label>
+                        <input type="text" value={tlNotes} onChange={e => setTlNotes(e.target.value)}
+                          placeholder={locale === "en" ? "Optional..." : "Opcional..."}
+                          className="rounded-xl border border-line bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                      </div>
+                    </div>
+
+                    {/* ── Player list ── */}
+                    {!tlTeamId ? (
+                      <p className="text-sm text-zinc-500 text-center py-2">
+                        {locale === "en" ? "Select a team first." : "Selecciona un equipo primero."}
+                      </p>
+                    ) : teamAthletes.length === 0 ? (
+                      <p className="text-sm text-zinc-500 text-center py-2">
+                        {locale === "en" ? "No players in this team." : "No hay jugadores en este equipo."}
+                      </p>
+                    ) : (
+                      <>
+                        {/* Column headers */}
+                        <div className="grid items-center gap-x-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1"
+                          style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
+                          <span>{locale === "en" ? "Player" : "Jugador"}</span>
+                          <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
+                          <span className="text-center">min</span>
+                          {(tlUseRpe || isMatch) && <span>RPE</span>}
+                        </div>
+
+                        <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                          {teamAthletes.map(ath => {
+                            const attended = tlAttendedMap[ath.id] !== false;
+                            const rpe      = isMatch ? 10 : (tlRpeMap[ath.id] ?? 6);
+                            const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
+                            return (
+                              <div key={ath.id}
+                                className="grid items-center gap-x-2"
+                                style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
+
+                                {/* Name */}
+                                <span className={cn("text-sm font-medium truncate",
+                                  attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
+                                  {ath.name}
+                                </span>
+
+                                {/* Attended toggle */}
+                                <div className="flex justify-center">
+                                  <button type="button"
+                                    onClick={() => setTlAttendedMap(m => ({ ...m, [ath.id]: !attended }))}
+                                    className={cn("rounded-full w-8 h-5 transition flex items-center px-0.5",
+                                      attended ? "bg-accent" : "bg-zinc-200")}>
+                                    <span className={cn("w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
+                                      attended ? "translate-x-3" : "translate-x-0")} />
+                                  </button>
+                                </div>
+
+                                {/* Per-player minutes override */}
+                                <input type="number" min={0} max={300}
+                                  value={mins}
+                                  disabled={!attended}
+                                  onChange={e => setTlMinutesMap((m: Record<string, number>) => ({ ...m, [ath.id]: Number(e.target.value) || 0 }))}
+                                  className={cn("w-full rounded-lg border px-2 py-1 text-xs text-center outline-none focus:border-accent/50",
+                                    !attended ? "bg-zinc-50 border-zinc-100 text-zinc-300" : "border-line bg-white text-zinc-700",
+                                    (tlMinutesMap[ath.id] !== undefined && tlMinutesMap[ath.id] !== tlMinutes) && attended && "border-amber-300 bg-amber-50"
+                                  )}
+                                />
+
+                                {/* RPE */}
+                                {attended && (tlUseRpe || isMatch) && (
+                                  isMatch ? (
+                                    <span className="text-xs font-bold text-red-500">10</span>
+                                  ) : (
+                                    <div className="flex gap-0.5">
+                                      {[1,2,3,4,5,6,7,8,9,10].map(v => (
+                                        <button key={v} type="button"
+                                          onClick={() => setTlRpeMap(m => ({ ...m, [ath.id]: v }))}
+                                          className={cn(
+                                            "w-6 h-6 rounded-md text-[10px] font-bold transition",
+                                            rpe === v
+                                              ? v <= 3 ? "bg-green-500 text-white"
+                                              : v <= 6 ? "bg-yellow-400 text-white"
+                                              : v <= 8 ? "bg-orange-500 text-white"
+                                              : "bg-red-500 text-white"
+                                              : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                                          )}>
+                                          {v}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Save / Cancel */}
+                        <div className="flex gap-3 pt-2">
+                          <button type="button"
+                            disabled={!tlTeamId}
+                            onClick={() => {
+                              if (!selectedDate) return;
+                              teamAthletes.forEach(ath => {
+                                const attended = tlAttendedMap[ath.id] !== false;
+                                const rpe      = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);  // 1 = neutral, never 0 (breaks load calc)
+                                const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
+                                addTrainingLoadEntry({
+                                  athleteId:    ath.id,
+                                  date:         selectedDate,
+                                  attended,
+                                  sessionType:  tlType,
+                                  minutesPlayed: attended ? mins : 0,
+                                  rpe:          attended ? rpe : 0,
+                                  notes:        tlNotes || undefined,
+                                });
+                              });
+                              setTlShowPanel(false);
+                              setTlRpeMap({});
+                              setTlAttendedMap({});
+                              setTlMinutesMap({});
+                              setTlNotes("");
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent/90 transition disabled:opacity-40"
+                          >
+                            <Plus className="h-4 w-4" />
+                            {locale === "en" ? "Save session" : "Guardar sesión"}
+                          </button>
+                          <button type="button"
+                            onClick={() => { setTlShowPanel(false); setTlRpeMap({}); setTlAttendedMap({}); setTlMinutesMap({}); setTlNotes(""); }}
+                            className="rounded-2xl border border-line px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition">
+                            {t("datahub.cancel") || "Cancelar"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </section>
-      </div>}
+      )}
 
-      {perfTab === "gps" && <div className="space-y-6">
+      {/* ══════════════════════ GPS TAB ══════════════════════ */}
+      {perfTab === "gps" && (
         <section className="panel rounded-[1.75rem] p-6">
           <div className="flex items-center gap-3 mb-4"><MapPin className="h-6 w-6 text-zinc-400" /><h2 className="text-xl font-semibold">GPS</h2></div>
-          <div className="rounded-xl border border-line bg-white/50 p-12 text-center"><MapPin className="h-16 w-16 mx-auto text-zinc-300 mb-4" /><p className="text-lg font-medium text-zinc-700 mb-2">{t("gps.comingSoon")}</p><p className="text-sm text-zinc-500 max-w-md mx-auto">{t("gps.body")}</p></div>
+          <div className="rounded-xl border border-line bg-white/50 p-12 text-center">
+            <MapPin className="h-16 w-16 mx-auto text-zinc-300 mb-4" />
+            <p className="text-lg font-medium text-zinc-700 mb-2">{t("gps.comingSoon")}</p>
+            <p className="text-sm text-zinc-500 max-w-md mx-auto">{t("gps.body")}</p>
+          </div>
         </section>
-      </div>}
+      )}
+
+      {/* ══════════════════════ ADD RESULT MODAL ══════════════════════ */}
+      {showAddModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowAddModal(false)}
+          onKeyDown={e => e.key === "Escape" && setShowAddModal(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-zinc-900">{t("datahub.addResult") || "Añadir resultado"}</h3>
+                <p className="text-sm text-zinc-500 mt-0.5">{t("datahub.registerResultsBody")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition shrink-0 ml-4"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Area selector */}
+            <div className="grid gap-2 grid-cols-2 md:grid-cols-4 mb-6">
+              {(Object.keys(performanceAreaLabels) as PerformanceArea[]).map(item => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => { setArea(item); sv("area", item); }}
+                  className={cn(
+                    "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                    area === item
+                      ? "border-accent bg-accent text-white shadow-sm"
+                      : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
+                  )}
+                >
+                  <p className="text-xs font-semibold">{t(performanceAreaLabels[item])}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Excel import row */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                className="flex items-center gap-2 rounded-lg bg-white border border-line px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition shadow-sm"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                {t("datahub.excelTemplate")}
+              </button>
+              <label className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 cursor-pointer transition shadow-sm">
+                <UploadCloud className="h-4 w-4" />
+                {t("datahub.uploadExcel")}
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={importFile} />
+              </label>
+            </div>
+
+            {testDefs.length === 0 ? (
+              <div className="rounded-xl border border-line bg-zinc-50 p-8 text-center">
+                <p className="text-zinc-600">{t("club.noTestsDefined")}</p>
+              </div>
+            ) : (
+              <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerf}>
+                {/* Athlete picker */}
+                <Field label={t("datahub.player")} className="md:col-span-2">
+                  <div className="relative" ref={dropdownRef}>
+                    <input
+                      type="text"
+                      className="w-full rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                      placeholder={t("datahub.searchOrTypeName")}
+                      value={athleteSearch}
+                      onChange={e => { setAthleteSearch(e.target.value); setShowAthList(true); }}
+                      onFocus={() => setShowAthList(true)}
+                    />
+                    {showAthList && athleteSearch.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 rounded-2xl border border-line bg-white shadow-lg z-50 max-h-48 overflow-y-auto">
+                        {searchedAthletes.length > 0
+                          ? searchedAthletes.map(a => (
+                              <button key={a.id} type="button"
+                                onClick={() => { sv("athleteName", a.name); setAthleteSearch(a.name); setShowAthList(false); }}
+                                className="w-full px-4 py-2.5 text-left hover:bg-accent/10 border-b border-line/50 last:border-b-0 transition text-zinc-700">
+                                <div className="font-medium text-sm">{a.name}</div>
+                                {a.teamName && <div className="text-xs text-zinc-500">{a.teamName}</div>}
+                              </button>
+                            ))
+                          : <div className="px-4 py-3 text-sm text-zinc-500">{t("datahub.noMatchingPlayers")}</div>
+                        }
+                      </div>
+                    )}
+                    {perfForm.athleteName && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-accent/20 px-3 py-1 text-sm text-accent border border-accent/30">
+                        {perfForm.athleteName}
+                        <button
+                          type="button"
+                          onClick={() => { sv("athleteName", ""); sv("athleteId", undefined); setAthleteSearch(""); }}
+                          className="ml-0.5 rounded-full hover:bg-accent/20 p-0.5 transition"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </Field>
+
+                <Field label={t("datahub.measurement")}>
+                  <input type="date" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                    value={perfForm.measurementDate} onChange={e => sv("measurementDate", e.target.value)} />
+                </Field>
+
+                <Field label={t("datahub.test")}>
+                  <select className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                    value={perfForm.testName}
+                    onChange={e => {
+                      const def = testDefs.find(d => d.name === e.target.value);
+                      setPerfForm(c => ({ ...c, testName: e.target.value, unit: def?.unit ?? c.unit }));
+                    }}>
+                    {testDefs.map(d => {
+                      const label = (d.nameKey ? t(d.nameKey) : null) || d.name;
+                      return <option key={d.id} value={d.name}>{label} ({d.unit})</option>;
+                    })}
+                  </select>
+                </Field>
+
+
+                {selDef?.isRating ? (
+                  <>
+                    <Field label={t("datahub.rating")}>
+                      <div className="grid grid-cols-2 gap-2">
+                        {ratings.map(r => (
+                          <button key={r.v} type="button" onClick={() => sv("ratingLevel", r.v)}
+                            className={cn("rounded-2xl border px-4 py-3 text-sm font-medium transition",
+                              perfForm.ratingLevel === r.v ? "border-accent bg-accent text-white" : "border-line bg-white/70 text-zinc-700 hover:bg-white")}>
+                            {r.l}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                    <Field label={t("datahub.numericValueOptional")}>
+                      <input type="number" step="0.1" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                        placeholder={t("datahub.exampleRatingValue")} value={perfForm.ratingValue ?? ""}
+                        onChange={e => sv("ratingValue", Number(e.target.value))} />
+                    </Field>
+                  </>
+                ) : selDef && selDef.attempts > 1 ? (
+                  <Field
+                    label={`${t("datahub.valuesWithAttempts")} (${selDef.attempts} ${t("datahub.attemptsShort")} - ${selDef.scoringStrategy === "average" ? t("datahub.avgShort") : selDef.interpretation === "lower_better" ? t("datahub.bestMinShort") : t("datahub.bestMaxShort")})`}
+                    className="md:col-span-2"
+                  >
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {Array.from({ length: selDef.attempts }, (_, i) => (
+                        <input key={i} type="number" step="0.01"
+                          className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                          placeholder={`${t("datahub.attemptLabel")} ${i + 1}`}
+                          value={String(attempts[i] ?? "")}
+                          onChange={e => {
+                            const nv = [...attempts]; nv[i] = Number(e.target.value) || 0; setAttempts(nv);
+                            const vv = nv.filter(v => v > 0); let cv = 0;
+                            if (vv.length > 0) {
+                              cv = selDef.scoringStrategy === "average"
+                                ? vv.reduce((a, b) => a + b, 0) / vv.length
+                                : selDef.interpretation === "lower_better" ? Math.min(...vv) : Math.max(...vv);
+                            }
+                            sv("value", cv);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </Field>
+                ) : (
+                  <Field label={t("datahub.value")}>
+                    <input type="number" step="0.01" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                      placeholder={t("datahub.exampleValue")} value={perfForm.value || ""}
+                      onChange={e => sv("value", Number(e.target.value))} />
+                  </Field>
+                )}
+
+                <Field label={t("common.notes")} className="md:col-span-2">
+                  <input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                    placeholder={t("datahub.exampleNotes")} value={perfForm.notes ?? ""}
+                    onChange={e => sv("notes", e.target.value)} />
+                </Field>
+
+                <div className="md:col-span-2 flex gap-3">
+                  <button type="button" onClick={() => setShowAddModal(false)}
+                    className="flex-1 rounded-2xl border border-line bg-white px-5 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+                    {t("datahub.cancel") || "Cancelar"}
+                  </button>
+                  <button type="submit"
+                    className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-medium text-slate-950 hover:bg-accent-strong">
+                    <Plus className="h-4 w-4" />{t("datahub.addResult") || "Añadir resultado"}
+                  </button>
+                </div>
+
+                {perfFeedback && (
+                  <p className={cn(
+                    "mt-2 rounded-2xl border px-4 py-3 text-sm md:col-span-2",
+                    perfFeedback === "saved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-line bg-white/70 text-zinc-700"
+                  )}>
+                    {perfFeedback === "saved" ? "✅ " + t("datahub.testAddedOk")
+                     : perfFeedback === "duplicate" ? t("datahub.cannotImportRows")
+                     : t("datahub.importedRows").replace("{count}", perfFeedback.split(":")[1] ?? "0")}
+                  </p>
+                )}
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
-  return <label className={cn("grid gap-2", className)}><span className="text-sm font-medium text-zinc-800">{label}</span>{children}</label>;
+// ─── SessionList ─────────────────────────────────────────────────────────────
+// Shows sessions for a day, grouped by type, expandable to per-player load
+function SessionList({
+  entries, athletes, locale, allEntries,
+}: {
+  entries: TrainingLoadEntry[];
+  athletes: { id: string; name: string; teamName?: string }[];
+  locale: string;
+  allEntries: TrainingLoadEntry[];
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null); // "sessionType::teamName"
+
+  const loadColour = (load: number) => {
+    if (load === 0)    return "text-zinc-400";
+    if (load < 200)    return "text-green-600";
+    if (load < 400)    return "text-yellow-600";
+    if (load < 600)    return "text-orange-500";
+    return "text-red-600";
+  };
+
+  const rpeColour = (rpe: number) => {
+    if (rpe <= 0)  return "bg-zinc-100 text-zinc-400";
+    if (rpe <= 3)  return "bg-green-100 text-green-700";
+    if (rpe <= 6)  return "bg-yellow-100 text-yellow-700";
+    if (rpe <= 8)  return "bg-orange-100 text-orange-700";
+    return "bg-red-100 text-red-700";
+  };
+
+  // Historical avg RPE for an athlete (all past sessions with rpe > 1)
+  const historicalAvgRpe = (athleteId: string): number => {
+    const past = allEntries.filter(e => e.athleteId === athleteId && e.attended && e.rpe > 1);
+    if (!past.length) return 0;
+    return Math.round(past.reduce((s, e) => s + e.rpe, 0) / past.length);
+  };
+
+  const loadUnit = locale === "en" ? "L.U." : "U.C.";
+
+  // Build distinct session groups: one per (sessionType + team)
+  const sessionGroups = (() => {
+    const map = new Map<string, { sType: "training"|"match"; teamName: string; entries: TrainingLoadEntry[] }>();
+    for (const e of entries) {
+      const ath = athletes.find(a => a.id === e.athleteId);
+      const teamName = ath?.teamName ?? "";
+      const key = `${e.sessionType}::${teamName}`;
+      if (!map.has(key)) map.set(key, { sType: e.sessionType as "training"|"match", teamName, entries: [] });
+      map.get(key)!.entries.push(e);
+    }
+    return Array.from(map.values());
+  })();
+
+  return (
+    <div className="space-y-2">
+      {sessionGroups.map(({ sType, teamName, entries: sEntries }) => {
+        const groupKey = `${sType}::${teamName}`;
+
+        const attended = sEntries.filter(e => e.attended);
+
+        // If rpe <= 1, use historical avg RPE for load calculation
+        const effectiveRpe = (en: TrainingLoadEntry): number => {
+          if (en.rpe > 1) return en.rpe;
+          const h = historicalAvgRpe(en.athleteId);
+          return h > 0 ? h : en.rpe;
+        };
+        const effectiveLoad = (en: TrainingLoadEntry): number =>
+          en.attended ? en.minutesPlayed * effectiveRpe(en) : 0;
+
+        const avgLoad = attended.length
+          ? Math.round(attended.reduce((s, e) => s + effectiveLoad(e), 0) / attended.length) : 0;
+        const avgRpe  = attended.length
+          ? Math.round(attended.reduce((s, e) => s + effectiveRpe(e), 0) / attended.length) : 0;
+        const mins    = sEntries[0]?.minutesPlayed ?? 0;
+        const isOpen  = expanded === groupKey;
+
+        const label = sType === "match"
+          ? (locale === "en" ? "Match" : "Partido")
+          : (locale === "en" ? "Training" : "Entrenamiento");
+
+        return (
+          <div key={sType} className="rounded-xl border border-line bg-white/60 overflow-hidden">
+
+            {/* ── Header ── */}
+            <button
+              type="button"
+              onClick={() => setExpanded(isOpen ? null : groupKey)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50/60 transition text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold shrink-0",
+                  sType === "match" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                )}>
+                  {sType === "match"
+                    ? <Trophy className="h-3 w-3" />
+                    : <Dumbbell className="h-3 w-3" />}
+                  {teamName || label}
+                </span>
+                <span className="text-xs text-zinc-400 shrink-0">
+                  {attended.length}/{sEntries.length} · {mins} min{avgRpe > 0 ? ` · RPE Ø${avgRpe}` : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <span className={cn("text-sm font-bold tabular-nums", loadColour(avgLoad))}>
+                  Ø {avgLoad} {loadUnit}
+                </span>
+                {isOpen
+                  ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
+                  : <ChevronRight className="h-3.5 w-3.5 text-zinc-300" />}
+              </div>
+            </button>
+
+            {/* ── Expanded per-player table ── */}
+            {isOpen && (
+              <div className="border-t border-line/50 px-4 pb-3 pt-2 space-y-1">
+                {/* Column headers */}
+                <div className="grid text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-2"
+                  style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
+                  <span>{locale === "en" ? "Player" : "Jugador"}</span>
+                  <span className="text-center">min</span>
+                  <span className="text-center">RPE</span>
+                  <span className="text-center">{loadUnit}</span>
+                  <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
+                </div>
+
+                {/* Rows sorted by effective load desc */}
+                {[...sEntries].sort((a, b) => effectiveLoad(b) - effectiveLoad(a)).map(en => {
+                  const ath      = athletes.find(a => a.id === en.athleteId);
+                  const eRpe     = effectiveRpe(en);
+                  const eLd      = effectiveLoad(en);
+                  const usedHist = en.attended && en.rpe <= 1 && eRpe > 1;
+                  return (
+                    <div key={en.id}
+                      className="grid items-center gap-x-1 py-1 border-b border-line/30 last:border-0"
+                      style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
+                      <span className={cn("text-sm font-medium truncate",
+                        en.attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
+                        {ath?.name ?? "—"}
+                      </span>
+                      <span className="text-center text-xs text-zinc-600 tabular-nums">
+                        {en.attended ? en.minutesPlayed : "—"}
+                      </span>
+                      <div className="flex justify-center">
+                        {en.attended ? (
+                          <span
+                            className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold", rpeColour(eRpe))}
+                            title={usedHist ? (locale === "en" ? "Historical avg" : "Media histórica") : undefined}>
+                            {eRpe}{usedHist ? "*" : ""}
+                          </span>
+                        ) : <span className="text-zinc-300 text-xs">—</span>}
+                      </div>
+                      <span className={cn("text-center text-sm font-bold tabular-nums",
+                        en.attended ? loadColour(eLd) : "text-zinc-300")}>
+                        {en.attended ? eLd : "—"}
+                      </span>
+                      <div className="flex justify-center">
+                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          en.attended ? "bg-green-50 text-green-700" : "bg-zinc-100 text-zinc-400")}>
+                          {en.attended ? (locale === "en" ? "In" : "Sí") : (locale === "en" ? "Out" : "No")}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Team average row */}
+                <div className="grid items-center gap-x-1 pt-2 mt-1 border-t border-line/50"
+                  style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
+                  <span className="text-xs font-bold text-zinc-500 uppercase">
+                    Ø {locale === "en" ? "team" : "equipo"}
+                  </span>
+                  <span className="text-center text-xs text-zinc-400">—</span>
+                  <span className={cn("text-center text-xs font-bold tabular-nums", rpeColour(avgRpe))}>
+                    {avgRpe > 0 ? avgRpe : "—"}
+                  </span>
+                  <span className={cn("text-center text-sm font-bold tabular-nums", loadColour(avgLoad))}>
+                    {avgLoad}
+                  </span>
+                  <span className="text-center text-[10px] text-zinc-400">
+                    {attended.length}/{sEntries.length}
+                  </span>
+                </div>
+
+                {/* Footnote if historical RPE was used */}
+                {attended.some(e => e.rpe <= 1 && historicalAvgRpe(e.athleteId) > 1) && (
+                  <p className="text-[10px] text-zinc-400 italic pt-1">
+                    * {locale === "en" ? "Historical avg RPE used" : "Se usó RPE histórica media"}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// ─── MultiSelectPill ──────────────────────────────────────────────────────────
+function MultiSelectPill({
+  label, options, selected, onToggle, onClear,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onToggle: (v: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          "flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
+          selected.length > 0
+            ? "border-accent bg-accent/10 text-accent font-medium"
+            : "border-line bg-white/70 text-zinc-700 hover:bg-zinc-50"
+        )}
+      >
+        <span className="max-w-[140px] truncate">{label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition", open && "rotate-180")} />
+      </button>
+
+      {open && options.length > 0 && (
+        <div className="absolute top-full left-0 mt-1 z-50 w-52 rounded-2xl border border-line bg-white shadow-lg overflow-hidden">
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { onClear(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-red-500 hover:bg-red-50 transition border-b border-line"
+            >
+              <X className="h-3 w-3" /> Limpiar selección
+            </button>
+          )}
+          {options.map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onToggle(opt)}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition",
+                selected.includes(opt) ? "bg-accent/10 text-accent font-medium" : "text-zinc-700 hover:bg-zinc-50"
+              )}
+            >
+              <span>{opt}</span>
+              {selected.includes(opt) && <span className="text-accent text-xs">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function PerfHistRow({ history }: { history: PerformanceEntry[] }) {
-  const { t } = useLocale();
-  return <tr><td colSpan={6} className="border-t border-line/50 bg-white/80 px-5 py-5"><div className="rounded-[1.5rem] border border-line bg-white/70 p-4"><div className="mb-4 flex items-center justify-between"><h3 className="text-base font-semibold text-zinc-900">{t("datahub.performanceHistory")}</h3><p className="text-xs text-zinc-600">{history.length} {t("datahub.valuesCount")}</p></div><div className="table-scroll overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="text-zinc-600"><tr><th className="border-b border-line px-3 py-2">{t("datahub.date")}</th><th className="border-b border-line px-3 py-2">{t("datahub.result")}</th><th className="border-b border-line px-3 py-2">{t("common.notes")}</th></tr></thead><tbody>{history.map(it => <tr key={it.id} className="border-t border-line/50"><td className="px-3 py-2 text-zinc-900">{formatDate(it.measurementDate)}</td><td className="px-3 py-2 text-zinc-900">{it.ratingLevel ? `${it.ratingLevel}${it.ratingValue ? ` · ${formatNumber(it.ratingValue, 1)} ${it.unit}` : ""}` : `${formatNumber(it.value, 2)} ${it.unit}`}</td><td className="px-3 py-2 text-zinc-600">{it.notes ?? "-"}</td></tr>)}</tbody></table></div></div></td></tr>;
+// ─── PlayerAreaModal ──────────────────────────────────────────────────────────
+function PlayerAreaModal({
+  athlete, areaKey, defs, performanceEntries,
+  updatePerformanceEntry, deletePerformanceEntry,
+  onClose, onAddResult, t,
+}: {
+  athlete: { id: string; name: string; teamName?: string; position?: string; photoUrl?: string };
+  areaKey: PerformanceArea;
+  defs: PerformanceDefinition[];
+  performanceEntries: PerformanceEntry[];
+  updatePerformanceEntry: (id: string, updates: Partial<PerformanceEntryInput>) => void;
+  deletePerformanceEntry: (id: string) => void;
+  onClose: () => void;
+  onAddResult: () => void;
+  t: (key: string) => string;
+}) {
+  const STROKE: Record<PerformanceArea, string> = {
+    physical:          "#3b82f6",
+    technicalTactical: "#8b5cf6",
+    psychological:     "#f59e0b",
+    motorSkills:       "#10b981",
+  };
+
+  // All entries for this athlete+area, sorted oldest→newest
+  const allEntries = useMemo(() =>
+    performanceEntries
+      .filter(e => (e.athleteId === athlete.id || e.athleteName === athlete.name) && e.area === areaKey)
+      .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate)),
+    [performanceEntries, athlete, areaKey]
+  );
+
+  // Group by testName
+  const byTest = useMemo(() => {
+    const m = new Map<string, PerformanceEntry[]>();
+    for (const e of allEntries) {
+      const arr = m.get(e.testName) ?? []; arr.push(e); m.set(e.testName, arr);
+    }
+    return m;
+  }, [allEntries]);
+
+  // Only tests that have at least one entry
+  const presentDefs = defs.filter(d => byTest.has(d.name));
+
+  // Editing state: { entryId, fields }
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editFields, setEditFields] = useState<Partial<PerformanceEntryInput>>({});
+
+  function startEdit(entry: PerformanceEntry) {
+    setEditingId(entry.id);
+    setEditFields({
+      value: entry.value,
+      measurementDate: entry.measurementDate,
+      notes: entry.notes ?? "",
+      ratingLevel: entry.ratingLevel,
+      ratingValue: entry.ratingValue,
+    });
+  }
+
+  function saveEdit() {
+    if (editingId) {
+      updatePerformanceEntry(editingId, editFields);
+      setEditingId(null);
+    }
+  }
+
+  function confirmDelete(id: string) {
+    if (confirm(t("common.confirmDelete") || "¿Eliminar este registro?")) {
+      deletePerformanceEntry(id);
+    }
+  }
+
+  const stroke = STROKE[areaKey];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-line shrink-0">
+          <div className="flex items-center gap-4">
+            {athlete.photoUrl ? (
+              <img src={athlete.photoUrl} alt={athlete.name} className="h-14 w-14 rounded-full object-cover border border-line shrink-0" />
+            ) : (
+              <div className="h-14 w-14 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center shrink-0">
+                <span className="text-xl font-bold text-zinc-400">{athlete.name.charAt(0)}</span>
+              </div>
+            )}
+            <div>
+              <h3 className="text-xl font-bold text-zinc-900">{athlete.name}</h3>
+              <p className="text-sm text-zinc-500 mt-0.5">
+                {athlete.teamName ?? "—"} · {athlete.position ?? "—"}
+              </p>
+              <span className={cn("inline-block mt-1 rounded-full border px-2 py-0.5 text-[10px] font-bold", AREA_COLOURS[areaKey])}>
+                {t(performanceAreaLabels[areaKey])}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            <button
+              type="button"
+              onClick={onAddResult}
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 transition"
+            >
+              <Plus className="h-3.5 w-3.5" />Añadir resultado
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto px-6 py-5 space-y-8">
+          {presentDefs.length === 0 ? (
+            <p className="text-sm text-zinc-500 text-center py-6">{t("datahub.noResultsYet")}</p>
+          ) : (
+            presentDefs.map(def => {
+              const entries = byTest.get(def.name) ?? [];
+              const latest  = entries[entries.length - 1];
+
+              // Chart data
+              const chartData = entries.map(e => ({
+                date:  e.measurementDate.slice(0, 7),
+                value: e.ratingValue ?? e.value,
+              }));
+
+              const displayVal = (e: PerformanceEntry) =>
+                e.ratingLevel
+                  ? `${e.ratingLevel}${e.ratingValue != null ? ` · ${formatNumber(e.ratingValue, 1)}` : ""} ${e.unit}`
+                  : `${formatNumber(e.value, 2)} ${e.unit}`;
+
+              return (
+                <div key={def.id} className="space-y-3">
+                  {/* Test title */}
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-semibold text-zinc-900">
+                      {(def.nameKey ? t(def.nameKey) : null) || def.name}
+                      <span className="ml-1.5 text-xs font-normal text-zinc-400">({def.unit})</span>
+                    </p>
+                    <div className="h-px flex-1 bg-zinc-100" />
+                    {latest && (
+                      <span className="text-sm font-bold text-zinc-900">{displayVal(latest)}</span>
+                    )}
+                  </div>
+
+                  {/* Chart — only if ≥2 entries and numeric */}
+                  {chartData.length >= 2 && !latest?.ratingLevel && (
+                    <ResponsiveContainer width="100%" height={100}>
+                      <LineChart data={chartData} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                        <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                        <Tooltip
+                          contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                          formatter={(v) => [`${formatNumber(Number(v ?? 0), 2)} ${def.unit}`, (def.nameKey ? t(def.nameKey) : null) || def.name]}
+                        />
+                        <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+
+                  {/* History table */}
+                  <div className="rounded-xl border border-line overflow-hidden">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="bg-zinc-50 text-zinc-400 border-b border-line">
+                          <th className="px-3 py-2 font-medium">{t("datahub.date") || "Fecha"}</th>
+                          <th className="px-3 py-2 font-medium">{t("datahub.result") || "Resultado"}</th>
+                          <th className="px-3 py-2 font-medium">{t("common.notes") || "Notas"}</th>
+                          <th className="px-3 py-2 w-16" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...entries].reverse().map(entry => (
+                          <Fragment key={entry.id}>
+                            <tr className="border-t border-line/40 hover:bg-zinc-50/60 transition">
+                              {editingId === entry.id ? (
+                                /* Edit row */
+                                <>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="date"
+                                      value={editFields.measurementDate ?? ""}
+                                      onChange={e => setEditFields(f => ({ ...f, measurementDate: e.target.value }))}
+                                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-32"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {entry.ratingLevel ? (
+                                      <input
+                                        type="text"
+                                        value={editFields.ratingLevel ?? ""}
+                                        onChange={e => setEditFields(f => ({ ...f, ratingLevel: e.target.value }))}
+                                        className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-24"
+                                      />
+                                    ) : (
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={editFields.value ?? ""}
+                                        onChange={e => setEditFields(f => ({ ...f, value: Number(e.target.value) }))}
+                                        className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-24"
+                                      />
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="text"
+                                      value={editFields.notes ?? ""}
+                                      onChange={e => setEditFields(f => ({ ...f, notes: e.target.value }))}
+                                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-full"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={saveEdit}
+                                        className="rounded-lg bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent/90"
+                                      >
+                                        {t("datahub.save") || "Guardar"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingId(null)}
+                                        className="rounded-lg border border-line px-2 py-1 text-[10px] text-zinc-500 hover:bg-zinc-50"
+                                      >
+                                        {t("datahub.cancel") || "Cancelar"}
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                /* View row */
+                                <>
+                                  <td className="px-3 py-2 text-zinc-600">{formatDate(entry.measurementDate)}</td>
+                                  <td className="px-3 py-2 font-semibold text-zinc-900">{displayVal(entry)}</td>
+                                  <td className="px-3 py-2 text-zinc-500">{entry.notes || "—"}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEdit(entry)}
+                                        className="rounded-full p-1.5 hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
+                                        title={t("common.edit") || "Editar"}
+                                      >
+                                        <Edit2 className="h-3 w-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => confirmDelete(entry.id)}
+                                        className="rounded-full p-1.5 hover:bg-red-50 text-zinc-400 hover:text-red-500 transition"
+                                        title={t("common.delete") || "Eliminar"}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Field helper ─────────────────────────────────────────────────────────────
+function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
+  return (
+    <label className={cn("grid gap-2", className)}>
+      <span className="text-sm font-medium text-zinc-800">{label}</span>
+      {children}
+    </label>
+  );
 }

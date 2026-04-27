@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -807,16 +807,41 @@ function PlayersTab({
   const [filterTeam, setFilterTeam] = useState("all");
   const [filterPosition, setFilterPosition] = useState("all");
 
+  // Group / sort state (mirroring maturation section)
+  const [groupByTeam, setGroupByTeam] = useState(false);
+  const [sortPlayers, setSortPlayers] = useState<"name" | "age">("name");
+
   // Get unique positions for filter
   const positions = Array.from(new Set(athletes.map(a => a.position).filter(Boolean))).sort() as string[];
 
-  // Filter athletes
-  const filteredAthletes = athletes.filter(a => {
-    const matchesSearch = !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTeam = filterTeam === "all" || a.teamId === filterTeam;
-    const matchesPosition = filterPosition === "all" || a.position === filterPosition;
-    return matchesSearch && matchesTeam && matchesPosition;
-  });
+  // Filter + sort athletes
+  const filteredAthletes = athletes
+    .filter(a => {
+      const matchesSearch = !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTeam = filterTeam === "all" || a.teamId === filterTeam;
+      const matchesPosition = filterPosition === "all" || a.position === filterPosition;
+      return matchesSearch && matchesTeam && matchesPosition;
+    })
+    .sort((a, b) => {
+      if (sortPlayers === "age") {
+        return (a.dob ?? "").localeCompare(b.dob ?? "");
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  // Grouped view: { teamName, players[] }[]
+  const groupedAthletes = useMemo(() => {
+    if (!groupByTeam) return null;
+    const map = new Map<string, typeof filteredAthletes>();
+    for (const a of filteredAthletes) {
+      const key = a.teamName ?? "—";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(a);
+    }
+    return Array.from(map.entries())
+      .sort(([ka], [kb]) => ka.localeCompare(kb))
+      .map(([label, players]) => ({ label, players }));
+  }, [groupByTeam, filteredAthletes]);
 
   function openEdit(athlete: typeof athletes[0]) {
     setEditingId(athlete.id);
@@ -941,6 +966,35 @@ function PlayersTab({
         </div>
       </div>
 
+      {/* Group / Sort toolbar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm font-medium text-zinc-600">{t("datahub.groupLabel")}:</span>
+          <button
+            type="button"
+            onClick={() => setGroupByTeam(v => !v)}
+            className={cn(
+              "rounded-full px-3 py-1.5 text-sm font-medium transition",
+              groupByTeam ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            )}
+          >
+            {t("datahub.groupByTeam")}
+          </button>
+        </div>
+        <span className="text-zinc-300 shrink-0">|</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm font-medium text-zinc-600">{t("datahub.sortLabel")}:</span>
+          <select
+            value={sortPlayers}
+            onChange={(e) => setSortPlayers(e.target.value as "name" | "age")}
+            className="rounded-full border border-line bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 outline-none cursor-pointer"
+          >
+            <option value="name">{t("datahub.sortByName")}</option>
+            <option value="age">{t("datahub.sortByAge")}</option>
+          </select>
+        </div>
+      </div>
+
       {filteredAthletes.length === 0 && (
         <p className="text-sm text-zinc-500">
           {hasActiveFilters ? t("datahub.noMatches") : t("club.noPlayers")}
@@ -962,7 +1016,20 @@ function PlayersTab({
                 </tr>
               </thead>
               <tbody suppressHydrationWarning>
-                {filteredAthletes.map((a) => (
+                {(groupedAthletes ?? [{ label: null, players: filteredAthletes }]).map(({ label, players }) => (
+                  <React.Fragment key={label ?? "__all__"}>
+                    {label && (
+                      <tr>
+                        <td colSpan={6} className="px-4 pt-4 pb-1">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-1.5 rounded-full bg-accent" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</span>
+                            <div className="h-px flex-1 bg-zinc-100" />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {players.map((a) => (
                   <tr
                     key={a.id}
                     onClick={() => setSelectedAthleteId(a.id)}
@@ -984,6 +1051,8 @@ function PlayersTab({
                       </button>
                     </td>
                   </tr>
+                ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
