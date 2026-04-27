@@ -34,6 +34,8 @@ interface AppStateContextValue {
   importRecords: (rows: AnthropometricRecordInput[]) => number;
   updateRecord: (id: string, updates: Partial<AnthropometricRecordInput>) => void;
   addPerformanceEntry: (input: PerformanceEntryInput) => void;
+  updatePerformanceEntry: (id: string, updates: Partial<PerformanceEntryInput>) => void;
+  deletePerformanceEntry: (id: string) => void;
   importPerformanceEntries: (rows: PerformanceEntryInput[]) => number;
   setLocale: (locale: Locale) => void;
   addTeam: (team: Omit<Team, "id">) => void;
@@ -439,6 +441,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return imported;
   };
 
+  const updatePerformanceEntry = (id: string, updates: Partial<PerformanceEntryInput>) => {
+    setState((current) => ({
+      ...current,
+      performanceEntries: current.performanceEntries.map((e) =>
+        e.id === id ? { ...e, ...updates } : e
+      ),
+    }));
+  };
+
+  const deletePerformanceEntry = (id: string) => {
+    setState((current) => ({
+      ...current,
+      performanceEntries: current.performanceEntries.filter((e) => e.id !== id),
+    }));
+  };
+
   const setLocale = (locale: Locale) => {
     setState((current) => ({
       ...current,
@@ -564,6 +582,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       updateRecord,
       importRecords,
       addPerformanceEntry,
+      updatePerformanceEntry,
+      deletePerformanceEntry,
       importPerformanceEntries,
       setLocale,
       addTeam,

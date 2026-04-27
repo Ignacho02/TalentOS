@@ -75,6 +75,8 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       subtitle:
         "Registra antropometria de forma manual o masiva y deja la base lista para maduracion y rendimiento.",
       sectionBodyClub: "Gestiona equipos, jugadores y configura tu bateria de tests de rendimiento.",
+      sectionBodyMaturation: "Registra medidas antropometricas, calcula la madurez biologica y realiza bio-banding.",
+      sectionBodyPerformance: "Registra y analiza los resultados de tests de rendimiento fisico, tecnico y psicologico.",
       landingTitle: "Area de trabajo",
       landingSubtitle: "Selecciona un area para comenzar",
       anthropometrics: "Antropometricos",
@@ -282,6 +284,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       attemptLabel: "Intento",
       value: "Valor",
       addTest: "Anadir prueba",
+      addResult: "Añadir resultado",
       testAddedOk: "Prueba anadida correctamente.",
       searchPlayerTeamTest: "Buscar jugador, equipo o prueba",
       groupNone: "Sin agrupar",
@@ -661,6 +664,8 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       subtitle:
         "Capture anthropometrics manually or in bulk and keep the data ready for maturation and performance workflows.",
       sectionBodyClub: "Manage teams, players, and configure your performance test battery.",
+      sectionBodyMaturation: "Record anthropometric measurements, calculate biological maturity, and perform bio-banding.",
+      sectionBodyPerformance: "Record and analyse physical, technical and psychological performance test results.",
       landingTitle: "Workspace",
       landingSubtitle: "Select an area to get started",
       anthropometrics: "Anthropometrics",
@@ -869,6 +874,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       attemptLabel: "Attempt",
       value: "Value",
       addTest: "Add test",
+      addResult: "Add result",
       testAddedOk: "Test added successfully.",
       searchPlayerTeamTest: "Search player, team or test",
       groupNone: "No grouping",
