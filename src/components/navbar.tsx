@@ -17,15 +17,28 @@ import { cn } from "@/lib/utils";
 import { useAppState } from "@/lib/store/app-state";
 import type { Locale } from "@/lib/types";
 
+interface NavItem {
+  labelKey: string;
+  href: string;
+  hasSubmenu?: boolean;
+  sections?: NavItem[];
+}
+
+const analysisAreas: NavItem[] = [
+  { labelKey: "analysis.tabs.individual", href: "/analysis?tab=individual" },
+  { labelKey: "analysis.tabs.collective", href: "/analysis?tab=collective" },
+  { labelKey: "analysis.tabs.assistant", href: "/analysis?tab=assistant" },
+];
+
 const navigation = [
   { href: "/hub", key: "nav.hub", icon: Orbit },
   { href: "/datahub", key: "nav.datahub", icon: Database, hasSubmenu: true },
-  { href: "/analysis", key: "nav.analysis", icon: ChartColumnBig },
+  { href: "/analysis", key: "nav.analysis", icon: ChartColumnBig, hasSubmenu: true },
   { href: "/community", key: "nav.community", icon: Users },
   { href: "/research", key: "nav.research", icon: FlaskConical },
 ];
 
-const datahubAreas = [
+const datahubAreas: NavItem[] = [
   { labelKey: "datahubNav.club", href: "/datahub?tab=club" },
   { labelKey: "datahubNav.maturation", href: "/datahub?tab=maturation" },
   {
@@ -140,10 +153,10 @@ export function Navbar() {
                     <div
                       className="absolute top-full left-0 mt-0 w-56 bg-white border border-line rounded-lg shadow-lg"
                       role="menu"
-                      aria-label={t("nav.datahub")}
+                      aria-label={t(item.key)}
                     >
                       <div className="p-2">
-                        {datahubAreas.map((area) => (
+                        {(item.href === "/datahub" ? datahubAreas : analysisAreas).map((area: NavItem) => (
                           <div
                             key={area.labelKey}
                             className="relative"
@@ -188,7 +201,7 @@ export function Navbar() {
                                 aria-label={t(area.labelKey)}
                               >
                                 <div className="p-2">
-                                  {area.sections.map((section) => (
+                                  {area.sections?.map((section: NavItem) => (
                                     <div
                                       key={section.labelKey}
                                       className="relative"
@@ -227,7 +240,7 @@ export function Navbar() {
                                           aria-label={t(section.labelKey)}
                                         >
                                           <div className="p-2">
-                                            {section.sections.map((subSection) => (
+                                            {section.sections?.map((subSection: NavItem) => (
                                               <Link
                                                 key={subSection.labelKey}
                                                 href={subSection.href}

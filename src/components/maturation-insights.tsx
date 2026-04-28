@@ -1,12 +1,14 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { MaturationResult } from '@/lib/types';
+import { useLocale } from '@/lib/i18n/locale-context';
 
 interface MaturationInsightsProps {
   result: MaturationResult;
 }
 
 export function MaturationInsights({ result }: MaturationInsightsProps) {
+  const { t } = useLocale();
   const { maturityBand, primaryOffset } = result.classification;
   const { percentageAdultHeight, pahCm } = result.methodOutputs;
 
@@ -24,43 +26,49 @@ export function MaturationInsights({ result }: MaturationInsightsProps) {
       {/* Maturity Status Card */}
       <div className={`rounded-2xl border p-5 ${getBandColor(maturityBand)}`}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-sm uppercase tracking-wider opacity-80">Estado Madurativo</h3>
+          <h3 className="font-semibold text-sm uppercase tracking-wider opacity-80">
+            {t("analysis.individual.maturityStatus")}
+          </h3>
           <AlertCircle className="h-5 w-5 opacity-60" />
         </div>
-        <div className="text-3xl font-bold mb-1">{maturityBand}</div>
-        <p className="text-sm opacity-90">
+        <div suppressHydrationWarning className="text-3xl font-bold mb-1">{maturityBand}</div>
+        <p suppressHydrationWarning className="text-sm opacity-90">
           {primaryOffset < 0 
-            ? `Aprox. ${Math.abs(primaryOffset).toFixed(1)} años para el PHV`
-            : `${primaryOffset.toFixed(1)} años desde el PHV`}
+            ? t("analysis.individual.yearsToPHV").replace("{years}", Math.abs(primaryOffset).toFixed(1))
+            : t("analysis.individual.yearsSincePHV").replace("{years}", primaryOffset.toFixed(1))}
         </p>
       </div>
 
       {/* Adult Height Prediction Card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Predicción Altura Adulta</h3>
+          <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">
+            {t("analysis.individual.adultHeightPredictionTitle")}
+          </h3>
           <TrendingUp className="h-5 w-5 text-teal-600 opacity-60" />
         </div>
-        <div className="text-3xl font-bold text-slate-900 mb-1">
+        <div suppressHydrationWarning className="text-3xl font-bold text-slate-900 mb-1">
           {pahCm ? `${pahCm.toFixed(1)} cm` : 'N/A'}
         </div>
-        <p className="text-sm text-slate-500">
+        <p suppressHydrationWarning className="text-sm text-slate-500">
           {percentageAdultHeight 
-            ? `${percentageAdultHeight.toFixed(1)}% de la altura adulta alcanzada`
-            : 'Faltan datos de los padres'}
+            ? t("analysis.individual.adultHeightReached").replace("{percent}", percentageAdultHeight.toFixed(1))
+            : t("analysis.individual.missingParentData")}
         </p>
       </div>
 
       {/* Recommendations Card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-1 md:col-span-2">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Recomendación Bio-Banding</h3>
+          <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">
+            {t("analysis.individual.bioBandingRecommendation")}
+          </h3>
           <CheckCircle2 className="h-5 w-5 text-emerald-500 opacity-60" />
         </div>
         <div className="text-lg font-medium text-slate-900">
-          {maturityBand === 'Pre-PHV' && "Enfoque en coordinación y técnica base."}
-          {maturityBand === 'Mid-PHV' && "Cuidado con cargas de impacto. Riesgo de lesiones."}
-          {maturityBand === 'Post-PHV' && "Apto para entrenamiento de fuerza e hipertrofia."}
+          {maturityBand === 'Pre-PHV' && t("analysis.individual.recPrePHV")}
+          {maturityBand === 'Mid-PHV' && t("analysis.individual.recMidPHV")}
+          {maturityBand === 'Post-PHV' && t("analysis.individual.recPostPHV")}
         </div>
       </div>
     </div>

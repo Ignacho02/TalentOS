@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
+
 import ExcelJS from "exceljs";
 import {
   ClipboardList, Calendar, ChevronDown, ChevronRight,
@@ -53,8 +55,23 @@ export function PerformanceSection({
   const { addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
   const { t, locale } = useLocale();
 
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("view");
+  
   // ── Tab: only 3 main tabs now ──────────────────────────────────────────────
-  const [perfTab, setPerfTab] = useState<"tests" | "trainingLoad" | "gps">("tests");
+  const [perfTab, setPerfTab] = useState<"tests" | "trainingLoad" | "gps">(
+    (viewParam === "trainingLoad" || viewParam === "gps") ? viewParam : "tests"
+  );
+
+  // Sync tab with URL parameter
+  useEffect(() => {
+    const v = searchParams.get("view");
+    if (v === "trainingLoad" || v === "gps") {
+      setPerfTab(v);
+    } else if (v === "tests" || (!v && searchParams.get("tab") === "performance")) {
+      setPerfTab("tests");
+    }
+  }, [searchParams]);
 
   // ── Add-result modal ───────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false);
@@ -1561,7 +1578,7 @@ function SessionList({
           : (locale === "en" ? "Training" : "Entrenamiento");
 
         return (
-          <div key={sType} className="rounded-xl border border-line bg-white/60 overflow-hidden">
+          <div key={groupKey} className="rounded-xl border border-line bg-white/60 overflow-hidden">
 
             {/* ── Header ── */}
             <button
