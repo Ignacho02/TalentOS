@@ -1,5 +1,14 @@
 # Maduration
 
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![React](https://img.shields.io/badge/React-19-149eca?logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-4-38bdf8?logo=tailwindcss&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-ready-3ecf8e?logo=supabase&logoColor=white)
+![Status](https://img.shields.io/badge/status-active%20development-orange)
+![Architecture](https://img.shields.io/badge/architecture-handoff%20ready-blueviolet)
+![License](https://img.shields.io/badge/license-private-red)
+
 Maduration es una web app para clubes y staffs de formacion que convierte mediciones antropometricas y datos de rendimiento en contexto util para la toma de decisiones. El foco del producto esta en maduracion biologica, bio-banding, analisis comparativo y una estructura de DataHub que pueda crecer hacia operaciones reales de club.
 
 Este repositorio esta preparado como handoff tecnico: explica que hace hoy la app, que partes estan realmente operativas y donde tocar segun el tipo de cambio.
