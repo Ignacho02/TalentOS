@@ -10,6 +10,7 @@ import {
   ChevronsUpDown, Download, Dumbbell, Edit2, FileSpreadsheet, MapPin, Plus, Search,
   Trash2, Trophy, UploadCloud, User, X,
 } from "lucide-react";
+import { LabeledField } from "@/components/labeled-field";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -18,6 +19,11 @@ import type {
 } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { performanceAreaLabels, emptyPerformanceForm } from "./performance-constants";
+import {
+  MultiSelectPill,
+  PlayerAreaModal,
+  SessionList,
+} from "./performance-section.parts";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AREA_ORDER: PerformanceArea[] = [
@@ -1352,7 +1358,7 @@ export function PerformanceSection({
             ) : (
               <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerf}>
                 {/* Athlete picker */}
-                <Field label={t("datahub.player")} className="md:col-span-2">
+                <LabeledField label={t("datahub.player")} className="md:col-span-2">
                   <div className="relative" ref={dropdownRef}>
                     <input
                       type="text"
@@ -1390,14 +1396,14 @@ export function PerformanceSection({
                       </div>
                     )}
                   </div>
-                </Field>
+                </LabeledField>
 
-                <Field label={t("datahub.measurement")}>
+                <LabeledField label={t("datahub.measurement")}>
                   <input type="date" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
                     value={perfForm.measurementDate} onChange={e => sv("measurementDate", e.target.value)} />
-                </Field>
+                </LabeledField>
 
-                <Field label={t("datahub.test")}>
+                <LabeledField label={t("datahub.test")}>
                   <select className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
                     value={perfForm.testName}
                     onChange={e => {
@@ -1409,12 +1415,12 @@ export function PerformanceSection({
                       return <option key={d.id} value={d.name}>{label} ({d.unit})</option>;
                     })}
                   </select>
-                </Field>
+                </LabeledField>
 
 
                 {selDef?.isRating ? (
                   <>
-                    <Field label={t("datahub.rating")}>
+                    <LabeledField label={t("datahub.rating")}>
                       <div className="grid grid-cols-2 gap-2">
                         {ratings.map(r => (
                           <button key={r.v} type="button" onClick={() => sv("ratingLevel", r.v)}
@@ -1424,15 +1430,15 @@ export function PerformanceSection({
                           </button>
                         ))}
                       </div>
-                    </Field>
-                    <Field label={t("datahub.numericValueOptional")}>
+                    </LabeledField>
+                    <LabeledField label={t("datahub.numericValueOptional")}>
                       <input type="number" step="0.1" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
                         placeholder={t("datahub.exampleRatingValue")} value={perfForm.ratingValue ?? ""}
                         onChange={e => sv("ratingValue", Number(e.target.value))} />
-                    </Field>
+                    </LabeledField>
                   </>
                 ) : selDef && selDef.attempts > 1 ? (
-                  <Field
+                  <LabeledField
                     label={`${t("datahub.valuesWithAttempts")} (${selDef.attempts} ${t("datahub.attemptsShort")} - ${selDef.scoringStrategy === "average" ? t("datahub.avgShort") : selDef.interpretation === "lower_better" ? t("datahub.bestMinShort") : t("datahub.bestMaxShort")})`}
                     className="md:col-span-2"
                   >
@@ -1455,20 +1461,20 @@ export function PerformanceSection({
                         />
                       ))}
                     </div>
-                  </Field>
+                  </LabeledField>
                 ) : (
-                  <Field label={t("datahub.value")}>
+                  <LabeledField label={t("datahub.value")}>
                     <input type="number" step="0.01" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
                       placeholder={t("datahub.exampleValue")} value={perfForm.value || ""}
                       onChange={e => sv("value", Number(e.target.value))} />
-                  </Field>
+                  </LabeledField>
                 )}
 
-                <Field label={t("common.notes")} className="md:col-span-2">
+                <LabeledField label={t("common.notes")} className="md:col-span-2">
                   <input className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
                     placeholder={t("datahub.exampleNotes")} value={perfForm.notes ?? ""}
                     onChange={e => sv("notes", e.target.value)} />
-                </Field>
+                </LabeledField>
 
                 <div className="md:col-span-2 flex gap-3">
                   <button type="button" onClick={() => setShowAddModal(false)}
@@ -1497,562 +1503,5 @@ export function PerformanceSection({
         </div>
       )}
     </div>
-  );
-}
-
-// ─── SessionList ─────────────────────────────────────────────────────────────
-// Shows sessions for a day, grouped by type, expandable to per-player load
-function SessionList({
-  entries, athletes, locale, allEntries,
-}: {
-  entries: TrainingLoadEntry[];
-  athletes: { id: string; name: string; teamName?: string }[];
-  locale: string;
-  allEntries: TrainingLoadEntry[];
-}) {
-  const [expanded, setExpanded] = useState<string | null>(null); // "sessionType::teamName"
-
-  const loadColour = (load: number) => {
-    if (load === 0)    return "text-zinc-400";
-    if (load < 200)    return "text-green-600";
-    if (load < 400)    return "text-yellow-600";
-    if (load < 600)    return "text-orange-500";
-    return "text-red-600";
-  };
-
-  const rpeColour = (rpe: number) => {
-    if (rpe <= 0)  return "bg-zinc-100 text-zinc-400";
-    if (rpe <= 3)  return "bg-green-100 text-green-700";
-    if (rpe <= 6)  return "bg-yellow-100 text-yellow-700";
-    if (rpe <= 8)  return "bg-orange-100 text-orange-700";
-    return "bg-red-100 text-red-700";
-  };
-
-  // Historical avg RPE for an athlete (all past sessions with rpe > 1)
-  const historicalAvgRpe = (athleteId: string): number => {
-    const past = allEntries.filter(e => e.athleteId === athleteId && e.attended && e.rpe > 1);
-    if (!past.length) return 0;
-    return Math.round(past.reduce((s, e) => s + e.rpe, 0) / past.length);
-  };
-
-  const loadUnit = locale === "en" ? "L.U." : "U.C.";
-
-  // Build distinct session groups: one per (sessionType + team)
-  const sessionGroups = (() => {
-    const map = new Map<string, { sType: "training"|"match"; teamName: string; entries: TrainingLoadEntry[] }>();
-    for (const e of entries) {
-      const ath = athletes.find(a => a.id === e.athleteId);
-      const teamName = ath?.teamName ?? "";
-      const key = `${e.sessionType}::${teamName}`;
-      if (!map.has(key)) map.set(key, { sType: e.sessionType as "training"|"match", teamName, entries: [] });
-      map.get(key)!.entries.push(e);
-    }
-    return Array.from(map.values());
-  })();
-
-  return (
-    <div className="space-y-2">
-      {sessionGroups.map(({ sType, teamName, entries: sEntries }) => {
-        const groupKey = `${sType}::${teamName}`;
-
-        const attended = sEntries.filter(e => e.attended);
-
-        // If rpe <= 1, use historical avg RPE for load calculation
-        const effectiveRpe = (en: TrainingLoadEntry): number => {
-          if (en.rpe > 1) return en.rpe;
-          const h = historicalAvgRpe(en.athleteId);
-          return h > 0 ? h : en.rpe;
-        };
-        const effectiveLoad = (en: TrainingLoadEntry): number =>
-          en.attended ? en.minutesPlayed * effectiveRpe(en) : 0;
-
-        const avgLoad = attended.length
-          ? Math.round(attended.reduce((s, e) => s + effectiveLoad(e), 0) / attended.length) : 0;
-        const avgRpe  = attended.length
-          ? Math.round(attended.reduce((s, e) => s + effectiveRpe(e), 0) / attended.length) : 0;
-        const mins    = sEntries[0]?.minutesPlayed ?? 0;
-        const isOpen  = expanded === groupKey;
-
-        const label = sType === "match"
-          ? (locale === "en" ? "Match" : "Partido")
-          : (locale === "en" ? "Training" : "Entrenamiento");
-
-        return (
-          <div key={groupKey} className="rounded-xl border border-line bg-white/60 overflow-hidden">
-
-            {/* ── Header ── */}
-            <button
-              type="button"
-              onClick={() => setExpanded(isOpen ? null : groupKey)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50/60 transition text-left"
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold shrink-0",
-                  sType === "match" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
-                )}>
-                  {sType === "match"
-                    ? <Trophy className="h-3 w-3" />
-                    : <Dumbbell className="h-3 w-3" />}
-                  {teamName || label}
-                </span>
-                <span className="text-xs text-zinc-400 shrink-0">
-                  {attended.length}/{sEntries.length} · {mins} min{avgRpe > 0 ? ` · RPE Ø${avgRpe}` : ""}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 ml-2">
-                <span className={cn("text-sm font-bold tabular-nums", loadColour(avgLoad))}>
-                  Ø {avgLoad} {loadUnit}
-                </span>
-                {isOpen
-                  ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
-                  : <ChevronRight className="h-3.5 w-3.5 text-zinc-300" />}
-              </div>
-            </button>
-
-            {/* ── Expanded per-player table ── */}
-            {isOpen && (
-              <div className="border-t border-line/50 px-4 pb-3 pt-2 space-y-1">
-                {/* Column headers */}
-                <div className="grid text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-2"
-                  style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
-                  <span>{locale === "en" ? "Player" : "Jugador"}</span>
-                  <span className="text-center">min</span>
-                  <span className="text-center">RPE</span>
-                  <span className="text-center">{loadUnit}</span>
-                  <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
-                </div>
-
-                {/* Rows sorted by effective load desc */}
-                {[...sEntries].sort((a, b) => effectiveLoad(b) - effectiveLoad(a)).map(en => {
-                  const ath      = athletes.find(a => a.id === en.athleteId);
-                  const eRpe     = effectiveRpe(en);
-                  const eLd      = effectiveLoad(en);
-                  const usedHist = en.attended && en.rpe <= 1 && eRpe > 1;
-                  return (
-                    <div key={en.id}
-                      className="grid items-center gap-x-1 py-1 border-b border-line/30 last:border-0"
-                      style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
-                      <span className={cn("text-sm font-medium truncate",
-                        en.attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
-                        {ath?.name ?? "—"}
-                      </span>
-                      <span className="text-center text-xs text-zinc-600 tabular-nums">
-                        {en.attended ? en.minutesPlayed : "—"}
-                      </span>
-                      <div className="flex justify-center">
-                        {en.attended ? (
-                          <span
-                            className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold", rpeColour(eRpe))}
-                            title={usedHist ? (locale === "en" ? "Historical avg" : "Media histórica") : undefined}>
-                            {eRpe}{usedHist ? "*" : ""}
-                          </span>
-                        ) : <span className="text-zinc-300 text-xs">—</span>}
-                      </div>
-                      <span className={cn("text-center text-sm font-bold tabular-nums",
-                        en.attended ? loadColour(eLd) : "text-zinc-300")}>
-                        {en.attended ? eLd : "—"}
-                      </span>
-                      <div className="flex justify-center">
-                        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                          en.attended ? "bg-green-50 text-green-700" : "bg-zinc-100 text-zinc-400")}>
-                          {en.attended ? (locale === "en" ? "In" : "Sí") : (locale === "en" ? "Out" : "No")}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Team average row */}
-                <div className="grid items-center gap-x-1 pt-2 mt-1 border-t border-line/50"
-                  style={{ gridTemplateColumns: "1fr 44px 52px 64px 50px" }}>
-                  <span className="text-xs font-bold text-zinc-500 uppercase">
-                    Ø {locale === "en" ? "team" : "equipo"}
-                  </span>
-                  <span className="text-center text-xs text-zinc-400">—</span>
-                  <span className={cn("text-center text-xs font-bold tabular-nums", rpeColour(avgRpe))}>
-                    {avgRpe > 0 ? avgRpe : "—"}
-                  </span>
-                  <span className={cn("text-center text-sm font-bold tabular-nums", loadColour(avgLoad))}>
-                    {avgLoad}
-                  </span>
-                  <span className="text-center text-[10px] text-zinc-400">
-                    {attended.length}/{sEntries.length}
-                  </span>
-                </div>
-
-                {/* Footnote if historical RPE was used */}
-                {attended.some(e => e.rpe <= 1 && historicalAvgRpe(e.athleteId) > 1) && (
-                  <p className="text-[10px] text-zinc-400 italic pt-1">
-                    * {locale === "en" ? "Historical avg RPE used" : "Se usó RPE histórica media"}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-// ─── MultiSelectPill ──────────────────────────────────────────────────────────
-function MultiSelectPill({
-  label, options, selected, onToggle, onClear,
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onToggle: (v: string) => void;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className={cn(
-          "flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition",
-          selected.length > 0
-            ? "border-accent bg-accent/10 text-accent font-medium"
-            : "border-line bg-white/70 text-zinc-700 hover:bg-zinc-50"
-        )}
-      >
-        <span className="max-w-[140px] truncate">{label}</span>
-        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition", open && "rotate-180")} />
-      </button>
-
-      {open && options.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 z-50 w-52 rounded-2xl border border-line bg-white shadow-lg overflow-hidden">
-          {selected.length > 0 && (
-            <button
-              type="button"
-              onClick={() => { onClear(); setOpen(false); }}
-              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-red-500 hover:bg-red-50 transition border-b border-line"
-            >
-              <X className="h-3 w-3" /> Limpiar selección
-            </button>
-          )}
-          {options.map(opt => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => onToggle(opt)}
-              className={cn(
-                "w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition",
-                selected.includes(opt) ? "bg-accent/10 text-accent font-medium" : "text-zinc-700 hover:bg-zinc-50"
-              )}
-            >
-              <span>{opt}</span>
-              {selected.includes(opt) && <span className="text-accent text-xs">✓</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── PlayerAreaModal ──────────────────────────────────────────────────────────
-function PlayerAreaModal({
-  athlete, areaKey, defs, performanceEntries,
-  updatePerformanceEntry, deletePerformanceEntry,
-  onClose, onAddResult, t,
-}: {
-  athlete: { id: string; name: string; teamName?: string; position?: string; photoUrl?: string };
-  areaKey: PerformanceArea;
-  defs: PerformanceDefinition[];
-  performanceEntries: PerformanceEntry[];
-  updatePerformanceEntry: (id: string, updates: Partial<PerformanceEntryInput>) => void;
-  deletePerformanceEntry: (id: string) => void;
-  onClose: () => void;
-  onAddResult: () => void;
-  t: (key: string) => string;
-}) {
-  const STROKE: Record<PerformanceArea, string> = {
-    physical:          "#3b82f6",
-    technicalTactical: "#8b5cf6",
-    psychological:     "#f59e0b",
-    motorSkills:       "#10b981",
-  };
-
-  // All entries for this athlete+area, sorted oldest→newest
-  const allEntries = useMemo(() =>
-    performanceEntries
-      .filter(e => (e.athleteId === athlete.id || e.athleteName === athlete.name) && e.area === areaKey)
-      .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate)),
-    [performanceEntries, athlete, areaKey]
-  );
-
-  // Group by testName
-  const byTest = useMemo(() => {
-    const m = new Map<string, PerformanceEntry[]>();
-    for (const e of allEntries) {
-      const arr = m.get(e.testName) ?? []; arr.push(e); m.set(e.testName, arr);
-    }
-    return m;
-  }, [allEntries]);
-
-  // Only tests that have at least one entry
-  const presentDefs = defs.filter(d => byTest.has(d.name));
-
-  // Editing state: { entryId, fields }
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editFields, setEditFields] = useState<Partial<PerformanceEntryInput>>({});
-
-  function startEdit(entry: PerformanceEntry) {
-    setEditingId(entry.id);
-    setEditFields({
-      value: entry.value,
-      measurementDate: entry.measurementDate,
-      notes: entry.notes ?? "",
-      ratingLevel: entry.ratingLevel,
-      ratingValue: entry.ratingValue,
-    });
-  }
-
-  function saveEdit() {
-    if (editingId) {
-      updatePerformanceEntry(editingId, editFields);
-      setEditingId(null);
-    }
-  }
-
-  function confirmDelete(id: string) {
-    if (confirm(t("common.confirmDelete") || "¿Eliminar este registro?")) {
-      deletePerformanceEntry(id);
-    }
-  }
-
-  const stroke = STROKE[areaKey];
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-line shrink-0">
-          <div className="flex items-center gap-4">
-            {athlete.photoUrl ? (
-              <img src={athlete.photoUrl} alt={athlete.name} className="h-14 w-14 rounded-full object-cover border border-line shrink-0" />
-            ) : (
-              <div className="h-14 w-14 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center shrink-0">
-                <span className="text-xl font-bold text-zinc-400">{athlete.name.charAt(0)}</span>
-              </div>
-            )}
-            <div>
-              <h3 className="text-xl font-bold text-zinc-900">{athlete.name}</h3>
-              <p className="text-sm text-zinc-500 mt-0.5">
-                {athlete.teamName ?? "—"} · {athlete.position ?? "—"}
-              </p>
-              <span className={cn("inline-block mt-1 rounded-full border px-2 py-0.5 text-[10px] font-bold", AREA_COLOURS[areaKey])}>
-                {t(performanceAreaLabels[areaKey])}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 ml-4">
-            <button
-              type="button"
-              onClick={onAddResult}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 transition"
-            >
-              <Plus className="h-3.5 w-3.5" />Añadir resultado
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="overflow-y-auto px-6 py-5 space-y-8">
-          {presentDefs.length === 0 ? (
-            <p className="text-sm text-zinc-500 text-center py-6">{t("datahub.noResultsYet")}</p>
-          ) : (
-            presentDefs.map(def => {
-              const entries = byTest.get(def.name) ?? [];
-              const latest  = entries[entries.length - 1];
-
-              // Chart data
-              const chartData = entries.map(e => ({
-                date:  e.measurementDate.slice(0, 7),
-                value: e.ratingValue ?? e.value,
-              }));
-
-              const displayVal = (e: PerformanceEntry) =>
-                e.ratingLevel
-                  ? `${e.ratingLevel}${e.ratingValue != null ? ` · ${formatNumber(e.ratingValue, 1)}` : ""} ${e.unit}`
-                  : `${formatNumber(e.value, 2)} ${e.unit}`;
-
-              return (
-                <div key={def.id} className="space-y-3">
-                  {/* Test title */}
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm font-semibold text-zinc-900">
-                      {(def.nameKey ? t(def.nameKey) : null) || def.name}
-                      <span className="ml-1.5 text-xs font-normal text-zinc-400">({def.unit})</span>
-                    </p>
-                    <div className="h-px flex-1 bg-zinc-100" />
-                    {latest && (
-                      <span className="text-sm font-bold text-zinc-900">{displayVal(latest)}</span>
-                    )}
-                  </div>
-
-                  {/* Chart — only if ≥2 entries and numeric */}
-                  {chartData.length >= 2 && !latest?.ratingLevel && (
-                    <ResponsiveContainer width="100%" height={100}>
-                      <LineChart data={chartData} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
-                        <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                        <Tooltip
-                          contentStyle={{ fontSize: 11, borderRadius: 8 }}
-                          formatter={(v) => [`${formatNumber(Number(v ?? 0), 2)} ${def.unit}`, (def.nameKey ? t(def.nameKey) : null) || def.name]}
-                        />
-                        <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-
-                  {/* History table */}
-                  <div className="rounded-xl border border-line overflow-hidden">
-                    <table className="w-full text-xs text-left">
-                      <thead>
-                        <tr className="bg-zinc-50 text-zinc-400 border-b border-line">
-                          <th className="px-3 py-2 font-medium">{t("datahub.date") || "Fecha"}</th>
-                          <th className="px-3 py-2 font-medium">{t("datahub.result") || "Resultado"}</th>
-                          <th className="px-3 py-2 font-medium">{t("common.notes") || "Notas"}</th>
-                          <th className="px-3 py-2 w-16" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...entries].reverse().map(entry => (
-                          <Fragment key={entry.id}>
-                            <tr className="border-t border-line/40 hover:bg-zinc-50/60 transition">
-                              {editingId === entry.id ? (
-                                /* Edit row */
-                                <>
-                                  <td className="px-3 py-2">
-                                    <input
-                                      type="date"
-                                      value={editFields.measurementDate ?? ""}
-                                      onChange={e => setEditFields(f => ({ ...f, measurementDate: e.target.value }))}
-                                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-32"
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    {entry.ratingLevel ? (
-                                      <input
-                                        type="text"
-                                        value={editFields.ratingLevel ?? ""}
-                                        onChange={e => setEditFields(f => ({ ...f, ratingLevel: e.target.value }))}
-                                        className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-24"
-                                      />
-                                    ) : (
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={editFields.value ?? ""}
-                                        onChange={e => setEditFields(f => ({ ...f, value: Number(e.target.value) }))}
-                                        className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-24"
-                                      />
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <input
-                                      type="text"
-                                      value={editFields.notes ?? ""}
-                                      onChange={e => setEditFields(f => ({ ...f, notes: e.target.value }))}
-                                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs outline-none focus:border-accent/50 w-full"
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <div className="flex gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={saveEdit}
-                                        className="rounded-lg bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent/90"
-                                      >
-                                        {t("datahub.save") || "Guardar"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingId(null)}
-                                        className="rounded-lg border border-line px-2 py-1 text-[10px] text-zinc-500 hover:bg-zinc-50"
-                                      >
-                                        {t("datahub.cancel") || "Cancelar"}
-                                      </button>
-                                    </div>
-                                  </td>
-                                </>
-                              ) : (
-                                /* View row */
-                                <>
-                                  <td className="px-3 py-2 text-zinc-600">{formatDate(entry.measurementDate)}</td>
-                                  <td className="px-3 py-2 font-semibold text-zinc-900">{displayVal(entry)}</td>
-                                  <td className="px-3 py-2 text-zinc-500">{entry.notes || "—"}</td>
-                                  <td className="px-3 py-2">
-                                    <div className="flex gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => startEdit(entry)}
-                                        className="rounded-full p-1.5 hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
-                                        title={t("common.edit") || "Editar"}
-                                      >
-                                        <Edit2 className="h-3 w-3" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => confirmDelete(entry.id)}
-                                        className="rounded-full p-1.5 hover:bg-red-50 text-zinc-400 hover:text-red-500 transition"
-                                        title={t("common.delete") || "Eliminar"}
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </>
-                              )}
-                            </tr>
-                          </Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Field helper ─────────────────────────────────────────────────────────────
-function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
-  return (
-    <label className={cn("grid gap-2", className)}>
-      <span className="text-sm font-medium text-zinc-800">{label}</span>
-      {children}
-    </label>
   );
 }
