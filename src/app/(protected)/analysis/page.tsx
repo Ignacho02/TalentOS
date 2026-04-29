@@ -865,7 +865,10 @@ function AssistantView({
           const entry = map.get(rg.athleteId);
           if (entry) {
             entry.alerts.push({
+              id: rg.id,
               severity: "warning",
+              athleteName: rg.athleteName,
+              teamName: rg.teamName,
               category: "rapidGrowth",
               message: t("analysis.assistant.rapidGrowth") + `: +${rg.statureGain}cm`,
               detail: t("analysis.assistant.rapidGrowthDetail").replace("{rate}", rg.monthlyRate.toString())
@@ -976,14 +979,12 @@ export default function AnalysisPage() {
   const { t } = useLocale();
   const searchParams = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<AnalysisTab>("individual");
-
-  useEffect(() => {
-    const tab = searchParams.get("tab") as AnalysisTab;
-    if (tab && (tab === "individual" || tab === "collective" || tab === "assistant")) {
-      setActiveTab(tab);
-    }
-  }, [searchParams]);
+  const queryTab = searchParams.get("tab");
+  const initialTab: AnalysisTab =
+    queryTab === "individual" || queryTab === "collective" || queryTab === "assistant"
+      ? queryTab
+      : "individual";
+  const [activeTab, setActiveTab] = useState<AnalysisTab>(initialTab);
 
   const tabLabels: Record<AnalysisTab, string> = {
     individual: t("analysis.tabs.individual"),

@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { demoClub } from "@/lib/demo-data";
-import { isDemoCredential } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -18,29 +16,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing credentials." }, { status: 400 });
   }
 
-  const supabase = createSupabaseClient();
+  const supabase = await createSupabaseClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (supabase) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-  } else if (!isDemoCredential(email, password)) {
-    return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 401 });
   }
 
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(
-    "maduration_session",
-    JSON.stringify({ email, clubName: demoClub.name }),
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    },
-  );
-
-  return response;
+  return NextResponse.json({ ok: true });
 }

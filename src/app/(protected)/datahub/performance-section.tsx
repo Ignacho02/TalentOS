@@ -326,7 +326,7 @@ export function PerformanceSection({
     // ── Sheet 1: Instructions ─────────────────────────────────────────────────
     const instrTitle = isEN ? "Instructions" : "Instrucciones";
     const instrSheet = wb.addWorksheet(instrTitle);
-    (instrSheet as any).tabColor = { argb: "FF1D4ED8" };
+    instrSheet.properties.tabColor = { argb: "FF1D4ED8" };
 
     // Title
     instrSheet.mergeCells("A1:G1");
@@ -437,7 +437,7 @@ export function PerformanceSection({
 
       const ws   = wb.addWorksheet(AREA_LABELS[areaKey]);
       const fill = AREA_FILL[areaKey];
-      (ws as any).tabColor = { argb: "FF" + fill };
+      ws.properties.tabColor = { argb: "FF" + fill };
 
       const headerFill: ExcelJS.Fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + fill } };
       const headerFont: Partial<ExcelJS.Font> = { bold: true, size: 10, color: { argb: "FF374151" } };

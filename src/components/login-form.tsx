@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_EMAIL, DEFAULT_PASSWORD } from "@/lib/config";
 import { useLocale } from "@/lib/i18n/locale-context";
 
 export function LoginForm() {
   const router = useRouter();
   const { t } = useLocale();
-  const [email, setEmail] = useState(DEFAULT_EMAIL);
-  const [password, setPassword] = useState(DEFAULT_PASSWORD);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 

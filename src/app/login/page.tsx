@@ -1,11 +1,12 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
+import { getSessionUser } from "@/lib/auth";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 
 export default async function LoginPage() {
   const cookieStore = await cookies();
-  const session = cookieStore.get("maduration_session");
+  const session = await getSessionUser();
   const locale = cookieStore.get("maduration_locale")?.value === "en" ? "en" : "es";
 
   if (session) {

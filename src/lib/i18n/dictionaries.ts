@@ -52,7 +52,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       body:
         "Gestiona antropometria, calcula maduracion biologica y comparte criterios comunes entre staff tecnico y cientifico.",
       helper:
-        "Modo demo activo si no has conectado Supabase. Credenciales por defecto: coach@maduration.app / Maduration2026!",
+        "Accede con el usuario creado en Supabase Auth y vinculado a tu club.",
       quote:
         "La edad cronologica no cuenta toda la historia. Maduration la convierte en contexto util para decidir mejor.",
     },
@@ -683,7 +683,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       body:
         "Manage anthropometrics, calculate biological maturation and align technical and science staff around the same context.",
       helper:
-        "Demo mode is active when Supabase is not connected. Default credentials: coach@maduration.app / Maduration2026!",
+        "Sign in with the user created in Supabase Auth and linked to your club.",
       quote:
         "Chronological age does not tell the full story. Maduration turns it into useful context for better decisions.",
     },

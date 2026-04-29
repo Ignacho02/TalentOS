@@ -1,9 +1,8 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { getSessionUser } from "@/lib/auth";
 
 export default async function Home() {
-  const cookieStore = await cookies();
-  const session = cookieStore.get("maduration_session");
+  const session = await getSessionUser();
 
   redirect(session ? "/hub" : "/login");
 }

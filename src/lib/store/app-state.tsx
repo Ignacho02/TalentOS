@@ -3,12 +3,23 @@
 import {
   createContext,
   startTransition,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import { calculateMaturation } from "@/lib/maturation/calculations";
+import {
+  addAthleteAction,
+  deleteAthleteAction,
+  updateAthleteAction,
+} from "@/lib/actions/athletes";
+import {
+  addRecordAction,
+  updateRecordAction,
+} from "@/lib/actions/records";
+import { addTeamAction, deleteTeamAction, updateTeamAction } from "@/lib/actions/teams";
 import type {
   AppState,
   AnthropometricRecordInput,
@@ -79,38 +90,69 @@ interface AppStateContextValue {
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
-export function AppStateProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AppState>(() => readStoredAppState(normalizeState));
+function reportPersistenceError(error: unknown) {
+  console.error("[supabase] Persistence failed", error);
+}
+
+export function AppStateProvider({
+  children,
+  initialState,
+}: {
+  children: React.ReactNode;
+  initialState?: AppState;
+}) {
+  const [state, setState] = useState<AppState>(
+    () => initialState ?? readStoredAppState(normalizeState),
+  );
 
   useEffect(() => {
+    if (initialState) return;
     persistAppState(state);
-  }, [state]);
+  }, [initialState, state]);
 
   const assessments = useMemo(
     () => state.records.map(calculateMaturation),
     [state.records],
   );
 
-  const addRecord = (input: AnthropometricRecordInput) => {
-    let added = false;
+  const addRecord = useCallback((input: AnthropometricRecordInput) => {
+    const duplicate = state.records.some(
+      (record) =>
+        record.athleteName.toLowerCase() === input.athleteName.toLowerCase() &&
+        record.dataCollectionDate === input.dataCollectionDate,
+    );
+
+    if (duplicate) return false;
 
     startTransition(() => {
       setState((current) => {
-        const result = addRecordToState(current, input);
-        added = result.added;
-        return result.nextState;
+        return addRecordToState(current, input).nextState;
       });
     });
 
-    return added;
-  };
+    void addRecordAction(input).catch(reportPersistenceError);
+    return true;
+  }, [state.records]);
 
   const updateRecord = (id: string, updates: Partial<AnthropometricRecordInput>) => {
     setState((current) => updateRecordInState(current, id, updates));
+    void updateRecordAction(id, updates).catch(reportPersistenceError);
   };
 
-  const importRecords = (rows: AnthropometricRecordInput[]) => {
+  const importRecords = useCallback((rows: AnthropometricRecordInput[]) => {
     let imported = 0;
+    const existing = new Set(
+      state.records.map(
+        (record) =>
+          `${record.athleteName.toLowerCase()}::${record.dataCollectionDate}`,
+      ),
+    );
+    const rowsToPersist = rows.filter((row) => {
+      const key = `${row.athleteName.toLowerCase()}::${row.dataCollectionDate}`;
+      if (existing.has(key)) return false;
+      existing.add(key);
+      return true;
+    });
 
     setState((current) => {
       const result = importRecordsToState(current, rows);
@@ -118,8 +160,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       return result.nextState;
     });
 
+    rowsToPersist.forEach((row) => {
+      void addRecordAction(row).catch(reportPersistenceError);
+    });
+
     return imported;
-  };
+  }, [state.records]);
 
   const addPerformanceEntry = (input: PerformanceEntryInput) => {
     setState((current) => addPerformanceEntryToState(current, input));
@@ -157,26 +203,32 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const addTeam = (team: Omit<Team, "id">) => {
     setState((current) => addTeamToState(current, team));
+    void addTeamAction(team).catch(reportPersistenceError);
   };
 
   const updateTeam = (id: string, updates: Partial<Team>) => {
     setState((current) => updateTeamInState(current, id, updates));
+    void updateTeamAction(id, updates).catch(reportPersistenceError);
   };
 
   const deleteTeam = (id: string) => {
     setState((current) => deleteTeamFromState(current, id));
+    void deleteTeamAction(id).catch(reportPersistenceError);
   };
 
   const addAthlete = (athlete: Omit<Athlete, "id">) => {
     setState((current) => addAthleteToState(current, athlete));
+    void addAthleteAction(athlete).catch(reportPersistenceError);
   };
 
   const updateAthlete = (id: string, updates: Partial<Athlete>) => {
     setState((current) => updateAthleteInState(current, id, updates));
+    void updateAthleteAction(id, updates).catch(reportPersistenceError);
   };
 
   const deleteAthlete = (id: string) => {
     setState((current) => deleteAthleteFromState(current, id));
+    void deleteAthleteAction(id).catch(reportPersistenceError);
   };
 
   const updateClub = (updates: Partial<Club>) => {
@@ -236,7 +288,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
       },
     }),
-    [state, assessments],
+    [state, assessments, addRecord, importRecords],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

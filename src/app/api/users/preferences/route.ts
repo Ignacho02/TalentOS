@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseClient } from "@/lib/supabase/server";
 
 export async function PATCH(request: NextRequest) {
   let body: { locale?: "es" | "en" };
@@ -9,6 +10,20 @@ export async function PATCH(request: NextRequest) {
   }
 
   const locale = body.locale === "en" ? "en" : "es";
+  const supabase = await createSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    const { error } = await supabase
+      .from("user_preferences")
+      .upsert({ user_id: user.id, locale });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  }
 
   const response = NextResponse.json({ ok: true, locale });
   response.cookies.set("maduration_locale", locale, {
