@@ -11,6 +11,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+import { LabeledField } from "@/components/labeled-field";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput } from "@/lib/types";
@@ -50,20 +51,6 @@ export function MaturationSection({
   assessments,
   expandedAthleteId,
   setExpandedAthleteId,
-  search: _search,
-  setSearch: _setSearch,
-  teamFilter: _teamFilter,
-  setTeamFilter: _setTeamFilter,
-  positionFilter: _positionFilter,
-  setPositionFilter: _setPositionFilter,
-  ageMin: _ageMin,
-  setAgeMin: _setAgeMin,
-  ageMax: _ageMax,
-  setAgeMax: _setAgeMax,
-  heightMin: _heightMin,
-  setHeightMin: _setHeightMin,
-  heightMax: _heightMax,
-  setHeightMax: _setHeightMax,
   teams,
   positions,
   maturationForm,
@@ -82,7 +69,6 @@ export function MaturationSection({
   editingAthleteId,
   setEditingAthleteId,
   openEditForAthlete,
-  openAddMeasurementForAthlete: _openAddMeasurementForAthlete,
   emptyForm,
 }: {
   state: ReturnType<typeof useAppState>["state"];
@@ -90,20 +76,6 @@ export function MaturationSection({
   assessments: ReturnType<typeof useAppState>["assessments"];
   expandedAthleteId: string | null;
   setExpandedAthleteId: (id: string | null) => void;
-  search: string;
-  setSearch: (value: string) => void;
-  teamFilter: string;
-  setTeamFilter: (value: string) => void;
-  positionFilter: string;
-  setPositionFilter: (value: string) => void;
-  ageMin: number;
-  setAgeMin: (value: number) => void;
-  ageMax: number;
-  setAgeMax: (value: number) => void;
-  heightMin: number;
-  setHeightMin: (value: number) => void;
-  heightMax: number;
-  setHeightMax: (value: number) => void;
   teams: string[];
   positions: string[];
   maturationForm: AnthropometricRecordInput;
@@ -125,7 +97,6 @@ export function MaturationSection({
   editingAthleteId: string | null;
   setEditingAthleteId: (id: string | null) => void;
   openEditForAthlete: (athleteId: string) => void;
-  openAddMeasurementForAthlete: (athleteId: string) => void;
   emptyForm: AnthropometricRecordInput;
 }) {
   const { t } = useLocale();
@@ -1547,45 +1518,45 @@ function AddPlayerFormBody({
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label={t("datahub.playerName")}>
+        <LabeledField label={t("datahub.playerName")}>
           <input type="text" required placeholder={t("datahub.examplePlayerName")} value={maturationForm.athleteName} onChange={(e) => setMaturationValue("athleteName", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans" />
-        </Field>
-        <Field label={t("datahub.sex")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.sex")}>
           <select required value={maturationForm.sex} onChange={(e) => setMaturationValue("sex", e.target.value as "male" | "female")} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans">
             <option value="male">{t("datahub.male")}</option>
             <option value="female">{t("datahub.female")}</option>
           </select>
-        </Field>
-        <Field label={t("datahub.ageGroup")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.ageGroup")}>
           <input type="text" required placeholder={t("datahub.exampleAgeGroup")} value={maturationForm.ageGroup} onChange={(e) => setMaturationValue("ageGroup", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.team")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.team")}>
           <input type="text" placeholder={t("datahub.exampleTeam")} value={maturationForm.teamName || ""} onChange={(e) => setMaturationValue("teamName", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.position")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.position")}>
           <input type="text" placeholder={t("datahub.examplePosition")} value={maturationForm.position || ""} onChange={(e) => setMaturationValue("position", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.birthDate")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.birthDate")}>
           <input type="date" required value={maturationForm.dob} onChange={(e) => setMaturationValue("dob", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.measurement")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.measurement")}>
           <input type="date" required value={maturationForm.dataCollectionDate} onChange={(e) => setMaturationValue("dataCollectionDate", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.statureCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.statureCm")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleStature")} value={maturationForm.statureCm || ""} onChange={(e) => setMaturationValue("statureCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.bodyMassKg")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.bodyMassKg")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleMass")} value={maturationForm.bodyMassKg || ""} onChange={(e) => setMaturationValue("bodyMassKg", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.sittingHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.sittingHeightCm")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleSittingHeight")} value={maturationForm.sittingHeightCm || ""} onChange={(e) => setMaturationValue("sittingHeightCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.motherHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.motherHeightCm")}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.motherHeightCm || ""} onChange={(e) => setMaturationValue("motherHeightCm", parseFloat(e.target.value) || null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.fatherHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.fatherHeightCm")}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm || ""} onChange={(e) => setMaturationValue("fatherHeightCm", parseFloat(e.target.value) || null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
+        </LabeledField>
       </div>
       <div className="flex justify-end gap-3">
         <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-zinc-700 hover:bg-gray-50">{t("datahub.cancel")}</button>
@@ -1642,7 +1613,7 @@ function AthleteSelector({
 
   return (
     <div className="mb-4 relative">
-      <Field label={t("datahub.selectAthlete")}>
+      <LabeledField label={t("datahub.selectAthlete")}>
         <input
           type="text"
           autoComplete="off"
@@ -1652,7 +1623,7 @@ function AthleteSelector({
           onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) setEditingAthleteId(null); }}
           className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans w-full outline-none focus:border-accent/50"
         />
-      </Field>
+      </LabeledField>
       {open && filtered.length > 0 && (
         <div className="absolute z-20 mt-1 w-full rounded-xl border border-line bg-white shadow-lg max-h-52 overflow-y-auto">
           {filtered.slice(0, 20).map((a) => (
@@ -1694,24 +1665,24 @@ function AddMeasurementFormBody({
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label={t("datahub.measurement")}>
+        <LabeledField label={t("datahub.measurement")}>
           <input type="date" required value={maturationForm.dataCollectionDate} onChange={(e) => setMaturationValue("dataCollectionDate", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.statureCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.statureCm")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleStature")} value={maturationForm.statureCm || ""} onChange={(e) => setMaturationValue("statureCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.bodyMassKg")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.bodyMassKg")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleMass")} value={maturationForm.bodyMassKg || ""} onChange={(e) => setMaturationValue("bodyMassKg", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.sittingHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.sittingHeightCm")}>
           <input type="number" step="0.1" required placeholder={t("datahub.exampleSittingHeight")} value={maturationForm.sittingHeightCm || ""} onChange={(e) => setMaturationValue("sittingHeightCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.motherHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.motherHeightCm")}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.motherHeightCm ?? ""} onChange={(e) => setMaturationValue("motherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
-        <Field label={t("datahub.fatherHeightCm")}>
+        </LabeledField>
+        <LabeledField label={t("datahub.fatherHeightCm")}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm ?? ""} onChange={(e) => setMaturationValue("fatherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
-        </Field>
+        </LabeledField>
       </div>
       <div className="flex justify-end gap-3">
         <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-zinc-700 hover:bg-gray-50">{t("datahub.cancel")}</button>
@@ -1766,22 +1737,5 @@ function HistoryRow({
         </div>
       </td>
     </tr>
-  );
-}
-
-function Field({
-  label,
-  className,
-  children,
-}: {
-  label: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className={cn("grid gap-2", className)}>
-      <span className="text-sm font-medium text-zinc-800">{label}</span>
-      {children}
-    </label>
   );
 }

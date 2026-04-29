@@ -21,6 +21,12 @@ import {
   buildTeamStats, computeAthleteZScore, buildBioBandingGroups,
   buildAlerts, detectRapidGrowth,
 } from "@/lib/maturation/analysis-helpers";
+import {
+  getAssessmentsForBand,
+  getAssessmentsForTeam,
+  getLatestAssessmentsByAthlete,
+  getUniqueAthleteTeams,
+} from "@/lib/maturation/selectors";
 import type { MaturityBand } from "@/lib/types";
 import type { TeamStats, AlertItem, RapidGrowthAlert } from "@/lib/maturation/analysis-helpers";
 
@@ -84,7 +90,7 @@ function IndividualView({
   t: (k: string) => string;
 }) {
   const teams = useMemo(
-    () => [...new Set(state.athletes.map((a) => a.teamName).filter(Boolean))] as string[],
+    () => getUniqueAthleteTeams(state.athletes),
     [state.athletes],
   );
 
@@ -93,16 +99,10 @@ function IndividualView({
   const [filterBand, setFilterBand] = useState("");
   const [selectedAthleteId, setSelectedAthleteId] = useState(state.athletes[0]?.id ?? "");
 
-  const latestByAthlete = useMemo(() => {
-    const map = new Map<string, (typeof assessments)[number]>();
-    for (const a of assessments) {
-      const existing = map.get(a.inputs.athleteId);
-      if (!existing || existing.inputs.dataCollectionDate < a.inputs.dataCollectionDate) {
-        map.set(a.inputs.athleteId, a);
-      }
-    }
-    return Array.from(map.values());
-  }, [assessments]);
+  const latestByAthlete = useMemo(
+    () => getLatestAssessmentsByAthlete(assessments),
+    [assessments],
+  );
 
   const filtered = useMemo(() => {
     return latestByAthlete.filter((a) => {
@@ -125,13 +125,13 @@ function IndividualView({
 
   // Z-score within team
   const teamAssessments = useMemo(
-    () => assessments.filter((a) => a.inputs.teamName === selectedLatest?.inputs.teamName),
+    () => getAssessmentsForTeam(assessments, selectedLatest?.inputs.teamName),
     [assessments, selectedLatest],
   );
   
   // Maturation group assessments
   const groupAssessments = useMemo(
-    () => assessments.filter((a) => a.classification.maturityBand === selectedLatest?.classification.maturityBand),
+    () => getAssessmentsForBand(assessments, selectedLatest?.classification.maturityBand),
     [assessments, selectedLatest],
   );
 
@@ -477,22 +477,16 @@ function CollectiveView({
   t: (k: string) => string;
 }) {
   const teams = useMemo(
-    () => [...new Set(state.athletes.map((a) => a.teamName).filter(Boolean))] as string[],
+    () => getUniqueAthleteTeams(state.athletes),
     [state.athletes],
   );
 
   const [selectedTeam, setSelectedTeam] = useState(teams[0] ?? "");
 
-  const latestByAthlete = useMemo(() => {
-    const map = new Map<string, (typeof assessments)[number]>();
-    for (const a of assessments) {
-      const existing = map.get(a.inputs.athleteId);
-      if (!existing || existing.inputs.dataCollectionDate < a.inputs.dataCollectionDate) {
-        map.set(a.inputs.athleteId, a);
-      }
-    }
-    return Array.from(map.values());
-  }, [assessments]);
+  const latestByAthlete = useMemo(
+    () => getLatestAssessmentsByAthlete(assessments),
+    [assessments],
+  );
 
   const teamStats = useMemo(() => {
     if (!selectedTeam) return null;
@@ -836,18 +830,17 @@ function AssistantView({
       name: string; 
       team?: string; 
       band: MaturityBand; 
-      alerts: any[]; 
+      alerts: AlertItem[]; 
       advice: string[] 
     }>();
 
     // Latest assessments to get current band
-    const latestMap = new Map<string, (typeof assessments)[number]>();
-    for (const a of assessments) {
-      const existing = latestMap.get(a.inputs.athleteId);
-      if (!existing || existing.inputs.dataCollectionDate < a.inputs.dataCollectionDate) {
-        latestMap.set(a.inputs.athleteId, a);
-      }
-    }
+    const latestMap = new Map(
+      getLatestAssessmentsByAthlete(assessments).map((assessment) => [
+        assessment.inputs.athleteId,
+        assessment,
+      ]),
+    );
 
     latestMap.forEach((a, id) => {
       const advice: string[] = [];

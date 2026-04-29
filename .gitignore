@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+.qwen/
 
 # debug
 npm-debug.log*
