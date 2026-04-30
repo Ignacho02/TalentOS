@@ -8,13 +8,6 @@ const nextConfig = {
     },
   },
 
-  // Límite del body parser para cualquier API route (incluido el endpoint que guarda la foto)
-  api: {
-    bodyParser: {
-      sizeLimit: '50mb', // permite hasta 50 MB por solicitud
-    },
-  },
-
   // Configuración de imágenes, permite carga desde dominios externos si es necesario
   images: {
     remotePatterns: [

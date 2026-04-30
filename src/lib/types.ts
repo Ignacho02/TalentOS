@@ -22,7 +22,7 @@ export interface Team {
   clubId: string;
   name: string;
   ageGroup: string;
-  photoUrl?: string;
+  photoUrl?: string | null;
 }
 
 export interface Athlete {
@@ -36,7 +36,7 @@ export interface Athlete {
   teamName?: string;
   position?: string;
   dob: string;
-  photoUrl?: string;
+  photoUrl?: string | null;
   displayOrder?: number;
   category?: string;
 }

@@ -208,10 +208,10 @@ function TeamsTab({
   updateTeam,
   deleteTeam,
 }: {
-  teams: Array<{ id: string; name: string; ageGroup: string; clubId: string; photoUrl?: string }>;
-  athletes: Array<{ id: string; name: string; teamId?: string; photoUrl?: string; position?: string; displayOrder?: number; category?: string }>;
-  addTeam: (team: { name: string; ageGroup: string; clubId: string; photoUrl?: string }) => void;
-  updateTeam: (id: string, updates: { name?: string; ageGroup?: string; photoUrl?: string }) => void;
+  teams: Array<{ id: string; name: string; ageGroup: string; clubId: string; photoUrl?: string | null }>;
+  athletes: Array<{ id: string; name: string; teamId?: string; photoUrl?: string | null; position?: string; displayOrder?: number; category?: string }>;
+  addTeam: (team: { name: string; ageGroup: string; clubId: string; photoUrl?: string | null }) => void;
+  updateTeam: (id: string, updates: { name?: string; ageGroup?: string; photoUrl?: string | null }) => void;
   deleteTeam: (id: string) => void;
 }) {
   const { t } = useLocale();
@@ -332,13 +332,13 @@ function TeamsTab({
 
   function handleSaveAdd() {
     if (!name.trim() || !ageGroup.trim()) return;
-    addTeam({ name: name.trim(), ageGroup: ageGroup.trim(), clubId: state.club.id, photoUrl: photoUrl || undefined });
+    addTeam({ name: name.trim(), ageGroup: ageGroup.trim(), clubId: state.club.id, photoUrl: photoUrl || null });
     closeModals();
   }
 
   function handleSaveEdit() {
     if (!editingId || !name.trim() || !ageGroup.trim()) return;
-    updateTeam(editingId, { name: name.trim(), ageGroup: ageGroup.trim(), photoUrl: photoUrl || undefined });
+    updateTeam(editingId, { name: name.trim(), ageGroup: ageGroup.trim(), photoUrl: photoUrl || null });
     closeModals();
   }
 
@@ -665,10 +665,10 @@ function PlayersTab({
   updateAthlete,
   deleteAthlete,
 }: {
-  athletes: Array<{ id: string; name: string; sex: string; ageGroup: string; teamName?: string; position?: string; dob: string; clubName: string; teamId?: string; photoUrl?: string }>;
+  athletes: Array<{ id: string; name: string; sex: string; ageGroup: string; teamName?: string; position?: string; dob: string; clubName: string; teamId?: string; photoUrl?: string | null }>;
   teams: Array<{ id: string; name: string }>;
-  addAthlete: (a: { name: string; sex: "male" | "female"; ageGroup: string; clubName: string; teamName?: string; teamId?: string; position?: string; dob: string; photoUrl?: string }) => void;
-  updateAthlete: (id: string, updates: { name?: string; sex?: "male" | "female"; ageGroup?: string; teamName?: string; teamId?: string; position?: string; dob?: string; photoUrl?: string }) => void;
+  addAthlete: (a: { name: string; sex: "male" | "female"; ageGroup: string; clubName: string; teamName?: string; teamId?: string; position?: string; dob: string; photoUrl?: string | null }) => void;
+  updateAthlete: (id: string, updates: { name?: string; sex?: "male" | "female"; ageGroup?: string; teamName?: string; teamId?: string; position?: string; dob?: string; photoUrl?: string | null }) => void;
   deleteAthlete: (id: string) => void;
 }) {
   const { t } = useLocale();
@@ -912,7 +912,7 @@ function PlayersTab({
       teamId: team?.id,
       position: position.trim() || undefined,
       dob: dob.trim(),
-      photoUrl: photoUrl || undefined,
+      photoUrl: photoUrl || null,
     });
     closeModals();
   }
@@ -930,7 +930,7 @@ function PlayersTab({
       teamId: team?.id,
       position: position.trim() || undefined,
       dob: dob.trim(),
-      photoUrl: photoUrl || undefined,
+      photoUrl: photoUrl || null,
     });
     closeModals();
   }
