@@ -222,7 +222,7 @@ export default function DataHubPage() {
           onSelect={setSection}
         />
       )}
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 p-6">
         {section === "landing" && <DataHubLanding />}
         {section === "club" && <ClubSection />}
         {section === "maturation" && (

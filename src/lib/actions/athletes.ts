@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { Athlete } from "@/lib/types";
+import { isUUID } from "@/lib/utils";
 
 function toAthleteInsert(athlete: Omit<Athlete, "id">, clubId: string) {
   return {
@@ -51,6 +52,7 @@ export async function addAthleteAction(athlete: Omit<Athlete, "id">) {
 export async function updateAthleteAction(id: string, updates: Partial<Athlete>) {
   await requireSession();
   const supabase = await createSupabaseClient();
+  if (!isUUID(id)) return;
   const { data, error } = await supabase
     .from("athletes")
     .update(toAthleteUpdate(updates))
@@ -66,6 +68,7 @@ export async function updateAthleteAction(id: string, updates: Partial<Athlete>)
 export async function deleteAthleteAction(id: string) {
   await requireSession();
   const supabase = await createSupabaseClient();
+  if (!isUUID(id)) return;
   const { error } = await supabase.from("athletes").delete().eq("id", id);
 
   if (error) throw new Error(error.message);

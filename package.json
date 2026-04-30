@@ -28,7 +28,7 @@
     "@next/swc-wasm-nodejs": "^16.2.2",
     "@next/swc-wasm-web": "^16.2.2",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^25.6.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "cross-env": "^10.1.0",

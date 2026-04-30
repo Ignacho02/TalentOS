@@ -11,11 +11,14 @@ import {
   LogOut,
   Orbit,
   Users,
+  Search,
 } from "lucide-react";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { cn } from "@/lib/utils";
 import { useAppState } from "@/lib/store/app-state";
 import type { Locale } from "@/lib/types";
+import { GlobalSearch } from "./command-palette";
+import { useEffect } from "react";
 
 interface NavItem {
   labelKey: string;
@@ -71,6 +74,19 @@ export function Navbar() {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [activeSubMenu, setActiveSubMenu] = useState<string | null>(null);
   const [activeThirdLevel, setActiveThirdLevel] = useState<string | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Keyboard shortcut Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -270,6 +286,16 @@ export function Navbar() {
 
           {/* Controles derechos */}
           <div className="flex items-center gap-2">
+            {/* Buscador */}
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="p-2 rounded-full border border-line bg-white/70 text-zinc-500 hover:text-accent hover:bg-accent/5 transition flex items-center justify-center"
+              aria-label={t("common.search")}
+              title="Ctrl+K"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+
             <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-line bg-white/70 p-1" role="radiogroup" aria-label="Language selector">
               <div className="flex items-center gap-1 px-2 text-zinc-700">
                 <Globe2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -301,6 +327,7 @@ export function Navbar() {
           </div>
         </div>
       </div>
+      <GlobalSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
     </nav>
   );
 }

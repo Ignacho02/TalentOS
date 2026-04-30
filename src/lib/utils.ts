@@ -60,3 +60,7 @@ export function calculateAge(dob: string, collectedAt: string) {
 
   return diff / (1000 * 60 * 60 * 24 * 365.25);
 }
+
+export function isUUID(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}

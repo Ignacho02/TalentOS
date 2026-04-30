@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { AnthropometricRecordInput } from "@/lib/types";
+import { isUUID } from "@/lib/utils";
 
 async function ensureTeam(input: AnthropometricRecordInput, clubId: string) {
   if (!input.teamName) return null;
@@ -34,7 +35,7 @@ async function ensureTeam(input: AnthropometricRecordInput, clubId: string) {
 async function ensureAthlete(input: AnthropometricRecordInput, clubId: string) {
   const supabase = await createSupabaseClient();
 
-  if (input.athleteId) {
+  if (input.athleteId && isUUID(input.athleteId)) {
     const { data } = await supabase
       .from("athletes")
       .select("id")
@@ -125,6 +126,7 @@ export async function updateRecordAction(
 ) {
   await requireSession();
   const supabase = await createSupabaseClient();
+  if (!isUUID(id)) return;
   const { data, error } = await supabase
     .from("anthropometric_records")
     .update(toRecordUpdate(updates))
@@ -141,6 +143,7 @@ export async function updateRecordAction(
 export async function deleteRecordAction(id: string) {
   await requireSession();
   const supabase = await createSupabaseClient();
+  if (!isUUID(id)) return;
   const { error } = await supabase.from("anthropometric_records").delete().eq("id", id);
 
   if (error) throw new Error(error.message);

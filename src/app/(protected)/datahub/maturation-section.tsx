@@ -1395,6 +1395,35 @@ function ModalShell({
     setDownloadTeams([]);
   };
 
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDragging(true);
+    } else if (e.type === "dragleave") {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+        const mockEvent = {
+          target: { files: [file] }
+        } as unknown as React.ChangeEvent<HTMLInputElement>;
+        await onUploadChange(mockEvent);
+      }
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -1425,7 +1454,16 @@ function ModalShell({
             </button>
           </div>
 
-          <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 space-y-3">
+          <div
+            onDragEnter={handleDrag}
+            onDragOver={handleDrag}
+            onDragLeave={handleDrag}
+            onDrop={handleDrop}
+            className={cn(
+              "rounded-xl border border-dashed p-4 space-y-3 transition-colors",
+              isDragging ? "border-emerald-500 bg-emerald-50" : "border-zinc-300 bg-zinc-50"
+            )}
+          >
             {/* Team selector */}
             {teams && teams.length > 0 && setDownloadTeams && downloadTeams !== undefined && (
               <div>

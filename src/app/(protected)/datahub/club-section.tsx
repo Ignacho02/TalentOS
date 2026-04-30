@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -56,6 +57,23 @@ export function ClubSection() {
   const [showAddTestForm, setShowAddTestForm] = useState(false);
   const [newDef, setNewDef] = useState({ name: "", nameKey: undefined as string | undefined, descriptionKey: undefined as string | undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best" as "best" | "average", interpretation: "higher_better" as "higher_better" | "lower_better", description: "", mediaUrl: "", mediaType: undefined as "image" | "video" | undefined, subCategory: undefined as string | undefined });
   const [selectedDef, setSelectedDef] = useState<PerformanceDefinition | null>(null);
+
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const view = searchParams.get("view");
+    if (view === "testBattery") {
+      setActiveTab("testBattery");
+      const area = searchParams.get("area") as PerformanceArea;
+      if (area) setTestBatteryArea(area);
+    } else if (view === "players") {
+      setActiveTab("structure");
+      setStructureSubTab("players");
+    } else if (view === "teams") {
+      setActiveTab("structure");
+      setStructureSubTab("teams");
+    }
+  }, [searchParams]);
 
   const testDefs = state.performanceDefinitions;
 
@@ -198,7 +216,15 @@ function TeamsTab({
 }) {
   const { t } = useLocale();
   const { state, updateAthlete } = useAppState();
+  const searchParams = useSearchParams();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id && teams.some(t => t.id === id)) {
+      setSelectedTeamId(id);
+    }
+  }, [searchParams, teams]);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -647,9 +673,17 @@ function PlayersTab({
 }) {
   const { t } = useLocale();
   const { state } = useAppState();
+  const searchParams = useSearchParams();
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id && athletes.some(a => a.id === id)) {
+      setSelectedAthleteId(id);
+    }
+  }, [searchParams, athletes]);
   const [name, setName] = useState("");
   const [sex, setSex] = useState<"male" | "female">("male");
   const [ageGroup, setAgeGroup] = useState("");
@@ -1060,7 +1094,7 @@ function PlayersTab({
         </div>
 
         {selectedAthlete && (
-          <div className="w-full lg:w-1/3 rounded-xl border border-line bg-white shadow-lg p-5 flex flex-col space-y-6 animate-in slide-in-from-right-4 duration-200 self-start">
+          <div className="w-full lg:w-1/3 rounded-xl border border-line bg-white shadow-lg p-5 flex flex-col space-y-6 animate-in slide-in-from-right-4 duration-200 self-start lg:sticky lg:top-24 h-fit">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
                 <div className="h-16 w-16 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -1136,7 +1170,25 @@ function PlayersTab({
         >
           <div className="space-y-4">
             {/* Excel Import/Export Section */}
-            <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 mb-2 shrink-0">
+            <div
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); (e.currentTarget as HTMLElement).classList.add("border-emerald-500", "bg-emerald-50"); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); (e.currentTarget as HTMLElement).classList.remove("border-emerald-500", "bg-emerald-50"); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).classList.remove("border-emerald-500", "bg-emerald-50");
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                  const file = files[0];
+                  if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+                    const mockEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                    handleImportExcel(mockEvent);
+                  }
+                }
+              }}
+              className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 mb-2 shrink-0 transition-colors"
+            >
               <p className="text-sm text-zinc-600 mb-3 text-center">
                 {t("datahub.bulkAddTitle")}
               </p>
@@ -1674,7 +1726,21 @@ function TestBatteryTab({
   updatePerformanceDefinition: (id: string, updates: Partial<PerformanceDefinition>) => void;
   t: (key: string) => string;
 }) {
+  const { state } = useAppState();
+  const searchParams = useSearchParams();
   const [selectedTestDef, setSelectedTestDef] = useState<PerformanceDefinition | null>(null);
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id) {
+      const def = state.performanceDefinitions.find(d => d.id === id);
+      if (def) {
+        setTestBatteryArea(def.area);
+        openDetail(def);
+      }
+    }
+  }, [searchParams, state.performanceDefinitions]);
+
   const [editMode, setEditMode] = useState(false);
   const [editFields, setEditFields] = useState<{ name: string; unit: string; attempts: number; isRating: boolean; scoringStrategy: "best" | "average"; interpretation: "higher_better" | "lower_better"; description: string; mediaUrl: string; mediaType: "image" | "video" | undefined }>({ name: "", unit: "", attempts: 1, isRating: false, scoringStrategy: "best", interpretation: "higher_better", description: "", mediaUrl: "", mediaType: undefined });
 

@@ -32,6 +32,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       notes: "Notas",
       yes: "Si",
       no: "No",
+      searchShortcutHint: "Presiona Ctrl+K para buscar",
     },
     nav: {
       hub: "Inicio",
@@ -663,6 +664,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       notes: "Notes",
       yes: "Yes",
       no: "No",
+      searchShortcutHint: "Press Ctrl+K to search",
     },
     nav: {
       hub: "Home",

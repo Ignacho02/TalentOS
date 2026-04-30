@@ -1335,7 +1335,25 @@ export function PerformanceSection({
             </div>
 
             {/* Excel import row */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
+            <div
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); (e.currentTarget as HTMLElement).classList.add("border-emerald-500", "bg-emerald-50"); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); (e.currentTarget as HTMLElement).classList.remove("border-emerald-500", "bg-emerald-50"); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).classList.remove("border-emerald-500", "bg-emerald-50");
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                  const file = files[0];
+                  if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+                    const mockEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                    importFile(mockEvent);
+                  }
+                }
+              }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5 p-6 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 transition-colors"
+            >
               <button
                 type="button"
                 onClick={downloadTemplate}
