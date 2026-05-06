@@ -24,8 +24,14 @@ export function LoginForm() {
     });
 
     if (!response.ok) {
-      const payload = (await response.json()) as { error?: string };
-      setError(payload.error ?? "Login failed");
+      let errorMessage = "Login failed";
+      try {
+        const payload = (await response.json()) as { error?: string };
+        errorMessage = payload.error ?? errorMessage;
+      } catch {
+        // Fallback if response body is not valid JSON
+      }
+      setError(errorMessage);
       setPending(false);
       return;
     }

@@ -7,11 +7,11 @@ export function readStoredAppState(
 ): AppState {
   try {
     const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
-    if (stored) {
+    if (stored && stored.trim() !== "") {
       return normalizeState(JSON.parse(stored));
     }
-  } catch {
-    // Keep demo state if persisted data is malformed.
+  } catch (e) {
+    console.error("[storage] Malformed persisted state", e);
   }
 
   return demoState;
