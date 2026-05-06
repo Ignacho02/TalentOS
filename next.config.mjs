@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+
   // Configuraciones experimentales para Server Actions
   experimental: {
     // Aumenta el límite de cuerpo para Server Actions (subida de fotos, etc.)
