@@ -11,7 +11,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
-  ArrowLeft, ArrowRight, Info, X
+  ArrowLeft, ArrowRight, Info, X, ChartColumnBig, Home
 } from "lucide-react";
 import { buildInsights } from "@/lib/maturation/insights";
 import { useAppState } from "@/lib/store/app-state";
@@ -1803,9 +1803,49 @@ export default function AnalysisPage() {
     assistant: t("analysis.tabs.assistant"),
   };
 
+  const tabs: { id: AnalysisTab; label: string }[] = [
+    { id: "individual", label: tabLabels.individual },
+    { id: "collective", label: tabLabels.collective },
+    { id: "assistant",  label: tabLabels.assistant  },
+  ];
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-8">
+    <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
+      {/* Sidebar */}
+      <nav className="w-56 border-r border-line bg-white/95 flex-shrink-0" aria-label="Analysis sections">
+        <div className="p-4 space-y-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab(null)}
+            className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition text-zinc-600 hover:bg-zinc-100 mb-2"
+          >
+            <Home className="h-5 w-5" />
+            {t("datahub.landingTitle")}
+          </button>
+          <div className="border-t border-line pt-2">
+            {tabs.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveTab(id)}
+                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                  activeTab === id
+                    ? "bg-accent text-white"
+                    : "text-zinc-600 hover:bg-zinc-100"
+                }`}
+              >
+                {id === "individual" && <Users className="h-5 w-5" />}
+                {id === "collective" && <Shield className="h-5 w-5" />}
+                {id === "assistant"  && <Activity className="h-5 w-5" />}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      {/* Main content */}
+      <main className="min-w-0 flex-1 p-6 space-y-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between no-print">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("analysis.title")}</h1>
@@ -1817,7 +1857,7 @@ export default function AnalysisPage() {
           <AnalysisSelection onSelect={setActiveTab} t={t} locale={locale} />
         )}
 
-        <div className="mt-6">
+        <div>
           {activeTab === "individual" && (
             <IndividualView assessments={assessments} state={state} t={t} locale={locale} onBack={() => setActiveTab(null)} />
           )}
@@ -1828,7 +1868,7 @@ export default function AnalysisPage() {
             <AssistantView assessments={assessments} state={state} t={t} locale={locale} onBack={() => setActiveTab(null)} />
           )}
         </div>
-      </div>
+      </main>
 
       <style jsx global>{`
         @media print {
