@@ -1,12 +1,20 @@
 import type { Athlete, MaturationResult, PerformanceArea } from "@/lib/types";
 
+function getAssessmentAthleteKey(assessment: MaturationResult) {
+  return (
+    assessment.inputs.athleteId ||
+    `${assessment.inputs.athleteName.toLowerCase()}::${assessment.inputs.dob}`
+  );
+}
+
 export function getLatestAssessmentsByAthlete(assessments: MaturationResult[]) {
   const latest = new Map<string, MaturationResult>();
 
   for (const assessment of assessments) {
-    const current = latest.get(assessment.inputs.athleteId);
+    const athleteKey = getAssessmentAthleteKey(assessment);
+    const current = latest.get(athleteKey);
     if (!current || current.inputs.dataCollectionDate < assessment.inputs.dataCollectionDate) {
-      latest.set(assessment.inputs.athleteId, assessment);
+      latest.set(athleteKey, assessment);
     }
   }
 

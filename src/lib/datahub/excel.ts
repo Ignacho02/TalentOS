@@ -97,6 +97,7 @@ export function parseMeasurementImportRows(
       if (!existingAthlete) return null;
 
       return {
+        athleteId: existingAthlete.id,
         athleteName,
         sex: existingAthlete.sex,
         ageGroup: existingAthlete.ageGroup,

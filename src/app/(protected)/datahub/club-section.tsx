@@ -843,6 +843,7 @@ function PlayersTab({
 
   // Group / sort state (mirroring maturation section)
   const [groupByTeam, setGroupByTeam] = useState(false);
+  const [groupByPosition, setGroupByPosition] = useState(false);
   const [sortPlayers, setSortPlayers] = useState<"name" | "age">("name");
 
   // Get unique positions for filter
@@ -863,19 +864,42 @@ function PlayersTab({
       return a.name.localeCompare(b.name);
     });
 
-  // Grouped view: { teamName, players[] }[]
-  const groupedAthletes = useMemo(() => {
-    if (!groupByTeam) return null;
-    const map = new Map<string, typeof filteredAthletes>();
-    for (const a of filteredAthletes) {
-      const key = a.teamName ?? "—";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(a);
+  type AthleteGroup = {
+    label: string;
+    players: typeof filteredAthletes;
+    subgroups?: Array<{ label: string; players: typeof filteredAthletes }>;
+  };
+
+  // Grouped view: team and position toggles can be combined.
+  const groupedAthletes = useMemo<AthleteGroup[] | null>(() => {
+    if (!groupByTeam && !groupByPosition) return null;
+
+    const makeGroups = (
+      items: typeof filteredAthletes,
+      getLabel: (athlete: typeof filteredAthletes[number]) => string
+    ) => {
+      const map = new Map<string, typeof filteredAthletes>();
+      for (const athlete of items) {
+        const label = getLabel(athlete);
+        if (!map.has(label)) map.set(label, []);
+        map.get(label)!.push(athlete);
+      }
+      return Array.from(map.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([label, players]) => ({ label, players }));
+    };
+
+    if (groupByTeam && groupByPosition) {
+      return makeGroups(filteredAthletes, (athlete) => athlete.teamName ?? "—").map((group) => ({
+        ...group,
+        subgroups: makeGroups(group.players, (athlete) => athlete.position ?? "—"),
+      }));
     }
-    return Array.from(map.entries())
-      .sort(([ka], [kb]) => ka.localeCompare(kb))
-      .map(([label, players]) => ({ label, players }));
-  }, [groupByTeam, filteredAthletes]);
+
+    return groupByTeam
+      ? makeGroups(filteredAthletes, (athlete) => athlete.teamName ?? "—")
+      : makeGroups(filteredAthletes, (athlete) => athlete.position ?? "—");
+  }, [groupByPosition, groupByTeam, filteredAthletes]);
 
   function openEdit(athlete: typeof athletes[0]) {
     setEditingId(athlete.id);
@@ -936,6 +960,42 @@ function PlayersTab({
   }
 
   const hasActiveFilters = searchQuery || filterTeam !== "all" || filterPosition !== "all";
+
+  const renderGroupHeader = (label: string, nested = false) => (
+    <tr>
+      <td colSpan={6} className={cn("px-4 pb-1", nested ? "pt-2 pl-8" : "pt-4")}>
+        <div className="flex items-center gap-2">
+          <div className={cn("rounded-full bg-accent", nested ? "h-1 w-1 opacity-60" : "h-1.5 w-1.5")} />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</span>
+          <div className="h-px flex-1 bg-zinc-100" />
+        </div>
+      </td>
+    </tr>
+  );
+
+  const renderAthleteRow = (a: typeof athletes[number]) => (
+    <tr
+      key={a.id}
+      onClick={() => setSelectedAthleteId(a.id)}
+      className={cn("border-t border-line/50 hover:bg-zinc-50/50 transition cursor-pointer", selectedAthleteId === a.id && "bg-accent/5")}
+    >
+      <td className="px-4 py-3 font-medium text-zinc-900">{a.name}</td>
+      <td className="px-4 py-3 text-zinc-600">{a.sex === "male" ? t("datahub.male") : t("datahub.female")}</td>
+      <td className="px-4 py-3 text-zinc-600">{a.teamName ?? "—"}</td>
+      <td className="px-4 py-3 text-zinc-600">{a.position ?? "—"}</td>
+      <td className="px-4 py-3 text-zinc-600">{a.dob}</td>
+      <td className="px-4 py-3">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openEdit(a); }}
+          className="rounded-full p-2 hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
+          title={t("datahub.edit")}
+        >
+          <Edit2 className="h-4 w-4" />
+        </button>
+      </td>
+    </tr>
+  );
 
   return (
     <div className="space-y-4">
@@ -1014,6 +1074,16 @@ function PlayersTab({
           >
             {t("datahub.groupByTeam")}
           </button>
+          <button
+            type="button"
+            onClick={() => setGroupByPosition(v => !v)}
+            className={cn(
+              "rounded-full px-3 py-1.5 text-sm font-medium transition",
+              groupByPosition ? "bg-accent text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            )}
+          >
+            {t("datahub.groupByPosition")}
+          </button>
         </div>
         <span className="text-zinc-300 shrink-0">|</span>
         <div className="flex items-center gap-2 shrink-0">
@@ -1050,44 +1120,21 @@ function PlayersTab({
                 </tr>
               </thead>
               <tbody suppressHydrationWarning>
-                {(groupedAthletes ?? [{ label: null, players: filteredAthletes }]).map(({ label, players }) => (
-                  <React.Fragment key={label ?? "__all__"}>
-                    {label && (
-                      <tr>
-                        <td colSpan={6} className="px-4 pt-4 pb-1">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-1.5 rounded-full bg-accent" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</span>
-                            <div className="h-px flex-1 bg-zinc-100" />
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {players.map((a) => (
-                  <tr
-                    key={a.id}
-                    onClick={() => setSelectedAthleteId(a.id)}
-                    className={cn("border-t border-line/50 hover:bg-zinc-50/50 transition cursor-pointer", selectedAthleteId === a.id && "bg-accent/5")}
-                  >
-                    <td className="px-4 py-3 font-medium text-zinc-900">{a.name}</td>
-                    <td className="px-4 py-3 text-zinc-600">{a.sex === "male" ? t("datahub.male") : t("datahub.female")}</td>
-                    <td className="px-4 py-3 text-zinc-600">{a.teamName ?? "—"}</td>
-                    <td className="px-4 py-3 text-zinc-600">{a.position ?? "—"}</td>
-                    <td className="px-4 py-3 text-zinc-600">{a.dob}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openEdit(a); }}
-                        className="rounded-full p-2 hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
-                        title={t("common.edit")}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                  </React.Fragment>
-                ))}
+                {groupedAthletes
+                  ? groupedAthletes.map((group) => (
+                    <React.Fragment key={group.label}>
+                      {renderGroupHeader(group.label)}
+                      {"subgroups" in group && group.subgroups
+                        ? group.subgroups.map((subgroup) => (
+                          <React.Fragment key={`${group.label}-${subgroup.label}`}>
+                            {renderGroupHeader(subgroup.label, true)}
+                            {subgroup.players.map(renderAthleteRow)}
+                          </React.Fragment>
+                        ))
+                        : group.players.map(renderAthleteRow)}
+                    </React.Fragment>
+                  ))
+                  : filteredAthletes.map(renderAthleteRow)}
               </tbody>
             </table>
           </div>
@@ -1117,6 +1164,15 @@ function PlayersTab({
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => openEdit(selectedAthlete)}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-zinc-100 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200"
+            >
+              <Edit2 className="h-4 w-4" />
+              {t("datahub.edit")}
+            </button>
 
             <div className="grid grid-cols-2 gap-3 text-sm border-y border-line py-4">
               <div>

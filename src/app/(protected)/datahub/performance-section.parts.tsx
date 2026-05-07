@@ -354,7 +354,7 @@ export function PlayerAreaModal({
   onAddResult,
   t,
 }: {
-  athlete: { id: string; name: string; teamName?: string; position?: string; photoUrl?: string };
+  athlete: { id: string; name: string; teamName?: string; position?: string; photoUrl?: string | null };
   areaKey: PerformanceArea;
   defs: PerformanceDefinition[];
   performanceEntries: PerformanceEntry[];

@@ -148,6 +148,7 @@ export default function DataHubPage() {
     if (!athlete) return;
 
     setMaturationForm({
+      athleteId: athlete.id,
       athleteName: athlete.name,
       sex: athlete.sex,
       ageGroup: athlete.ageGroup,
@@ -215,14 +216,14 @@ export default function DataHubPage() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
+    <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
       {section !== "landing" && (
         <DataHubSidebar
           activeSection={section as "club" | "maturation" | "performance"}
           onSelect={setSection}
         />
       )}
-      <main className="flex-1 p-6">
+      <main className="min-w-0 flex-1 p-6">
         {section === "landing" && <DataHubLanding />}
         {section === "club" && <ClubSection />}
         {section === "maturation" && (

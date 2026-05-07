@@ -18,6 +18,12 @@ function buildAthleteFromInput(
   state: AppState,
   input: AnthropometricRecordInput,
 ): { athlete: Athlete; team?: Team } {
+  const athleteById = input.athleteId
+    ? state.athletes.find((athlete) => athlete.id === input.athleteId)
+    : undefined;
+
+  if (athleteById) return { athlete: athleteById };
+
   const existingAthlete = state.athletes.find(
     (athlete) =>
       athlete.name.toLowerCase() === input.athleteName.toLowerCase() &&
@@ -63,9 +69,9 @@ function buildRecord(
 ): AnthropometricRecord {
   return {
     id: uid("rec"),
-    athleteId,
     createdAt: new Date().toISOString(),
     ...input,
+    athleteId,
   };
 }
 

@@ -122,7 +122,14 @@ export function MaturationSection({
 
   const filteredData = useMemo(() => {
     return filteredRows.filter((row) => {
-      const athlete = state.athletes.find((candidate) => candidate.id === row.inputs.athleteId);
+      const athlete = state.athletes.find(
+        (candidate) =>
+          candidate.id === row.inputs.athleteId ||
+          (
+            candidate.name.toLowerCase() === row.inputs.athleteName.toLowerCase() &&
+            candidate.dob === row.inputs.dob
+          ),
+      );
 
       // Filtro de jugador por selecci\u00f3n expl\u00edcita
       if (columnFilters.athlete.length > 0 && !columnFilters.athlete.includes(row.inputs.athleteName)) {
@@ -312,7 +319,7 @@ export function MaturationSection({
           </div>
         </div>
 
-        <div className="table-scroll overflow-x-auto overflow-visible">
+        <div className="table-scroll overflow-x-auto">
           <table className="w-full min-w-max text-left text-sm">
             <thead>
               <tr>
@@ -822,13 +829,21 @@ export function MaturationSection({
                   });
 
                 const renderRow = (row: typeof filteredData[0]) => {
-                  const athlete = state.athletes.find((c) => c.id === row.inputs.athleteId);
-                  const isSelected = selectedAthleteId === row.inputs.athleteId;
+                  const athlete = state.athletes.find(
+                    (c) =>
+                      c.id === row.inputs.athleteId ||
+                      (
+                        c.name.toLowerCase() === row.inputs.athleteName.toLowerCase() &&
+                        c.dob === row.inputs.dob
+                      ),
+                  );
+                  const rowAthleteId = athlete?.id ?? row.inputs.athleteId;
+                  const isSelected = selectedAthleteId === rowAthleteId;
                   return (
                     <Fragment key={row.inputs.id}>
                       <tr
                         className={cn("cursor-pointer border-t border-line/70 hover:bg-white/50 transition", isSelected && "bg-accent/5")}
-                        onClick={() => setSelectedAthleteId(isSelected ? null : row.inputs.athleteId)}
+                        onClick={() => rowAthleteId && setSelectedAthleteId(isSelected ? null : rowAthleteId)}
                       >
                         <td className="px-3 py-3 font-medium text-zinc-900">
                           <span className={cn(isSelected && "text-accent")}>{row.inputs.athleteName}</span>
@@ -948,10 +963,16 @@ export function MaturationSection({
       {/* Athlete detail modal — same pattern as add-measurement */}
       {selectedAthleteId && (() => {
         const athlete = state.athletes.find((a) => a.id === selectedAthleteId);
-        const history = assessments
-          .filter((r) => r.inputs.athleteId === selectedAthleteId)
-          .sort((a, b) => a.inputs.dataCollectionDate.localeCompare(b.inputs.dataCollectionDate));
         if (!athlete) return null;
+        const history = assessments
+          .filter((r) =>
+            r.inputs.athleteId === selectedAthleteId ||
+            (
+              r.inputs.athleteName.toLowerCase() === athlete.name.toLowerCase() &&
+              r.inputs.dob === athlete.dob
+            )
+          )
+          .sort((a, b) => a.inputs.dataCollectionDate.localeCompare(b.inputs.dataCollectionDate));
         const latest = history.length > 0 ? history[history.length - 1] : null;
         const chartData = history.map((r) => ({
           date: r.inputs.dataCollectionDate.slice(0, 7),
@@ -1637,6 +1658,7 @@ function AthleteSelector({
     const prevParents = latestParentHeights[athlete.id] ?? {};
     setMaturationForm({
       ...emptyForm,
+      athleteId: athlete.id,
       athleteName: athlete.name,
       sex: athlete.sex as "male" | "female",
       ageGroup: athlete.ageGroup,

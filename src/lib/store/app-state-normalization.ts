@@ -1,5 +1,5 @@
 import { demoState } from "@/lib/demo-data";
-import type { AppState, PerformanceDefinition } from "@/lib/types";
+import type { AppState, Athlete, PerformanceDefinition } from "@/lib/types";
 
 type LegacyPerformanceDefinition = Partial<PerformanceDefinition> & {
   calculation?: string;
@@ -51,6 +51,37 @@ function migratePerformanceDefinitions(
   });
 }
 
+function normalizeRecords(
+  records: AppState["records"],
+  athletes: Athlete[],
+): AppState["records"] {
+  return records.map((record) => {
+    const matchedAthlete =
+      athletes.find((athlete) => athlete.id === record.athleteId) ??
+      athletes.find(
+        (athlete) =>
+          athlete.name.toLowerCase() === record.athleteName.toLowerCase() &&
+          athlete.dob === record.dob,
+      );
+
+    if (!matchedAthlete || record.athleteId === matchedAthlete.id) {
+      return record;
+    }
+
+    return {
+      ...record,
+      athleteId: matchedAthlete.id,
+      athleteName: matchedAthlete.name,
+      sex: matchedAthlete.sex,
+      ageGroup: matchedAthlete.ageGroup,
+      clubName: matchedAthlete.clubName,
+      teamName: record.teamName ?? matchedAthlete.teamName,
+      position: record.position ?? matchedAthlete.position,
+      dob: matchedAthlete.dob,
+    };
+  });
+}
+
 export function normalizeState(input: unknown): AppState {
   const candidate = asPersistedState(input);
   const migratedDefinitions = migratePerformanceDefinitions(candidate.performanceDefinitions);
@@ -91,7 +122,8 @@ export function normalizeState(input: unknown): AppState {
 
   const existingTeamIds = new Set(baseState.teams.map((team) => team.id));
   const existingAthleteIds = new Set(baseState.athletes.map((athlete) => athlete.id));
-  const existingRecordIds = new Set(baseState.records.map((record) => record.id));
+  const normalizedRecords = normalizeRecords(baseState.records, baseState.athletes);
+  const existingRecordIds = new Set(normalizedRecords.map((record) => record.id));
   const existingPerformanceIds = new Set(
     baseState.performanceEntries.map((entry) => entry.id),
   );
@@ -110,7 +142,7 @@ export function normalizeState(input: unknown): AppState {
       ...demoState.athletes.filter((athlete) => !existingAthleteIds.has(athlete.id)),
     ],
     records: [
-      ...baseState.records,
+      ...normalizedRecords,
       ...demoState.records.filter((record) => !existingRecordIds.has(record.id)),
     ],
     performanceEntries: [
