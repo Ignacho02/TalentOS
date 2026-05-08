@@ -11,12 +11,12 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
-  ArrowLeft, ArrowRight, Info, X
+  ArrowLeft, ArrowRight, Info, X, Menu
 } from "lucide-react";
 import { buildInsights } from "@/lib/maturation/insights";
 import { useAppState } from "@/lib/store/app-state";
 import { useLocale } from "@/lib/i18n/locale-context";
-import { formatDate, formatNumber } from "@/lib/utils";
+import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { MaturationInsights } from "@/components/maturation-insights";
 import {
   buildTeamStats, computeAthleteZScore, buildBioBandingGroups,
@@ -47,13 +47,11 @@ function IndividualView({
   state,
   t,
   locale,
-  onBack,
 }: {
   assessments: ReturnType<typeof useAppState>["assessments"];
   state: ReturnType<typeof useAppState>["state"];
   t: (k: string) => string;
   locale: string;
-  onBack: () => void;
 }) {
   const teams = useMemo(
     () => getUniqueAthleteTeams(state.athletes),
@@ -316,14 +314,6 @@ function IndividualView({
 
   return (
     <div className="space-y-6">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors no-print"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span>{locale === "es" ? "Volver" : "Back"}</span>
-      </button>
-
       {/* Athlete Selection Area */}
       <div className="space-y-4 no-print">
         {selectedLatest && !isSelectorExpanded ? (
@@ -1137,13 +1127,11 @@ function CollectiveView({
   state,
   t,
   locale,
-  onBack,
 }: {
   assessments: ReturnType<typeof useAppState>["assessments"];
   state: ReturnType<typeof useAppState>["state"];
   t: (k: string) => string;
   locale: string;
-  onBack: () => void;
 }) {
   const teams = useMemo(
     () => getUniqueAthleteTeams(state.athletes),
@@ -1292,14 +1280,6 @@ function CollectiveView({
 
   return (
     <div className="space-y-6">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors no-print"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span>{locale === "es" ? "Volver" : "Back"}</span>
-      </button>
-
       {/* Team selector */}
       <div className="flex items-center justify-between no-print">
         <select
@@ -1550,13 +1530,11 @@ function AssistantView({
   state,
   t,
   locale,
-  onBack,
 }: {
   assessments: ReturnType<typeof useAppState>["assessments"];
   state: ReturnType<typeof useAppState>["state"];
   t: (k: string) => string;
   locale: string;
-  onBack: () => void;
 }) {
   const alerts = useMemo(() => buildAlerts(assessments), [assessments]);
   const rapidGrowth = useMemo(() => detectRapidGrowth(assessments), [assessments]);
@@ -1622,14 +1600,6 @@ function AssistantView({
 
   return (
     <div className="space-y-6">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors no-print"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span>{locale === "es" ? "Volver" : "Back"}</span>
-      </button>
-
       <div className="flex items-center justify-between no-print">
         <div>
           <h2 className="text-xl font-bold text-slate-800">{t("analysis.assistant.title")}</h2>
@@ -1783,6 +1753,74 @@ function AnalysisSelection({
 }
 
 // ---------------------------------------------------------------------------
+// Analysis Sidebar
+// ---------------------------------------------------------------------------
+function AnalysisSidebar({
+  activeTab,
+  onSelect,
+  t,
+}: {
+  activeTab: AnalysisTab | null;
+  onSelect: (tab: AnalysisTab | null) => void;
+  t: (k: string) => string;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const items: { id: AnalysisTab; icon: React.ReactNode }[] = [
+    { id: "individual", icon: <Users className="h-5 w-5 flex-shrink-0" /> },
+    { id: "collective", icon: <Group className="h-5 w-5 flex-shrink-0" /> },
+    { id: "assistant", icon: <Activity className="h-5 w-5 flex-shrink-0" /> },
+  ];
+
+  return (
+    <nav
+      className={cn(
+        "border-r border-slate-200 bg-white/95 flex-shrink-0 transition-all duration-200 ease-in-out",
+        collapsed ? "w-14" : "w-56",
+      )}
+      aria-label="Analysis sections"
+    >
+      <div className="p-2 space-y-1">
+        {/* Hamburger toggle */}
+        <button
+          type="button"
+          onClick={() => setCollapsed((prev) => !prev)}
+          className="w-full flex items-center justify-center rounded-xl px-2 py-3 text-slate-500 hover:bg-slate-100 transition"
+          aria-label={collapsed ? "Expandir menú" : "Colapsar menú"}
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
+        <div className="border-t border-slate-200 pt-2">
+          {/* Back to selection */}
+          {items.map((item) => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(item.id)}
+                title={collapsed ? t(`analysis.tabs.${item.id}`) : undefined}
+                className={cn(
+                  "w-full flex items-center rounded-xl py-3 text-sm font-medium transition",
+                  collapsed ? "justify-center px-2" : "gap-3 px-4",
+                  active
+                    ? "bg-teal-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100",
+                )}
+              >
+                {item.icon}
+                {!collapsed && <span>{t(`analysis.tabs.${item.id}`)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Analysis Page
 // ---------------------------------------------------------------------------
 export default function AnalysisPage() {
@@ -1804,29 +1842,32 @@ export default function AnalysisPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between no-print">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("analysis.title")}</h1>
-            <p className="mt-1 text-slate-500">{t("analysis.subtitle")}</p>
+    <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
+      <AnalysisSidebar activeTab={activeTab} onSelect={setActiveTab} t={t} />
+      <div className="min-w-0 flex-1 bg-[#f8fafc] p-4 md:p-8">
+        <div className="mx-auto max-w-7xl space-y-8">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between no-print">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("analysis.title")}</h1>
+              <p className="mt-1 text-slate-500">{t("analysis.subtitle")}</p>
+            </div>
+          </header>
+
+          {!activeTab && (
+            <AnalysisSelection onSelect={setActiveTab} t={t} locale={locale} />
+          )}
+
+          <div className="mt-6">
+            {activeTab === "individual" && (
+              <IndividualView assessments={assessments} state={state} t={t} locale={locale} />
+            )}
+            {activeTab === "collective" && (
+              <CollectiveView assessments={assessments} state={state} t={t} locale={locale} />
+            )}
+            {activeTab === "assistant" && (
+              <AssistantView assessments={assessments} state={state} t={t} locale={locale} />
+            )}
           </div>
-        </header>
-
-        {!activeTab && (
-          <AnalysisSelection onSelect={setActiveTab} t={t} locale={locale} />
-        )}
-
-        <div className="mt-6">
-          {activeTab === "individual" && (
-            <IndividualView assessments={assessments} state={state} t={t} locale={locale} onBack={() => setActiveTab(null)} />
-          )}
-          {activeTab === "collective" && (
-            <CollectiveView assessments={assessments} state={state} t={t} locale={locale} onBack={() => setActiveTab(null)} />
-          )}
-          {activeTab === "assistant" && (
-            <AssistantView assessments={assessments} state={state} t={t} locale={locale} onBack={() => setActiveTab(null)} />
-          )}
         </div>
       </div>
 

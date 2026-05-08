@@ -217,12 +217,10 @@ export default function DataHubPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
-      {section !== "landing" && (
-        <DataHubSidebar
-          activeSection={section as "club" | "maturation" | "performance"}
-          onSelect={setSection}
-        />
-      )}
+      <DataHubSidebar
+        activeSection={section as "club" | "maturation" | "performance" | "landing"}
+        onSelect={setSection}
+      />
       <main className="min-w-0 flex-1 p-6">
         {section === "landing" && <DataHubLanding />}
         {section === "club" && <ClubSection />}
