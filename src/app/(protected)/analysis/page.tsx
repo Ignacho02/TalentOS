@@ -1765,6 +1765,15 @@ function AnalysisSidebar({
   t: (k: string) => string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 768) setMobileOpen(false);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const items: { id: AnalysisTab; icon: React.ReactNode }[] = [
     { id: "individual", icon: <Users className="h-5 w-5 flex-shrink-0" /> },
@@ -1772,51 +1781,119 @@ function AnalysisSidebar({
     { id: "assistant", icon: <Activity className="h-5 w-5 flex-shrink-0" /> },
   ];
 
+  function handleSelect(tab: AnalysisTab) {
+    onSelect(tab);
+    setMobileOpen(false);
+  }
+
+  const navItems = (
+    <div className="p-2 space-y-1">
+      <button
+        type="button"
+        onClick={() => { setCollapsed((p) => !p); setMobileOpen(false); }}
+        className="hidden md:flex w-full items-center justify-center rounded-xl px-2 py-3 text-slate-500 hover:bg-slate-100 transition"
+        aria-label={collapsed ? "Expandir menú" : "Colapsar menú"}
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <div className="border-t border-slate-200 pt-2">
+        {items.map((item) => {
+          const active = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleSelect(item.id)}
+              title={collapsed ? t(`analysis.tabs.${item.id}`) : undefined}
+              className={cn(
+                "w-full flex items-center rounded-xl py-3 text-sm font-medium transition",
+                collapsed ? "justify-center px-2" : "gap-3 px-4",
+                active ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-100",
+              )}
+            >
+              {item.icon}
+              {!collapsed && <span>{t(`analysis.tabs.${item.id}`)}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
-    <nav
-      className={cn(
-        "border-r border-slate-200 bg-white/95 flex-shrink-0 transition-all duration-200 ease-in-out",
-        collapsed ? "w-14" : "w-56",
-      )}
-      aria-label="Analysis sections"
-    >
-      <div className="p-2 space-y-1">
-        {/* Hamburger toggle */}
+    <>
+      {/* Mobile FAB trigger — hidden on landing */}
+      {activeTab !== null && (
         <button
           type="button"
-          onClick={() => setCollapsed((prev) => !prev)}
-          className="w-full flex items-center justify-center rounded-xl px-2 py-3 text-slate-500 hover:bg-slate-100 transition"
-          aria-label={collapsed ? "Expandir menú" : "Colapsar menú"}
+          onClick={() => setMobileOpen(true)}
+          className="md:hidden fixed bottom-4 right-4 z-40 flex items-center justify-center w-12 h-12 rounded-full bg-teal-600 text-white shadow-lg active:scale-95 transition"
+          aria-label="Abrir navegación"
         >
           <Menu className="h-5 w-5" />
         </button>
+      )}
 
-        <div className="border-t border-slate-200 pt-2">
-          {/* Back to selection */}
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/30 z-40"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <div
+        className={cn(
+          "md:hidden fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl border-r border-slate-200 transition-transform duration-200",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+        aria-hidden={!mobileOpen}
+      >
+        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200">
+          <span className="text-sm font-semibold text-slate-700">{t("nav.analysis") || "Análisis"}</span>
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition"
+            aria-label="Cerrar menú"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <nav className="p-3 space-y-1">
           {items.map((item) => {
             const active = activeTab === item.id;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => onSelect(item.id)}
-                title={collapsed ? t(`analysis.tabs.${item.id}`) : undefined}
+                onClick={() => handleSelect(item.id)}
                 className={cn(
-                  "w-full flex items-center rounded-xl py-3 text-sm font-medium transition",
-                  collapsed ? "justify-center px-2" : "gap-3 px-4",
-                  active
-                    ? "bg-teal-600 text-white"
-                    : "text-slate-600 hover:bg-slate-100",
+                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition",
+                  active ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-100",
                 )}
               >
                 {item.icon}
-                {!collapsed && <span>{t(`analysis.tabs.${item.id}`)}</span>}
+                <span>{t(`analysis.tabs.${item.id}`)}</span>
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
-    </nav>
+
+      {/* Desktop sidebar */}
+      <nav
+        className={cn(
+          "hidden md:flex flex-col border-r border-slate-200 bg-white/95 flex-shrink-0 transition-all duration-200 ease-in-out",
+          collapsed ? "w-14" : "w-56",
+        )}
+        aria-label="Analysis sections"
+      >
+        {navItems}
+      </nav>
+    </>
   );
 }
 
@@ -1843,8 +1920,10 @@ export default function AnalysisPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
-      <AnalysisSidebar activeTab={activeTab} onSelect={setActiveTab} t={t} />
-      <div className="min-w-0 flex-1 bg-[#f8fafc] p-4 md:p-8">
+      {activeTab !== null && (
+        <AnalysisSidebar activeTab={activeTab} onSelect={setActiveTab} t={t} />
+      )}
+      <div className="min-w-0 flex-1 bg-[#f8fafc] p-4 sm:p-6 md:p-8 overflow-x-hidden">
         <div className="mx-auto max-w-7xl space-y-8">
           <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between no-print">
             <div>
