@@ -47,16 +47,6 @@ create table if not exists anthropometric_records (
   unique (athlete_id, collected_at)
 );
 
-create table if not exists maturation_assessments (
-  id uuid primary key default gen_random_uuid(),
-  anthropometric_record_id uuid not null references anthropometric_records(id) on delete cascade,
-  algorithm_version text not null,
-  maturity_band text not null,
-  primary_offset numeric not null,
-  payload jsonb not null,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists user_preferences (
   user_id uuid primary key references auth.users(id) on delete cascade,
   locale text not null default 'es'
@@ -139,7 +129,6 @@ alter table clubs enable row level security;
 alter table teams enable row level security;
 alter table athletes enable row level security;
 alter table anthropometric_records enable row level security;
-alter table maturation_assessments enable row level security;
 alter table user_preferences enable row level security;
 alter table club_members enable row level security;
 alter table performance_entries enable row level security;
@@ -182,25 +171,6 @@ create policy "club isolation" on anthropometric_records
   )
   with check (
     athlete_id in (select id from athletes where club_id = my_club_id())
-  );
-
-drop policy if exists "club isolation" on maturation_assessments;
-create policy "club isolation" on maturation_assessments
-  for all using (
-    anthropometric_record_id in (
-      select anthropometric_records.id
-      from anthropometric_records
-      join athletes on athletes.id = anthropometric_records.athlete_id
-      where athletes.club_id = my_club_id()
-    )
-  )
-  with check (
-    anthropometric_record_id in (
-      select anthropometric_records.id
-      from anthropometric_records
-      join athletes on athletes.id = anthropometric_records.athlete_id
-      where athletes.club_id = my_club_id()
-    )
   );
 
 drop policy if exists "own preferences" on user_preferences;

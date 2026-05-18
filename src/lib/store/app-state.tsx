@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { calculateMaturation } from "@/lib/maturation/calculations";
+import { refreshAppStateAction } from "@/lib/actions/app-state";
 import {
   addAthleteAction,
   deleteAthleteAction,
@@ -115,6 +116,23 @@ export function AppStateProvider({
     [state.records],
   );
 
+  const syncPersistedState = useCallback(() => {
+    return refreshAppStateAction()
+      .then((freshState) => {
+        startTransition(() => {
+          setState((current) => ({
+            ...current,
+            club: freshState.club,
+            teams: freshState.teams,
+            athletes: freshState.athletes,
+            records: freshState.records,
+            preferences: freshState.preferences,
+          }));
+        });
+      })
+      .catch(reportPersistenceError);
+  }, []);
+
   const addRecord = useCallback((input: AnthropometricRecordInput) => {
     const duplicate = state.records.some(
       (record) =>
@@ -130,13 +148,23 @@ export function AppStateProvider({
       });
     });
 
-    void addRecordAction(input).catch(reportPersistenceError);
+    void addRecordAction(input)
+      .then(syncPersistedState)
+      .catch((error) => {
+        reportPersistenceError(error);
+        void syncPersistedState();
+      });
     return true;
-  }, [state.records]);
+  }, [state.records, syncPersistedState]);
 
   const updateRecord = (id: string, updates: Partial<AnthropometricRecordInput>) => {
     setState((current) => updateRecordInState(current, id, updates));
-    void updateRecordAction(id, updates).catch(reportPersistenceError);
+    void updateRecordAction(id, updates)
+      .then(syncPersistedState)
+      .catch((error) => {
+        reportPersistenceError(error);
+        void syncPersistedState();
+      });
   };
 
   const importRecords = useCallback((rows: AnthropometricRecordInput[]) => {
@@ -160,12 +188,21 @@ export function AppStateProvider({
       return result.nextState;
     });
 
-    rowsToPersist.forEach((row) => {
-      void addRecordAction(row).catch(reportPersistenceError);
-    });
+    if (rowsToPersist.length > 0) {
+      void Promise.allSettled(rowsToPersist.map((row) => addRecordAction(row)))
+        .then((results) => {
+          results.forEach((result) => {
+            if (result.status === "rejected") {
+              reportPersistenceError(result.reason);
+            }
+          });
+          return syncPersistedState();
+        })
+        .catch(reportPersistenceError);
+    }
 
     return imported;
-  }, [state.records]);
+  }, [state.records, syncPersistedState]);
 
   const addPerformanceEntry = (input: PerformanceEntryInput) => {
     setState((current) => addPerformanceEntryToState(current, input));

@@ -43,10 +43,6 @@ export default function DataHubPage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("all");
   const [positionFilter, setPositionFilter] = useState("all");
-  const [ageMin, setAgeMin] = useState(10);
-  const [ageMax, setAgeMax] = useState(20);
-  const [heightMin, setHeightMin] = useState(120);
-  const [heightMax, setHeightMax] = useState(220);
   const [feedback, setFeedback] = useState("");
   const [editingAthleteId, setEditingAthleteId] = useState<string | null>(null);
   const [showAddMeasurementModal, setShowAddMeasurementModal] = useState(false);
@@ -74,10 +70,10 @@ export default function DataHubPage() {
         query,
         teamFilter,
         positionFilter,
-        ageMin,
-        ageMax,
-        heightMin,
-        heightMax,
+        ageMin: 0,
+        ageMax: 0,
+        heightMin: 0,
+        heightMax: 0,
       }),
     [
       latestRows,
@@ -85,10 +81,6 @@ export default function DataHubPage() {
       query,
       teamFilter,
       positionFilter,
-      ageMin,
-      ageMax,
-      heightMin,
-      heightMax,
     ],
   );
 

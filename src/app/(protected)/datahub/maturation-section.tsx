@@ -19,14 +19,14 @@ import { cn, formatDate, formatNumber } from "@/lib/utils";
 
 /** Filter range bounds — kept in one place to avoid drift between state and UI. */
 const FILTER_RANGES = {
-  age: { min: 10, max: 20 },
-  stature: { min: 120, max: 220 },
-  mass: { min: 30, max: 100 },
-  sitting: { min: 60, max: 120 },
-  offset: { min: -5, max: 5 },
-  moore: { min: 8, max: 18 },
-  pah: { min: 60, max: 110 },
-  mirwald: { min: -5, max: 5 },
+  age: { min: 0, max: 100 },
+  stature: { min: 0, max: 300 },
+  mass: { min: 0, max: 250 },
+  sitting: { min: 0, max: 200 },
+  offset: { min: -20, max: 20 },
+  moore: { min: 0, max: 30 },
+  pah: { min: 0, max: 200 },
+  mirwald: { min: -20, max: 20 },
 };
 
 /** Default initial values for the column filter state. */
