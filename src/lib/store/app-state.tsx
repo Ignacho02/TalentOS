@@ -20,6 +20,11 @@ import {
   addRecordAction,
   updateRecordAction,
 } from "@/lib/actions/records";
+import {
+  addPerformanceDefinitionAction,
+  deletePerformanceDefinitionAction,
+  updatePerformanceDefinitionAction,
+} from "@/lib/actions/performance-definitions";
 import { addTeamAction, deleteTeamAction, updateTeamAction } from "@/lib/actions/teams";
 import type {
   AppState,
@@ -126,6 +131,9 @@ export function AppStateProvider({
             teams: freshState.teams,
             athletes: freshState.athletes,
             records: freshState.records,
+            performanceEntries: freshState.performanceEntries,
+            trainingLoadEntries: freshState.trainingLoadEntries,
+            performanceDefinitions: freshState.performanceDefinitions,
             preferences: freshState.preferences,
           }));
         });
@@ -282,6 +290,12 @@ export function AppStateProvider({
 
   const addPerformanceDefinition = (definition: Omit<PerformanceDefinition, "id">) => {
     setState((current) => addPerformanceDefinitionToState(current, definition));
+    void addPerformanceDefinitionAction(definition)
+      .then(syncPersistedState)
+      .catch((error) => {
+        reportPersistenceError(error);
+        void syncPersistedState();
+      });
   };
 
   const updatePerformanceDefinition = (
@@ -289,10 +303,22 @@ export function AppStateProvider({
     updates: Partial<PerformanceDefinition>,
   ) => {
     setState((current) => updatePerformanceDefinitionInState(current, id, updates));
+    void updatePerformanceDefinitionAction(id, updates)
+      .then(syncPersistedState)
+      .catch((error) => {
+        reportPersistenceError(error);
+        void syncPersistedState();
+      });
   };
 
   const deletePerformanceDefinition = (id: string) => {
     setState((current) => deletePerformanceDefinitionFromState(current, id));
+    void deletePerformanceDefinitionAction(id)
+      .then(syncPersistedState)
+      .catch((error) => {
+        reportPersistenceError(error);
+        void syncPersistedState();
+      });
   };
 
   const value = useMemo<AppStateContextValue>(
@@ -325,7 +351,16 @@ export function AppStateProvider({
         }
       },
     }),
-    [state, assessments, addRecord, importRecords],
+    [
+      state,
+      assessments,
+      addRecord,
+      updateRecord,
+      importRecords,
+      addPerformanceDefinition,
+      updatePerformanceDefinition,
+      deletePerformanceDefinition,
+    ],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
@@ -1785,18 +1786,6 @@ function TestBatteryTab({
   const { state } = useAppState();
   const searchParams = useSearchParams();
   const [selectedTestDef, setSelectedTestDef] = useState<PerformanceDefinition | null>(null);
-
-  useEffect(() => {
-    const id = searchParams.get("id");
-    if (id) {
-      const def = state.performanceDefinitions.find(d => d.id === id);
-      if (def) {
-        setTestBatteryArea(def.area);
-        openDetail(def);
-      }
-    }
-  }, [searchParams, state.performanceDefinitions]);
-
   const [editMode, setEditMode] = useState(false);
   const [editFields, setEditFields] = useState<{ name: string; unit: string; attempts: number; isRating: boolean; scoringStrategy: "best" | "average"; interpretation: "higher_better" | "lower_better"; description: string; mediaUrl: string; mediaType: "image" | "video" | undefined }>({ name: "", unit: "", attempts: 1, isRating: false, scoringStrategy: "best", interpretation: "higher_better", description: "", mediaUrl: "", mediaType: undefined });
 
@@ -1810,6 +1799,18 @@ function TestBatteryTab({
     setSelectedTestDef(null);
     setEditMode(false);
   }
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id) {
+      const def = state.performanceDefinitions.find(d => d.id === id);
+      if (def) {
+        setTestBatteryArea(def.area);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        openDetail(def);
+      }
+    }
+  }, [searchParams, setTestBatteryArea, state.performanceDefinitions]);
 
   function saveEdit() {
     if (!selectedTestDef) return;
@@ -1930,37 +1931,48 @@ function TestBatteryTab({
       )}
 
       {/* Test Detail / Edit — centred overlay, same style as Modal */}
-      {selectedTestDef && (
+      {selectedTestDef && typeof document !== "undefined" && createPortal((
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
           onClick={closeDetail}
         >
           <div
-            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="mb-5 flex items-start justify-between shrink-0">
-              <div className="flex-1 min-w-0 pr-3">
-                {editMode ? (
-                  <input
-                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2 text-xl font-bold text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
-                    value={editFields.name}
-                    onChange={e => setEditFields(c => ({ ...c, name: e.target.value }))}
-                  />
-                ) : (
-                  <h3 className="text-xl font-bold text-zinc-900 leading-tight">{selectedTestDef.nameKey ? t(selectedTestDef.nameKey) : selectedTestDef.name}</h3>
-                )}
+            <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-line shrink-0">
+              <div className="flex min-w-0 items-center gap-4 pr-3">
                 {(() => {
                   const style = areaStyles[selectedTestDef.area] ?? areaStyles.physical;
                   const AreaIcon = style.icon;
                   return (
-                    <span className={cn("inline-flex items-center gap-1.5 mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium", style.badgeClass)}>
-                      <AreaIcon className="h-3 w-3" />
-                      {t(performanceAreaLabels[selectedTestDef.area as PerformanceArea] ?? selectedTestDef.area)}
-                    </span>
+                    <div className={cn("h-14 w-14 rounded-full flex items-center justify-center border flex-shrink-0", style.badgeClass)}>
+                      <AreaIcon className="h-7 w-7" />
+                    </div>
                   );
                 })()}
+                <div className="min-w-0">
+                  {editMode ? (
+                    <input
+                      className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2 text-xl font-bold text-zinc-900 outline-none focus:bg-white focus:ring-2 focus:ring-accent/20"
+                      value={editFields.name}
+                      onChange={e => setEditFields(c => ({ ...c, name: e.target.value }))}
+                    />
+                  ) : (
+                    <h3 className="text-xl font-bold text-zinc-900 leading-tight">{selectedTestDef.nameKey ? t(selectedTestDef.nameKey) : selectedTestDef.name}</h3>
+                  )}
+                  {(() => {
+                    const style = areaStyles[selectedTestDef.area] ?? areaStyles.physical;
+                    const AreaIcon = style.icon;
+                    return (
+                      <span className={cn("inline-flex items-center gap-1.5 mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium", style.badgeClass)}>
+                        <AreaIcon className="h-3 w-3" />
+                        {t(performanceAreaLabels[selectedTestDef.area as PerformanceArea] ?? selectedTestDef.area)}
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
               <button
                 type="button"
@@ -1972,7 +1984,7 @@ function TestBatteryTab({
             </div>
 
             {/* Scrollable body */}
-            <div className="overflow-y-auto pr-1 -mr-1 space-y-4">
+            <div className="overflow-y-auto px-6 py-5 space-y-6">
               {editMode ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -2059,9 +2071,9 @@ function TestBatteryTab({
                       <div className="mt-3 rounded-xl border border-line bg-zinc-50 p-3 relative group">
                         <button type="button" onClick={() => setEditFields(c => ({ ...c, mediaUrl: "", mediaType: undefined }))} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"><X className="h-3 w-3" /></button>
                         {editFields.mediaType === "image" ? (
-                          <img src={editFields.mediaUrl} alt="preview" className="h-28 w-full rounded-lg object-cover" />
+                          <img src={editFields.mediaUrl} alt="preview" className="max-h-56 w-full rounded-lg object-contain" />
                         ) : (
-                          <video src={editFields.mediaUrl} className="h-28 w-full rounded-lg object-cover" controls />
+                          <video src={editFields.mediaUrl} className="max-h-56 w-full rounded-lg bg-black object-contain" controls />
                         )}
                       </div>
                     )}
@@ -2070,38 +2082,38 @@ function TestBatteryTab({
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2.5">
                       <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricUnit")}</p>
                       <p className="font-medium text-zinc-900">{selectedTestDef.unit}</p>
                     </div>
-                    <div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2.5">
                       <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.attemptsCount")}</p>
                       <p className="font-medium text-zinc-900">{selectedTestDef.attempts}</p>
                     </div>
-                    <div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2.5">
                       <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricGoal")}</p>
                       <p className="font-medium text-zinc-900">{selectedTestDef.scoringStrategy === "average" ? t("datahub.calcAverage") : t("datahub.calcBest")}</p>
                     </div>
-                    <div>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2.5">
                       <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.metricInterpretation")}</p>
                       <p className="font-medium text-zinc-900">{selectedTestDef.interpretation === "lower_better" ? t("datahub.interpretLower") : t("datahub.interpretHigher")}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-2 rounded-xl bg-zinc-50 px-3 py-2.5">
                       <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.resultType")}</p>
                       <p className="font-medium text-zinc-900">{selectedTestDef.isRating ? t("datahub.resultRating") : t("datahub.resultNumeric")}</p>
                     </div>
                   </div>
                   {(selectedTestDef.descriptionKey || selectedTestDef.description) && (
-                    <p className="text-sm text-zinc-600 leading-relaxed border-t border-line pt-3">
+                    <p className="rounded-xl border border-line bg-white px-4 py-3 text-sm text-zinc-600 leading-relaxed">
                       {selectedTestDef.descriptionKey ? t(selectedTestDef.descriptionKey) : selectedTestDef.description}
                     </p>
                   )}
                   {selectedTestDef.mediaUrl && (
-                    <div className="rounded-xl overflow-hidden border border-line">
+                    <div className="rounded-xl overflow-hidden border border-line bg-zinc-50">
                       {selectedTestDef.mediaType === "image" ? (
-                        <img src={selectedTestDef.mediaUrl} alt="preview" className="w-full object-cover max-h-48" />
+                        <img src={selectedTestDef.mediaUrl} alt="preview" className="max-h-[52vh] w-full object-contain" />
                       ) : (
-                        <video src={selectedTestDef.mediaUrl} className="w-full max-h-48 object-cover" controls />
+                        <video src={selectedTestDef.mediaUrl} className="max-h-[52vh] w-full bg-black object-contain" controls />
                       )}
                     </div>
                   )}
@@ -2109,7 +2121,7 @@ function TestBatteryTab({
               )}
 
               {/* Footer actions */}
-              <div className="flex items-center gap-3 pt-3 border-t border-line">
+              <div className="flex items-center gap-3 pt-4 border-t border-line">
                 {editMode ? (
                   <>
                     <button
@@ -2151,7 +2163,7 @@ function TestBatteryTab({
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* Add test — centred overlay, same style as Modal */}
       {showAddTestForm && (
@@ -2310,9 +2322,9 @@ function TestBatteryTab({
                     <button type="button" onClick={() => setNewDef(c => ({ ...c, mediaUrl: "", mediaType: undefined }))} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"><X className="h-3 w-3" /></button>
                     <p className="text-xs text-zinc-500 mb-2 font-semibold uppercase tracking-wide">{t("datahub.selectedMedia")} — {newDef.mediaType}</p>
                     {newDef.mediaType === "image" ? (
-                      <img src={newDef.mediaUrl} alt="preview" className="h-32 w-full rounded-lg object-cover" />
+                      <img src={newDef.mediaUrl} alt="preview" className="max-h-56 w-full rounded-lg object-contain" />
                     ) : (
-                      <video src={newDef.mediaUrl} className="h-32 w-full rounded-lg object-cover" controls />
+                      <video src={newDef.mediaUrl} className="max-h-56 w-full rounded-lg bg-black object-contain" controls />
                     )}
                   </div>
                 )}

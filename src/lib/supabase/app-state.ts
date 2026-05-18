@@ -321,7 +321,11 @@ export async function loadAppStateForSession(
     ),
     safeQuery<DbPerformanceDefinition[]>(
       "performance_definitions.select",
-      supabase.from("performance_definitions").select("*").order("name"),
+      supabase
+        .from("performance_definitions")
+        .select("*")
+        .eq("club_id", session.clubId)
+        .order("name"),
       [],
     ),
     safeQuery<{ locale: Locale } | null>(
