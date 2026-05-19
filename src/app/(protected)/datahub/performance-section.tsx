@@ -18,6 +18,7 @@ import type {
   PerformanceArea, PerformanceEntryInput, PerformanceEntry, PerformanceDefinition, TrainingLoadEntry,
 } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import { performanceAreaLabels, emptyPerformanceForm } from "./performance-constants";
 import {
   MultiSelectPill,
@@ -53,10 +54,14 @@ export function PerformanceSection({
   area,
   setArea,
   performanceEntries,
+  initialPanel = null,
+  onPanelChange,
 }: {
   area: PerformanceArea;
   setArea: (v: PerformanceArea) => void;
   performanceEntries: PerformanceEntry[];
+  initialPanel?: { areaKey: PerformanceArea; athleteId: string } | null;
+  onPanelChange?: (panel: { areaKey: PerformanceArea; athleteId: string } | null) => void;
 }) {
   const { addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
   const { t, locale } = useLocale();
@@ -65,19 +70,18 @@ export function PerformanceSection({
   const viewParam = searchParams.get("view");
   
   // ── Tab: only 3 main tabs now ──────────────────────────────────────────────
-  const [perfTab, setPerfTab] = useState<"tests" | "trainingLoad" | "gps">(
-    (viewParam === "trainingLoad" || viewParam === "gps") ? viewParam : "tests"
+  const [perfTab, setPerfTab] = usePersistentState<"tests" | "trainingLoad" | "gps">(
+    "datahub_perf_tab",
+    "tests"
   );
 
-  // Sync tab with URL parameter
+  // Sync tab with URL parameter (only if explicitly set in deep link, otherwise keep persisted tab!)
   useEffect(() => {
     const v = searchParams.get("view");
-    if (v === "trainingLoad" || v === "gps") {
-      setPerfTab(v);
-    } else if (v === "tests" || (!v && searchParams.get("tab") === "performance")) {
-      setPerfTab("tests");
+    if (v === "trainingLoad" || v === "gps" || v === "tests") {
+      setPerfTab(v as "tests" | "trainingLoad" | "gps");
     }
-  }, [searchParams]);
+  }, [searchParams, setPerfTab]);
 
   // ── Add-result modal ───────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false);
@@ -90,8 +94,49 @@ export function PerformanceSection({
   const [groupByPos,    setGroupByPos]    = useState(false);
   const [sortBy,        setSortBy]        = useState<"name" | "age">("name");
   const [sortCol,       setSortCol]       = useState<SortColumn>(null); // column sort
-  // panel = { areaKey, athleteId } when a row is clicked
-  const [selectedPanel, setSelectedPanel]  = useState<{ areaKey: PerformanceArea; athleteId: string } | null>(null);
+  // panel = { areaKey, athleteId } when a row is clicked — restored from URL on mount
+  const [selectedPanel, setSelectedPanel]  = useState<{ areaKey: PerformanceArea; athleteId: string } | null>(initialPanel ?? null);
+
+  useEffect(() => {
+    setSelectedPanel(initialPanel);
+  }, [initialPanel]);
+
+  // Helper to update panel state and notify parent (for URL sync)
+  function handleSetSelectedPanel(panel: { areaKey: PerformanceArea; athleteId: string } | null) {
+    setSelectedPanel(panel);
+    onPanelChange?.(panel);
+  }
+
+  // Keep track of the initial mount phase to prevent usePersistentState lazy-load state updates from triggering fake transitions.
+  const isMountedRef = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      isMountedRef.current = true;
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Clear panel selections and reset local search, filters, grouping, and ordering only when transitioning between sub-sub-tabs inside Performance.
+  // This does not clear on initial load/refresh because prev variables start as null and we verify isMountedRef.
+  const prevPerfTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentTab = perfTab;
+    const prevTab = prevPerfTabRef.current;
+    if (isMountedRef.current && prevTab !== null && prevTab !== currentTab) {
+      setSelectedPanel(null);
+      onPanelChange?.(null);
+
+      // Reset all local search, filters, groupings, and orderings of the Performance tab
+      setPlayerSearch("");
+      setFilterTeams([]);
+      setFilterPositions([]);
+      setGroupByTeam(false);
+      setGroupByPos(false);
+      setSortBy("name");
+      setSortCol(null);
+    }
+    prevPerfTabRef.current = currentTab;
+  }, [perfTab, onPanelChange]);
 
   // ── Add-result form ────────────────────────────────────────────────────────
   const [perfForm,      setPerfForm]      = useState<PerformanceEntryInput>({ ...emptyPerformanceForm, area });
@@ -767,10 +812,15 @@ export function PerformanceSection({
             {hasActiveFilters && (
               <button
                 type="button"
-                onClick={() => { setPlayerSearch(""); setFilterTeams([]); setFilterPositions([]); }}
-                className="rounded-full border border-line px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 flex items-center gap-1"
+                onClick={() => {
+                  setPlayerSearch("");
+                  setFilterTeams([]);
+                  setFilterPositions([]);
+                }}
+                className="rounded-full border border-line px-3 py-2 text-zinc-600 hover:bg-zinc-50 flex items-center justify-center transition"
+                title={locale === 'es' ? 'Reiniciar Filtros' : 'Reset Filters'}
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -854,7 +904,7 @@ export function PerformanceSection({
                                 return (
                                   <Fragment key={athlete.id}>
                                     <tr
-                                      onClick={() => setSelectedPanel({ areaKey, athleteId: athlete.id })}
+                                      onClick={() => handleSetSelectedPanel({ areaKey, athleteId: athlete.id })}
                                       className={cn(
                                         "border-t border-line/50 hover:bg-white/60 transition cursor-pointer",
                                         isSelected && "bg-accent/5"
@@ -930,13 +980,13 @@ export function PerformanceSection({
             performanceEntries={performanceEntries}
             updatePerformanceEntry={updatePerformanceEntry}
             deletePerformanceEntry={deletePerformanceEntry}
-            onClose={() => setSelectedPanel(null)}
+            onClose={() => handleSetSelectedPanel(null)}
             onAddResult={() => {
               sv("athleteName", athlete.name);
               sv("teamName",    athlete.teamName ?? "");
               sv("position",    athlete.position ?? "");
               setAthleteSearch(athlete.name);
-              setSelectedPanel(null);
+              handleSetSelectedPanel(null);
               setShowAddModal(true);
             }}
             t={t}

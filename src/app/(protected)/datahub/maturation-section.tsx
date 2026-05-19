@@ -99,7 +99,7 @@ export function MaturationSection({
   openEditForAthlete: (athleteId: string) => void;
   emptyForm: AnthropometricRecordInput;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [viewMode, setViewMode] = useState({
     anthropometric: true,
     maturation: true,
@@ -107,7 +107,8 @@ export function MaturationSection({
   const [columnFilters, setColumnFilters] = useState(DEFAULT_COLUMN_FILTERS);
   const [athleteSearch, setAthleteSearch] = useState("");
   const [showColumnFilter, setShowColumnFilter] = useState<string | null>(null);
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+  const selectedAthleteId = expandedAthleteId;
+  const setSelectedAthleteId = setExpandedAthleteId;
   const [editingRecord, setEditingRecord] = useState<(AnthropometricRecordInput & { id: string }) | null>(null);
   const measurementsFileRef = useRef<HTMLInputElement>(null);
 
@@ -317,6 +318,21 @@ export function MaturationSection({
               <option value="offset">{t("datahub.sortByOffset")}</option>
             </select>
           </div>
+
+          {/* Reset Filters button */}
+          {JSON.stringify(columnFilters) !== JSON.stringify(DEFAULT_COLUMN_FILTERS) && (
+            <button
+              type="button"
+              onClick={() => {
+                setColumnFilters(DEFAULT_COLUMN_FILTERS);
+                setAthleteSearch("");
+              }}
+              className="flex items-center gap-1.5 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 px-4 py-1.5 text-sm font-semibold transition ml-auto"
+            >
+              <X className="h-4 w-4" />
+              {locale === 'es' ? 'Reiniciar Filtros' : 'Reset Filters'}
+            </button>
+          )}
         </div>
 
         <div className="table-scroll overflow-x-auto">

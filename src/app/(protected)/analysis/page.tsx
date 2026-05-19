@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
   Radar, RadarChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, ResponsiveContainer,
@@ -17,6 +17,7 @@ import { buildInsights } from "@/lib/maturation/insights";
 import { useAppState } from "@/lib/store/app-state";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import { MaturationInsights } from "@/components/maturation-insights";
 import {
   buildTeamStats, computeAthleteZScore, buildBioBandingGroups,
@@ -53,39 +54,62 @@ function IndividualView({
   t: (k: string) => string;
   locale: string;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const teams = useMemo(
     () => getUniqueAthleteTeams(state.athletes),
     [state.athletes],
   );
 
+  const updateUrl = (params: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(params)) {
+      if (value === null || value === "") {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+    }
+    router.replace(`/analysis?${next.toString()}`, { scroll: false });
+  };
+
+  const initialPlayer = searchParams.get("player") || null;
+
   const [search, setSearch] = useState("");
   const [filterTeam, setFilterTeam] = useState("");
   const [filterBand, setFilterBand] = useState("");
   const [comparisonMode, setComparisonMode] = useState(false);
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
-  const [comparisonIds, setComparisonIds] = useState<string[]>([]);
-  const [comparisonConfig, setComparisonConfig] = useState<{
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(initialPlayer);
+  const [comparisonIds, setComparisonIds] = usePersistentState<string[]>("analysis_indiv_compare", []);
+  const [comparisonConfig, setComparisonConfig] = usePersistentState<{
     mode: 'team' | 'athletes' | 'external-team';
     externalTeam?: string;
-  }>({ mode: 'team' });
+  }>("analysis_indiv_comp_config", { mode: 'team' });
   const [compSearch, setCompSearch] = useState("");
   const [compTeam, setCompTeam] = useState("");
   const [compPos, setCompPos] = useState("");
-  const [showComparisonPanel, setShowComparisonPanel] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'maturation' | 'performance' | 'load'>('maturation');
+  const [showComparisonPanel, setShowComparisonPanel] = usePersistentState<boolean>("analysis_indiv_comp_panel", false);
+  const [activeSubTab, setActiveSubTab] = usePersistentState<'maturation' | 'performance' | 'load'>("analysis_indiv_subtab", "maturation");
   const [expandedTeams, setExpandedTeams] = useState<Record<string, boolean>>({});
-  const [isSelectorExpanded, setIsSelectorExpanded] = useState(true);
+  const [isSelectorExpanded, setIsSelectorExpanded] = useState(!initialPlayer);
+
+  // Sync with searchParams (only for primary player selection)
+  useEffect(() => {
+    const player = searchParams.get("player") || null;
+    setSelectedAthleteId(player);
+  }, [searchParams]);
 
   // Auto-collapse selector when a primary player is picked
   useEffect(() => {
     if (selectedAthleteId && comparisonIds.length === 0) {
       setIsSelectorExpanded(false);
     }
-  }, [selectedAthleteId]);
+  }, [selectedAthleteId, comparisonIds]);
 
   const toggleComparison = (id: string) => {
     if (id === selectedAthleteId) return; // Can't compare with self as a separate entity
-    setComparisonIds(prev => 
+    setComparisonIds(prev =>
       prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]
     );
   };
@@ -416,6 +440,22 @@ function IndividualView({
                   <option value="Post-PHV">Post-PHV</option>
                 </select>
               </div>
+
+              {(search || filterTeam || filterBand) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setFilterTeam("");
+                    setFilterBand("");
+                  }}
+                  className="flex items-center gap-1.5 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 px-4 py-2 text-sm font-semibold transition"
+                >
+                  <X className="h-4 w-4" />
+                  {locale === 'es' ? 'Reiniciar Filtros' : 'Reset Filters'}
+                </button>
+              )}
+
               <button 
                 onClick={handleExportPDF}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
@@ -463,7 +503,7 @@ function IndividualView({
                           >
                             <button
                               onClick={() => {
-                                setSelectedAthleteId(a.inputs.athleteId);
+                                updateUrl({ player: a.inputs.athleteId });
                               }}
                               className="flex items-center gap-3 flex-1 min-w-0 text-left"
                             >
@@ -534,7 +574,7 @@ function IndividualView({
                   ].map((mode) => (
                     <button
                       key={mode.id}
-                      onClick={() => setComparisonConfig(prev => ({ ...prev, mode: mode.id as any }))}
+                      onClick={() => setComparisonConfig(c => ({ ...c, mode: mode.id as 'team' | 'athletes' | 'external-team' }))}
                       className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-bold transition-all ${
                         comparisonConfig.mode === mode.id 
                           ? "bg-teal-600 border-teal-700 text-white shadow-md shadow-teal-100" 
@@ -624,16 +664,15 @@ function IndividualView({
                 {comparisonConfig.mode === 'external-team' && (
                   <div className="text-center space-y-4 animate-in fade-in slide-in-from-bottom-2">
                     <Group className="h-10 w-10 text-slate-300 mx-auto mb-1" />
-                    <p className="font-bold text-slate-800">{locale === 'es' ? 'Comparar con otro equipo' : 'Compare with another team'}</p>
                     <div className="max-w-xs mx-auto">
                       <select 
                         value={comparisonConfig.externalTeam || ""}
-                        onChange={(e) => setComparisonConfig(prev => ({ ...prev, externalTeam: e.target.value }))}
+                        onChange={(e) => setComparisonConfig(c => ({ ...c, externalTeam: e.target.value || undefined }))}
                         className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-teal-500 outline-none"
                       >
                         <option value="">-- {locale === 'es' ? 'Seleccionar Equipo' : 'Select Team'} --</option>
                         {teams.filter(t => t !== selectedLatest.inputs.teamName).map(t => (
-                          <option key={t} value={t}>{t}</option>
+                           <option key={t} value={t}>{t}</option>
                         ))}
                       </select>
                     </div>
@@ -692,7 +731,7 @@ function IndividualView({
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveSubTab(tab.id as any)}
+                onClick={() => setActiveSubTab(tab.id as 'maturation' | 'performance' | 'load')}
                 className={`flex items-center gap-2 px-6 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                   activeSubTab === tab.id
                     ? "border-teal-600 text-teal-600 bg-teal-50/30"
@@ -1133,12 +1172,25 @@ function CollectiveView({
   t: (k: string) => string;
   locale: string;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const teams = useMemo(
     () => getUniqueAthleteTeams(state.athletes),
     [state.athletes],
   );
 
-  const [selectedTeam, setSelectedTeam] = useState(teams[0] ?? "");
+  const [selectedTeam, setSelectedTeam] = usePersistentState<string>(
+    "analysis_collective_team",
+    teams[0] ?? ""
+  );
+
+  // Initialize with the first team if none has been persisted yet
+  useEffect(() => {
+    if (!selectedTeam && teams.length > 0) {
+      setSelectedTeam(teams[0]);
+    }
+  }, [teams, selectedTeam, setSelectedTeam]);
 
   const latestByAthlete = useMemo(
     () => getLatestAssessmentsByAthlete(assessments),
@@ -1903,6 +1955,7 @@ function AnalysisSidebar({
 export default function AnalysisPage() {
   const { assessments, state } = useAppState();
   const { t, locale } = useLocale();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const queryTab = searchParams.get("tab");
@@ -1911,6 +1964,56 @@ export default function AnalysisPage() {
       ? queryTab
       : null;
   const [activeTab, setActiveTab] = useState<AnalysisTab | null>(initialTab);
+
+  useEffect(() => {
+    const queryTab = searchParams.get("tab");
+    if (queryTab === "individual" || queryTab === "collective" || queryTab === "assistant") {
+      setActiveTab(queryTab);
+    } else {
+      setActiveTab(null);
+    }
+  }, [searchParams]);
+
+  // Reset transient workspace selection when navigating away from the Analysis module completely
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("analysis_indiv_compare");
+        sessionStorage.removeItem("analysis_indiv_comp_config");
+        sessionStorage.removeItem("analysis_indiv_comp_panel");
+        sessionStorage.removeItem("analysis_indiv_subtab");
+        sessionStorage.removeItem("analysis_collective_team");
+      }
+    };
+  }, []);
+
+  // Clear sub-area selections only when transitioning between sub-tabs inside Analysis.
+  // This does not clear on initial load/refresh because prevTab starts as null.
+  const prevTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentTab = activeTab;
+    const prevTab = prevTabRef.current;
+    
+    if (prevTab !== null && prevTab !== currentTab) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("analysis_indiv_compare");
+        sessionStorage.removeItem("analysis_indiv_comp_config");
+        sessionStorage.removeItem("analysis_indiv_comp_panel");
+        sessionStorage.removeItem("analysis_indiv_subtab");
+        sessionStorage.removeItem("analysis_collective_team");
+      }
+    }
+    prevTabRef.current = currentTab;
+  }, [activeTab]);
+
+  const handleSelectTab = (tab: AnalysisTab | null) => {
+    setActiveTab(tab);
+    if (tab) {
+      router.replace(`/analysis?tab=${tab}`, { scroll: false });
+    } else {
+      router.replace(`/analysis`, { scroll: false });
+    }
+  };
 
   const tabLabels: Record<AnalysisTab, string> = {
     individual: t("analysis.tabs.individual"),
@@ -1921,7 +2024,7 @@ export default function AnalysisPage() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
       {activeTab !== null && (
-        <AnalysisSidebar activeTab={activeTab} onSelect={setActiveTab} t={t} />
+        <AnalysisSidebar activeTab={activeTab} onSelect={handleSelectTab} t={t} />
       )}
       <div className="min-w-0 flex-1 bg-[#f8fafc] p-4 sm:p-6 md:p-8 overflow-x-hidden">
         <div className="mx-auto max-w-7xl space-y-8">
@@ -1933,7 +2036,7 @@ export default function AnalysisPage() {
           </header>
 
           {!activeTab && (
-            <AnalysisSelection onSelect={setActiveTab} t={t} locale={locale} />
+            <AnalysisSelection onSelect={handleSelectTab} t={t} locale={locale} />
           )}
 
           <div className="mt-6">

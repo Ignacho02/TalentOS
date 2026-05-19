@@ -1,11 +1,11 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useDeferredValue, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
-import type { AnthropometricRecordInput } from "@/lib/types";
+import type { AnthropometricRecordInput, PerformanceArea } from "@/lib/types";
 import { AnthropometricRecordSchema } from "@/lib/validations";
 import {
   buildFallbackMeasurementTemplateRows,
@@ -29,17 +29,21 @@ import { emptyMaturationForm } from "./performance-constants";
 
 export default function DataHubPage() {
   const { t } = useLocale();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { state, assessments, addRecord, updateRecord, importRecords } = useAppState();
 
   const initialRouteState = resolveDataHubRouteState(
     searchParams.get("tab"),
     searchParams.get("area"),
+    searchParams.get("player"),
+    searchParams.get("playerArea"),
   );
 
   const [section, setSection] = useState(initialRouteState.section);
   const [performanceArea, setPerformanceArea] = useState(initialRouteState.performanceArea);
-  const [expandedAthleteId, setExpandedAthleteId] = useState<string | null>(null);
+  const [expandedAthleteId, setExpandedAthleteId] = useState<string | null>(initialRouteState.expandedAthleteId);
+  const [initialPanel] = useState(initialRouteState.selectedPanel);
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("all");
   const [positionFilter, setPositionFilter] = useState("all");
@@ -84,14 +88,89 @@ export default function DataHubPage() {
     ],
   );
 
+  // ── URL sync helper ────────────────────────────────────────────────────────
+  // Updates the URL without adding a new history entry, preserving all params.
+  const updateUrl = useCallback((params: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(params)) {
+      if (value === null || value === "") {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+    }
+    router.replace(`/datahub?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
   useEffect(() => {
     const routeState = resolveDataHubRouteState(
       searchParams.get("tab"),
       searchParams.get("area"),
+      searchParams.get("player"),
+      searchParams.get("playerArea"),
     );
     setSection(routeState.section);
     setPerformanceArea(routeState.performanceArea);
+    // Only restore expandedAthleteId from URL when in maturation section
+    if (routeState.section === "maturation") {
+      setExpandedAthleteId(routeState.expandedAthleteId);
+    }
   }, [searchParams]);
+
+  // Reset transient workspace selection when navigating away from the DataHub module completely
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("datahub_club_active_tab");
+        sessionStorage.removeItem("datahub_club_sub_tab");
+        sessionStorage.removeItem("datahub_club_test_battery_area");
+        sessionStorage.removeItem("datahub_club_selected_team_id");
+        sessionStorage.removeItem("datahub_club_selected_athlete_id");
+        sessionStorage.removeItem("datahub_club_selected_def");
+        sessionStorage.removeItem("datahub_perf_tab");
+      }
+    };
+  }, []);
+
+  // Clear sub-area selections only when transitioning between sub-areas (screens) inside DataHub.
+  // This does not clear on initial load/refresh because prevSection starts as null.
+  const prevSectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentSection = section;
+    const prevSection = prevSectionRef.current;
+    
+    if (prevSection !== null && prevSection !== currentSection) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("datahub_club_active_tab");
+        sessionStorage.removeItem("datahub_club_sub_tab");
+        sessionStorage.removeItem("datahub_club_test_battery_area");
+        sessionStorage.removeItem("datahub_club_selected_team_id");
+        sessionStorage.removeItem("datahub_club_selected_athlete_id");
+        sessionStorage.removeItem("datahub_club_selected_def");
+        sessionStorage.removeItem("datahub_perf_tab");
+      }
+    }
+    prevSectionRef.current = currentSection;
+  }, [section]);
+
+  // ── Wrapped setters that also update the URL ───────────────────────────────
+  function handleSetExpandedAthleteId(id: string | null) {
+    setExpandedAthleteId(id);
+    updateUrl({ player: id });
+  }
+
+  function handleSetPerformanceArea(area: PerformanceArea) {
+    setPerformanceArea(area);
+    updateUrl({ area });
+  }
+
+  function handlePanelChange(panel: { areaKey: PerformanceArea; athleteId: string } | null) {
+    if (panel) {
+      updateUrl({ player: panel.athleteId, playerArea: panel.areaKey });
+    } else {
+      updateUrl({ player: null, playerArea: null });
+    }
+  }
 
   function setMaturationValue<K extends keyof AnthropometricRecordInput>(
     key: K,
@@ -224,7 +303,7 @@ export default function DataHubPage() {
             filteredRows={filteredRows}
             assessments={assessments}
             expandedAthleteId={expandedAthleteId}
-            setExpandedAthleteId={setExpandedAthleteId}
+            setExpandedAthleteId={handleSetExpandedAthleteId}
             teams={teams}
             positions={positions}
             maturationForm={maturationForm}
@@ -249,8 +328,10 @@ export default function DataHubPage() {
         {section === "performance" && (
           <PerformanceSection
             area={performanceArea}
-            setArea={setPerformanceArea}
+            setArea={handleSetPerformanceArea}
             performanceEntries={state.performanceEntries}
+            initialPanel={initialPanel}
+            onPanelChange={handlePanelChange}
           />
         )}
       </main>

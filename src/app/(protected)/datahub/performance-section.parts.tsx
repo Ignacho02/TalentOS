@@ -21,6 +21,7 @@ import {
   YAxis,
 } from "recharts";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
+import { useLocale } from "@/lib/i18n/locale-context";
 import type {
   PerformanceArea,
   PerformanceDefinition,
@@ -277,6 +278,7 @@ export function MultiSelectPill({
   onToggle: (value: string) => void;
   onClear: () => void;
 }) {
+  const { locale } = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -318,7 +320,7 @@ export function MultiSelectPill({
               }}
               className="w-full flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs font-medium text-red-500 transition hover:bg-red-50"
             >
-              <X className="h-3 w-3" /> Limpiar selección
+              <X className="h-3 w-3" /> {locale === "es" ? "Limpiar selección" : "Clear selection"}
             </button>
           )}
           {options.map((option) => (

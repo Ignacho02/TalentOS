@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -51,30 +52,56 @@ function downloadSheet(filename: string, rows: Array<Record<string, unknown>>, s
 
 export function ClubSection() {
   const { t } = useLocale();
-  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition } = useAppState();
-  const [activeTab, setActiveTab] = useState<"structure" | "testBattery" | "settings">("structure");
-  const [structureSubTab, setStructureSubTab] = useState<"teams" | "players">("players");
-  const [testBatteryArea, setTestBatteryArea] = useState<PerformanceArea>("physical");
-  const [showAddTestForm, setShowAddTestForm] = useState(false);
-  const [newDef, setNewDef] = useState({ name: "", nameKey: undefined as string | undefined, descriptionKey: undefined as string | undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best" as "best" | "average", interpretation: "higher_better" as "higher_better" | "lower_better", description: "", mediaUrl: "", mediaType: undefined as "image" | "video" | undefined, subCategory: undefined as string | undefined });
-  const [selectedDef, setSelectedDef] = useState<PerformanceDefinition | null>(null);
-
+  const router = useRouter();
   const searchParams = useSearchParams();
 
+  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition } = useAppState();
+  
+  const [activeTab, setActiveTab] = usePersistentState<"structure" | "testBattery" | "settings">("datahub_club_active_tab", "structure");
+  const [structureSubTab, setStructureSubTab] = usePersistentState<"teams" | "players">("datahub_club_sub_tab", "players");
+  const [testBatteryArea, setTestBatteryArea] = usePersistentState<PerformanceArea>("datahub_club_test_battery_area", "physical");
+  const [selectedTeamId, setSelectedTeamId] = usePersistentState<string | null>("datahub_club_selected_team_id", null);
+  const [selectedAthleteId, setSelectedAthleteId] = usePersistentState<string | null>("datahub_club_selected_athlete_id", null);
+  const [showAddTestForm, setShowAddTestForm] = useState(false);
+  const [newDef, setNewDef] = useState({ name: "", nameKey: undefined as string | undefined, descriptionKey: undefined as string | undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best" as "best" | "average", interpretation: "higher_better" as "higher_better" | "lower_better", description: "", mediaUrl: "", mediaType: undefined as "image" | "video" | undefined, subCategory: undefined as string | undefined });
+  const [selectedDef, setSelectedDef] = usePersistentState<PerformanceDefinition | null>("datahub_club_selected_def", null);
+
+  // Keep track of the initial mount phase to prevent usePersistentState lazy-load state updates from triggering fake transitions.
+  const isMountedRef = useRef(false);
   useEffect(() => {
-    const view = searchParams.get("view");
-    if (view === "testBattery") {
-      setActiveTab("testBattery");
-      const area = searchParams.get("area") as PerformanceArea;
-      if (area) setTestBatteryArea(area);
-    } else if (view === "players") {
-      setActiveTab("structure");
+    const timer = setTimeout(() => {
+      isMountedRef.current = true;
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Clear sub-sub-area selections only when transitioning between sub-tabs or sub-sub-tabs.
+  // This does not clear on initial load/refresh because prev variables start as null and we verify isMountedRef.
+  const prevActiveTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentTab = activeTab;
+    const prevTab = prevActiveTabRef.current;
+    if (isMountedRef.current && prevTab !== null && prevTab !== currentTab) {
+      setSelectedAthleteId(null);
+      setSelectedTeamId(null);
+      setSelectedDef(null);
+      // Restore default sub-sub tab views when changing main tabs
       setStructureSubTab("players");
-    } else if (view === "teams") {
-      setActiveTab("structure");
-      setStructureSubTab("teams");
+      setTestBatteryArea("physical");
     }
-  }, [searchParams]);
+    prevActiveTabRef.current = currentTab;
+  }, [activeTab, setStructureSubTab, setTestBatteryArea]);
+
+  const prevStructureSubTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentSub = structureSubTab;
+    const prevSub = prevStructureSubTabRef.current;
+    if (isMountedRef.current && prevSub !== null && prevSub !== currentSub) {
+      setSelectedAthleteId(null);
+      setSelectedTeamId(null);
+    }
+    prevStructureSubTabRef.current = currentSub;
+  }, [structureSubTab]);
 
   const testDefs = state.performanceDefinitions;
 
@@ -128,7 +155,9 @@ export function ClubSection() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+              }}
               className={cn(
                 "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
                 activeTab === tab.id
@@ -153,7 +182,9 @@ export function ClubSection() {
             <button
               key={subTab.id}
               type="button"
-              onClick={() => setStructureSubTab(subTab.id)}
+              onClick={() => {
+                setStructureSubTab(subTab.id);
+              }}
               className={cn(
                 "px-4 py-2 text-sm font-medium rounded-lg transition",
                 structureSubTab === subTab.id
@@ -168,7 +199,17 @@ export function ClubSection() {
       )}
 
       {activeTab === "structure" && structureSubTab === "teams" && (
-        <TeamsTab teams={state.teams} athletes={state.athletes} addTeam={addTeam} updateTeam={updateTeam} deleteTeam={deleteTeam} />
+        <TeamsTab
+          teams={state.teams}
+          athletes={state.athletes}
+          addTeam={addTeam}
+          updateTeam={updateTeam}
+          deleteTeam={deleteTeam}
+          selectedTeamId={selectedTeamId}
+          setSelectedTeamId={(id) => {
+            setSelectedTeamId(id);
+          }}
+        />
       )}
       {activeTab === "structure" && structureSubTab === "players" && (
         <PlayersTab
@@ -177,12 +218,18 @@ export function ClubSection() {
           addAthlete={addAthlete as (a: { name: string; sex: "male" | "female"; ageGroup: string; clubName: string; teamName?: string; teamId?: string; position?: string; dob: string }) => void}
           updateAthlete={updateAthlete as (id: string, updates: { name?: string; sex?: "male" | "female"; ageGroup?: string; teamName?: string; teamId?: string; position?: string; dob?: string }) => void}
           deleteAthlete={deleteAthlete}
+          selectedAthleteId={selectedAthleteId}
+          setSelectedAthleteId={(id) => {
+            setSelectedAthleteId(id);
+          }}
         />
       )}
       {activeTab === "testBattery" && (
         <TestBatteryTab
           testBatteryArea={testBatteryArea}
-          setTestBatteryArea={setTestBatteryArea}
+          setTestBatteryArea={(area) => {
+            setTestBatteryArea(area);
+          }}
           showAddTestForm={showAddTestForm}
           setShowAddTestForm={setShowAddTestForm}
           newDef={newDef}
@@ -208,24 +255,19 @@ function TeamsTab({
   addTeam,
   updateTeam,
   deleteTeam,
+  selectedTeamId,
+  setSelectedTeamId,
 }: {
   teams: Array<{ id: string; name: string; ageGroup: string; clubId: string; photoUrl?: string | null }>;
   athletes: Array<{ id: string; name: string; teamId?: string; photoUrl?: string | null; position?: string; displayOrder?: number; category?: string }>;
   addTeam: (team: { name: string; ageGroup: string; clubId: string; photoUrl?: string | null }) => void;
   updateTeam: (id: string, updates: { name?: string; ageGroup?: string; photoUrl?: string | null }) => void;
   deleteTeam: (id: string) => void;
+  selectedTeamId: string | null;
+  setSelectedTeamId: (id: string | null) => void;
 }) {
   const { t } = useLocale();
   const { state, updateAthlete } = useAppState();
-  const searchParams = useSearchParams();
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const id = searchParams.get("id");
-    if (id && teams.some(t => t.id === id)) {
-      setSelectedTeamId(id);
-    }
-  }, [searchParams, teams]);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -665,26 +707,21 @@ function PlayersTab({
   addAthlete,
   updateAthlete,
   deleteAthlete,
+  selectedAthleteId,
+  setSelectedAthleteId,
 }: {
   athletes: Array<{ id: string; name: string; sex: string; ageGroup: string; teamName?: string; position?: string; dob: string; clubName: string; teamId?: string; photoUrl?: string | null }>;
   teams: Array<{ id: string; name: string }>;
   addAthlete: (a: { name: string; sex: "male" | "female"; ageGroup: string; clubName: string; teamName?: string; teamId?: string; position?: string; dob: string; photoUrl?: string | null }) => void;
   updateAthlete: (id: string, updates: { name?: string; sex?: "male" | "female"; ageGroup?: string; teamName?: string; teamId?: string; position?: string; dob?: string; photoUrl?: string | null }) => void;
   deleteAthlete: (id: string) => void;
+  selectedAthleteId: string | null;
+  setSelectedAthleteId: (id: string | null) => void;
 }) {
   const { t } = useLocale();
   const { state } = useAppState();
-  const searchParams = useSearchParams();
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const id = searchParams.get("id");
-    if (id && athletes.some(a => a.id === id)) {
-      setSelectedAthleteId(id);
-    }
-  }, [searchParams, athletes]);
   const [name, setName] = useState("");
   const [sex, setSex] = useState<"male" | "female">("male");
   const [ageGroup, setAgeGroup] = useState("");
