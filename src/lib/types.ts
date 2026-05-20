@@ -165,7 +165,20 @@ export interface PerformanceDefinition {
   mediaType?: "image" | "video";
 }
 
-export type ClubTab = "teams" | "players" | "testBattery" | "settings";
+export type ClubTab = "teams" | "players" | "testBattery" | "admin";
+
+export type ClubUserRole = "admin" | "user";
+
+export interface ClubUser {
+  id: string;
+  clubId: string;
+  name: string;
+  email: string;
+  role: ClubUserRole;
+  /** Team IDs this user can manage (only relevant for role "user") */
+  assignedTeamIds: string[];
+  createdAt: string;
+}
 
 export interface AppState {
   club: Club;
@@ -176,4 +189,10 @@ export interface AppState {
   trainingLoadEntries: TrainingLoadEntry[];
   performanceDefinitions: PerformanceDefinition[];
   preferences: UserPreferences;
+  /** Club users list (managed by admin) */
+  clubUsers: ClubUser[];
+  /** The current logged-in user's club role (simulated; in production comes from Supabase auth metadata) */
+  currentUserRole: ClubUserRole;
+  /** Current user's assigned team IDs (empty means all, only relevant for role "user") */
+  currentUserTeamIds: string[];
 }

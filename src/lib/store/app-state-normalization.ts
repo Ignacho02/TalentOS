@@ -118,6 +118,9 @@ export function normalizeState(input: unknown): AppState {
       ...demoState.preferences,
       ...(candidate.preferences ?? {}),
     },
+    clubUsers: Array.isArray(candidate.clubUsers) ? candidate.clubUsers : demoState.clubUsers,
+    currentUserRole: candidate.currentUserRole ?? demoState.currentUserRole,
+    currentUserTeamIds: Array.isArray(candidate.currentUserTeamIds) ? candidate.currentUserTeamIds : demoState.currentUserTeamIds,
   };
 
   const existingTeamIds = new Set(baseState.teams.map((team) => team.id));
@@ -157,5 +160,8 @@ export function normalizeState(input: unknown): AppState {
         (definition) => !existingDefinitionIds.has(definition.id),
       ),
     ],
+    clubUsers: baseState.clubUsers.length > 0 ? baseState.clubUsers : demoState.clubUsers,
+    currentUserRole: baseState.currentUserRole,
+    currentUserTeamIds: baseState.currentUserTeamIds,
   };
 }

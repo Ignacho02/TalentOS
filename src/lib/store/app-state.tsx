@@ -31,6 +31,7 @@ import type {
   AnthropometricRecordInput,
   Athlete,
   Club,
+  ClubUser,
   Locale,
   MaturationResult,
   PerformanceDefinition,
@@ -41,12 +42,14 @@ import type {
 import { normalizeState } from "./app-state-normalization";
 import {
   addAthleteToState,
+  addClubUserToState,
   addPerformanceDefinitionToState,
   addPerformanceEntryToState,
   addRecordToState,
   addTeamToState,
   addTrainingLoadEntryToState,
   deleteAthleteFromState,
+  deleteClubUserFromState,
   deletePerformanceDefinitionFromState,
   deletePerformanceEntryInState,
   deleteTeamFromState,
@@ -54,9 +57,11 @@ import {
   importPerformanceEntriesToState,
   importRecordsToState,
   resetAppState,
+  setCurrentUserRoleInState,
   setLocaleInState,
   updateAthleteInState,
   updateClubInState,
+  updateClubUserInState,
   updatePerformanceDefinitionInState,
   updatePerformanceEntryInState,
   updateRecordInState,
@@ -91,6 +96,10 @@ interface AppStateContextValue {
   addPerformanceDefinition: (def: Omit<PerformanceDefinition, "id">) => void;
   updatePerformanceDefinition: (id: string, updates: Partial<PerformanceDefinition>) => void;
   deletePerformanceDefinition: (id: string) => void;
+  addClubUser: (user: Omit<ClubUser, "id" | "createdAt">) => void;
+  updateClubUser: (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => void;
+  deleteClubUser: (id: string) => void;
+  setCurrentUserRole: (role: AppState["currentUserRole"], teamIds: string[]) => void;
   resetState: () => void;
 }
 
@@ -327,6 +336,22 @@ export function AppStateProvider({
       });
   };
 
+  const addClubUser = (user: Omit<ClubUser, "id" | "createdAt">) => {
+    setState((current) => addClubUserToState(current, user));
+  };
+
+  const updateClubUser = (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => {
+    setState((current) => updateClubUserInState(current, id, updates));
+  };
+
+  const deleteClubUser = (id: string) => {
+    setState((current) => deleteClubUserFromState(current, id));
+  };
+
+  const setCurrentUserRole = (role: AppState["currentUserRole"], teamIds: string[]) => {
+    setState((current) => setCurrentUserRoleInState(current, role, teamIds));
+  };
+
   const value = useMemo<AppStateContextValue>(
     () => ({
       state,
@@ -351,6 +376,10 @@ export function AppStateProvider({
       addPerformanceDefinition,
       updatePerformanceDefinition,
       deletePerformanceDefinition,
+      addClubUser,
+      updateClubUser,
+      deleteClubUser,
+      setCurrentUserRole,
       resetState: () => {
         if (confirmResetState(state.preferences.locale)) {
           setState(resetAppState());

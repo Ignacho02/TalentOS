@@ -5,6 +5,7 @@ import type {
   AnthropometricRecordInput,
   Athlete,
   Club,
+  ClubUser,
   Locale,
   PerformanceDefinition,
   PerformanceEntry,
@@ -466,4 +467,28 @@ export function deletePerformanceDefinitionFromState(
 
 export function resetAppState() {
   return demoState;
+}
+
+export function addClubUserToState(current: AppState, user: Omit<ClubUser, "id" | "createdAt">): AppState {
+  const newUser: ClubUser = {
+    ...user,
+    id: uid("user"),
+    createdAt: new Date().toISOString(),
+  };
+  return { ...current, clubUsers: [...current.clubUsers, newUser] };
+}
+
+export function updateClubUserInState(current: AppState, id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>): AppState {
+  return {
+    ...current,
+    clubUsers: current.clubUsers.map((u) => u.id === id ? { ...u, ...updates } : u),
+  };
+}
+
+export function deleteClubUserFromState(current: AppState, id: string): AppState {
+  return { ...current, clubUsers: current.clubUsers.filter((u) => u.id !== id) };
+}
+
+export function setCurrentUserRoleInState(current: AppState, role: AppState["currentUserRole"], teamIds: string[]): AppState {
+  return { ...current, currentUserRole: role, currentUserTeamIds: teamIds };
 }

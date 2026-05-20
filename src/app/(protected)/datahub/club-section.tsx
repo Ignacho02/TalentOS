@@ -8,8 +8,8 @@ import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import { cn } from "@/lib/utils";
-import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, FileSpreadsheet, UploadCloud, Eye, Play, FileText, Zap, Brain, Target, Dumbbell } from "lucide-react";
-import type { PerformanceArea, PerformanceDefinition } from "@/lib/types";
+import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, ChevronDown, FileSpreadsheet, UploadCloud, Eye, Play, FileText, Zap, Brain, Target, Dumbbell } from "lucide-react";
+import type { PerformanceArea, PerformanceDefinition, ClubUser, ClubUserRole } from "@/lib/types";
 import { performancePresets, performanceAreaLabels } from "./performance-constants";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { FieldError, invalidInputClass } from "@/components/field-error";
@@ -72,9 +72,9 @@ export function ClubSection() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition } = useAppState();
+  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition, addClubUser, updateClubUser, deleteClubUser, setCurrentUserRole } = useAppState();
   
-  const [activeTab, setActiveTab] = usePersistentState<"structure" | "testBattery" | "settings">("datahub_club_active_tab", "structure");
+  const [activeTab, setActiveTab] = usePersistentState<"plantilla" | "testBattery" | "admin">("datahub_club_active_tab_v2", "plantilla");
   const [structureSubTab, setStructureSubTab] = usePersistentState<"teams" | "players">("datahub_club_sub_tab", "players");
   const [testBatteryArea, setTestBatteryArea] = usePersistentState<PerformanceArea>("datahub_club_test_battery_area", "physical");
   const [selectedTeamId, setSelectedTeamId] = usePersistentState<string | null>("datahub_club_selected_team_id", null);
@@ -172,9 +172,9 @@ export function ClubSection() {
       {/* Main tab navigation - grouped */}
       <div className="flex gap-2">
         {[
-          { id: "structure" as const, icon: Users, label: t("club.structure") },
+          { id: "plantilla" as const, icon: Users, label: t("club.structure") },
           { id: "testBattery" as const, icon: Beaker, label: t("club.testBattery") },
-          { id: "settings" as const, icon: Palette, label: t("club.settings") },
+          { id: "admin" as const, icon: Shield, label: t("club.settings") },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -199,7 +199,7 @@ export function ClubSection() {
       </div>
 
       {/* Sub-tab navigation for Structure */}
-      {activeTab === "structure" && (
+      {activeTab === "plantilla" && (
         <div className="flex gap-2 ml-2">
           {[
             { id: "players" as const, label: t("club.players") },
@@ -224,7 +224,7 @@ export function ClubSection() {
         </div>
       )}
 
-      {activeTab === "structure" && structureSubTab === "teams" && (
+      {activeTab === "plantilla" && structureSubTab === "teams" && (
         <TeamsTab
           teams={state.teams}
           athletes={state.athletes}
@@ -237,7 +237,7 @@ export function ClubSection() {
           }}
         />
       )}
-      {activeTab === "structure" && structureSubTab === "players" && (
+      {activeTab === "plantilla" && structureSubTab === "players" && (
         <PlayersTab
           athletes={state.athletes}
           teams={state.teams}
@@ -272,8 +272,19 @@ export function ClubSection() {
           t={t}
         />
       )}
-      {activeTab === "settings" && (
-        <SettingsTab club={state.club} updateClub={updateClub} />
+      {activeTab === "admin" && (
+        <AdminTab
+          club={state.club}
+          updateClub={updateClub}
+          teams={state.teams}
+          clubUsers={state.clubUsers}
+          currentUserRole={state.currentUserRole}
+          currentUserTeamIds={state.currentUserTeamIds}
+          addClubUser={addClubUser}
+          updateClubUser={updateClubUser}
+          deleteClubUser={deleteClubUser}
+          setCurrentUserRole={setCurrentUserRole}
+        />
       )}
     </div>
   );
@@ -1717,15 +1728,34 @@ function Modal({
   );
 }
 
-function SettingsTab({
+function AdminTab({
   club,
   updateClub,
+  teams,
+  clubUsers,
+  currentUserRole,
+  currentUserTeamIds,
+  addClubUser,
+  updateClubUser,
+  deleteClubUser,
+  setCurrentUserRole,
 }: {
   club: { name: string; region: string; sport?: "football" | "futsal"; accentColor?: string; badgeUrl?: string };
   updateClub: (updates: { name?: string; region?: string; sport?: "football" | "futsal"; accentColor?: string; badgeUrl?: string }) => void;
+  teams: Array<{ id: string; name: string; ageGroup: string }>;
+  clubUsers: ClubUser[];
+  currentUserRole: ClubUserRole;
+  currentUserTeamIds: string[];
+  addClubUser: (user: Omit<ClubUser, "id" | "createdAt">) => void;
+  updateClubUser: (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => void;
+  deleteClubUser: (id: string) => void;
+  setCurrentUserRole: (role: ClubUserRole, teamIds: string[]) => void;
 }) {
   const { t } = useLocale();
   const { resetState } = useAppState();
+  const isAdmin = currentUserRole === "admin";
+
+  // Club info state
   const [name, setName] = useState(club.name);
   const [region, setRegion] = useState(club.region);
   const [sport, setSport] = useState<"football" | "futsal" | "">(club.sport || "");
@@ -1733,11 +1763,17 @@ function SettingsTab({
   const [badgeUrl, setBadgeUrl] = useState(club.badgeUrl || "");
   const [badgePreview, setBadgePreview] = useState<string | null>(club.badgeUrl || null);
 
-  // Handle badge file upload
+  // User form state
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [userForm, setUserForm] = useState({ name: "", email: "", role: "user" as ClubUserRole, assignedTeamIds: [] as string[] });
+
+  // Simulate role switcher (dev/demo helper)
+  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
+
   const handleBadgeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result as string;
@@ -1747,7 +1783,6 @@ function SettingsTab({
     reader.readAsDataURL(file);
   };
 
-  // Helper to adjust color brightness
   function adjustColor(hex: string, amount: number): string {
     const clean = hex.replace("#", "");
     const r = Math.max(0, Math.min(255, parseInt(clean.substring(0, 2), 16) + amount));
@@ -1756,7 +1791,6 @@ function SettingsTab({
     return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
   }
 
-  // Apply accent color on mount and change
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--accent", accentColor);
@@ -1764,131 +1798,414 @@ function SettingsTab({
     root.style.setProperty("--accent-soft", `${accentColor}1a`);
   }, [accentColor]);
 
+  function openAddUser() {
+    setEditingUserId(null);
+    setUserForm({ name: "", email: "", role: "user", assignedTeamIds: [] });
+    setShowAddUser(true);
+  }
+
+  function openEditUser(user: ClubUser) {
+    setEditingUserId(user.id);
+    setUserForm({ name: user.name, email: user.email, role: user.role, assignedTeamIds: user.assignedTeamIds });
+    setShowAddUser(true);
+  }
+
+  function handleSaveUser() {
+    if (!userForm.name.trim() || !userForm.email.trim()) return;
+    if (editingUserId) {
+      updateClubUser(editingUserId, { name: userForm.name.trim(), email: userForm.email.trim(), role: userForm.role, assignedTeamIds: userForm.assignedTeamIds });
+    } else {
+      addClubUser({ clubId: club.name, name: userForm.name.trim(), email: userForm.email.trim(), role: userForm.role, assignedTeamIds: userForm.assignedTeamIds });
+    }
+    setShowAddUser(false);
+    setEditingUserId(null);
+  }
+
+  function toggleTeam(teamId: string) {
+    setUserForm((f) => ({
+      ...f,
+      assignedTeamIds: f.assignedTeamIds.includes(teamId)
+        ? f.assignedTeamIds.filter((id) => id !== teamId)
+        : [...f.assignedTeamIds, teamId],
+    }));
+  }
+
+  const assignedTeams = teams.filter((t) => currentUserTeamIds.includes(t.id));
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold">{t("club.settings")}</h2>
-
-      <div className="rounded-xl border border-line bg-white p-6 space-y-4">
-        <div className="flex items-center gap-3 mb-4">
-          <Shield className="h-5 w-5 text-zinc-400" />
-          <h3 className="font-medium">{t("club.clubInfo")}</h3>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">{t("club.settings")}</h2>
+        {/* Demo role switcher */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowRoleSwitcher((v) => !v)}
+            className={cn(
+              "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+              currentUserRole === "admin"
+                ? "border-accent/30 bg-accent/10 text-accent"
+                : "border-line bg-zinc-50 text-zinc-600",
+            )}
+          >
+            <Shield className="h-3 w-3" />
+            {currentUserRole === "admin" ? t("club.adminRoleAdmin") : t("club.adminRoleUser")}
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {showRoleSwitcher && (
+            <div className="absolute right-0 top-full mt-1 w-64 rounded-xl border border-line bg-white shadow-lg z-20 p-2">
+              <p className="px-3 py-2 text-xs text-zinc-500 font-medium uppercase tracking-wide">Demo: simular rol</p>
+              {[
+                { role: "admin" as ClubUserRole, teamIds: [], label: t("club.adminRoleAdmin"), desc: t("club.adminRoleAdminDesc") },
+                { role: "user" as ClubUserRole, teamIds: clubUsers.find((u) => u.role === "user")?.assignedTeamIds ?? [], label: t("club.adminRoleUser"), desc: t("club.adminRoleUserDesc") },
+              ].map((opt) => (
+                <button
+                  key={opt.role}
+                  type="button"
+                  onClick={() => { setCurrentUserRole(opt.role, opt.teamIds); setShowRoleSwitcher(false); }}
+                  className={cn(
+                    "w-full text-left rounded-lg px-3 py-2.5 transition mb-1 last:mb-0",
+                    currentUserRole === opt.role ? "bg-accent/10 text-accent" : "hover:bg-zinc-50 text-zinc-700",
+                  )}
+                >
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-zinc-700">{t("club.clubName")}</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-line px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700">{t("club.region")}</label>
-            <input
-              type="text"
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-line px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700">{t("club.sport")}</label>
-            <select
-              value={sport}
-              onChange={(e) => setSport(e.target.value as "football" | "futsal" | "")}
-              className="mt-1 w-full rounded-lg border border-line px-3 py-2"
+      {/* ── ADMIN VIEW ── */}
+      {isAdmin ? (
+        <>
+          {/* Club info & appearance */}
+          <div className="rounded-xl border border-line bg-white p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <Shield className="h-5 w-5 text-zinc-400" />
+              <h3 className="font-medium">{t("club.adminClubInfoSection")}</h3>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t("club.clubName")}</label>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t("club.region")}</label>
+                <input type="text" value={region} onChange={(e) => setRegion(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t("club.sport")}</label>
+                <select value={sport} onChange={(e) => setSport(e.target.value as "football" | "futsal" | "")} className="mt-1 w-full rounded-lg border border-line px-3 py-2">
+                  <option value="">{t("club.selectSport")}</option>
+                  <option value="football">{t("club.football")}</option>
+                  <option value="futsal">{t("club.futsal")}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-1">
+              <Palette className="h-5 w-5 text-zinc-400" />
+              <h3 className="font-medium">{t("club.appearance")}</h3>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t("club.accentColor")}</label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="h-10 w-10 rounded border border-line" />
+                  <input type="text" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="flex-1 rounded-lg border border-line px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-2">{t("club.badgeUrl")}</label>
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={badgeUrl}
+                      onChange={(e) => { setBadgeUrl(e.target.value); setBadgePreview(e.target.value); }}
+                      placeholder={t("club.badgeUrlPlaceholder")}
+                      className="flex-1 rounded-lg border border-line px-3 py-2"
+                    />
+                    <label className="cursor-pointer rounded-lg border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
+                      <input type="file" accept="image/*" className="hidden" onChange={handleBadgeUpload} />
+                      {t("club.uploadBadge")}
+                    </label>
+                  </div>
+                  {badgePreview && (
+                    <div className="rounded-lg border border-line bg-white/50 p-3">
+                      <p className="text-xs text-zinc-600 mb-2">{t("club.badgePreview")}</p>
+                      <img src={badgePreview} alt="Club badge preview" className="h-24 w-auto object-contain rounded border border-line/50" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => updateClub({ name, region, sport: sport || undefined, accentColor, badgeUrl })}
+              className="rounded-full bg-accent px-6 py-2 text-sm font-medium text-white transition hover:bg-accent/90"
             >
-              <option value="">{t("club.selectSport")}</option>
-              <option value="football">{t("club.football")}</option>
-              <option value="futsal">{t("club.futsal")}</option>
-            </select>
+              {t("common.save")}
+            </button>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <Palette className="h-5 w-5 text-zinc-400" />
-          <h3 className="font-medium">{t("club.appearance")}</h3>
-        </div>
+          {/* User management */}
+          <div className="rounded-xl border border-line bg-white p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <User className="h-5 w-5 text-zinc-400" />
+                <h3 className="font-medium">{t("club.adminUsersSection")}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={openAddUser}
+                className="flex items-center gap-1.5 rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("club.adminAddUser")}
+              </button>
+            </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-zinc-700">{t("club.accentColor")}</label>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="color"
-                value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
-                className="h-10 w-10 rounded border border-line"
-              />
-              <input
-                type="text"
-                value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
-                className="flex-1 rounded-lg border border-line px-3 py-2 text-sm"
-              />
+            <p className="text-sm text-zinc-500">{t("club.adminUsersHint")}</p>
+
+            {clubUsers.length === 0 ? (
+              <p className="text-sm text-zinc-400 py-4 text-center">{t("club.adminNoUsers")}</p>
+            ) : (
+              <div className="space-y-2">
+                {clubUsers.map((user) => {
+                  const userTeams = teams.filter((tm) => user.assignedTeamIds.includes(tm.id));
+                  return (
+                    <div key={user.id} className="flex items-center gap-3 rounded-xl border border-line bg-zinc-50/50 px-4 py-3">
+                      <div className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold flex-shrink-0",
+                        user.role === "admin" ? "bg-accent/10 text-accent" : "bg-zinc-200 text-zinc-600",
+                      )}>
+                        {user.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-zinc-900 truncate">{user.name}</p>
+                          <span className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium flex-shrink-0",
+                            user.role === "admin"
+                              ? "bg-accent/10 text-accent"
+                              : "bg-zinc-100 text-zinc-600",
+                          )}>
+                            {user.role === "admin" ? t("club.adminRoleAdmin") : t("club.adminRoleUser")}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+                        {user.role === "user" && (
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            {userTeams.length > 0
+                              ? userTeams.map((tm) => tm.name).join(", ")
+                              : t("club.adminAllTeams")}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openEditUser(user)}
+                          className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-accent transition"
+                          title={t("club.adminEditUser")}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteClubUser(user.id)}
+                          className="rounded-lg p-2 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition"
+                          title={t("club.adminDeleteUser")}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add/edit user form */}
+            {showAddUser && (
+              <div className="rounded-xl border border-accent/20 bg-accent/5 p-5 space-y-4 mt-2">
+                <h4 className="text-sm font-semibold text-zinc-800">
+                  {editingUserId ? t("club.adminEditUser") : t("club.adminAddUser")}
+                </h4>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600 mb-1">{t("club.adminUserName")}</label>
+                    <input
+                      type="text"
+                      value={userForm.name}
+                      onChange={(e) => setUserForm((f) => ({ ...f, name: e.target.value }))}
+                      className="w-full rounded-lg border border-line px-3 py-2 text-sm"
+                      placeholder="Nombre completo"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600 mb-1">{t("club.adminUserEmail")}</label>
+                    <input
+                      type="email"
+                      value={userForm.email}
+                      onChange={(e) => setUserForm((f) => ({ ...f, email: e.target.value }))}
+                      className="w-full rounded-lg border border-line px-3 py-2 text-sm"
+                      placeholder="usuario@club.es"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600 mb-2">{t("club.adminUserRole")}</label>
+                  <div className="flex gap-2">
+                    {(["admin", "user"] as ClubUserRole[]).map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setUserForm((f) => ({ ...f, role: r }))}
+                        className={cn(
+                          "flex-1 rounded-lg border px-3 py-2.5 text-left transition",
+                          userForm.role === r
+                            ? "border-accent bg-accent/10 text-accent"
+                            : "border-line bg-white text-zinc-600 hover:bg-zinc-50",
+                        )}
+                      >
+                        <p className="text-sm font-medium">{r === "admin" ? t("club.adminRoleAdmin") : t("club.adminRoleUser")}</p>
+                        <p className="text-xs mt-0.5 opacity-70">{r === "admin" ? t("club.adminRoleAdminDesc") : t("club.adminRoleUserDesc")}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {userForm.role === "user" && teams.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600 mb-1">{t("club.adminUserTeams")}</label>
+                    <p className="text-xs text-zinc-400 mb-2">{t("club.adminUserTeamsHint")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {teams.map((tm) => (
+                        <button
+                          key={tm.id}
+                          type="button"
+                          onClick={() => toggleTeam(tm.id)}
+                          className={cn(
+                            "rounded-full border px-3 py-1 text-xs font-medium transition",
+                            userForm.assignedTeamIds.includes(tm.id)
+                              ? "border-accent bg-accent/10 text-accent"
+                              : "border-line bg-white text-zinc-600 hover:bg-zinc-50",
+                          )}
+                        >
+                          {userForm.assignedTeamIds.includes(tm.id) && <Check className="inline h-3 w-3 mr-1" />}
+                          {tm.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSaveUser}
+                    disabled={!userForm.name.trim() || !userForm.email.trim()}
+                    className="rounded-full bg-accent px-5 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-40"
+                  >
+                    {t("club.adminSaveUser")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddUser(false); setEditingUserId(null); }}
+                    className="rounded-full border border-line px-5 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50"
+                  >
+                    {t("club.adminCancelUser")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Danger zone */}
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50/50 p-6">
+            <h3 className="text-lg font-semibold text-red-900 mb-2">{t("club.dangerZone") || "Zona de peligro"}</h3>
+            <p className="text-sm text-red-700 mb-4">
+              {t("club.resetWarning") || "Si algo no funciona o quieres empezar de cero con los datos de demo, puedes restablecer la aplicación."}
+            </p>
+            <button onClick={resetState} className="rounded-full bg-red-600 px-6 py-2 text-sm font-medium text-white transition hover:bg-red-700">
+              {t("club.resetApp") || "Restablecer aplicación"}
+            </button>
+          </div>
+        </>
+      ) : (
+        /* ── USER VIEW (read-only) ── */
+        <div className="space-y-4">
+          <div className="rounded-xl border border-line bg-white p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <User className="h-5 w-5 text-zinc-400" />
+              <h3 className="font-medium">{t("club.adminMyAccess")}</h3>
+            </div>
+            <p className="text-sm text-zinc-500">{t("club.adminMyAccessHint")}</p>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg bg-zinc-50 border border-line p-4">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">{t("club.adminCurrentRole")}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700">
+                    <Shield className="h-3.5 w-3.5" />
+                    {t("club.adminRoleUser")}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-2">{t("club.adminRoleUserDesc")}</p>
+              </div>
+
+              <div className="rounded-lg bg-zinc-50 border border-line p-4">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">{t("club.adminAssignedTeams")}</p>
+                {assignedTeams.length === 0 ? (
+                  <p className="text-sm text-zinc-400 mt-2">{t("club.adminNoTeamsAssigned")}</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {assignedTeams.map((tm) => (
+                      <span key={tm.id} className="inline-flex items-center rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                        {tm.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-2">{t("club.badgeUrl")}</label>
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={badgeUrl}
-                  onChange={(e) => {
-                    setBadgeUrl(e.target.value);
-                    setBadgePreview(e.target.value);
-                  }}
-                  placeholder={t("club.badgeUrlPlaceholder")}
-                  className="flex-1 rounded-lg border border-line px-3 py-2"
-                />
-                <label className="cursor-pointer rounded-lg border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleBadgeUpload}
-                  />
-                  {t("club.uploadBadge")}
-                </label>
+
+          {/* Read-only club info */}
+          <div className="rounded-xl border border-line bg-white p-6 space-y-3">
+            <div className="flex items-center gap-3">
+              <Shield className="h-5 w-5 text-zinc-400" />
+              <h3 className="font-medium">{t("club.clubInfo")}</h3>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium text-zinc-500">{t("club.clubName")}</p>
+                <p className="text-sm font-medium text-zinc-900 mt-0.5">{club.name}</p>
               </div>
-              {badgePreview && (
-                <div className="rounded-lg border border-line bg-white/50 p-3">
-                  <p className="text-xs text-zinc-600 mb-2">{t("club.badgePreview")}</p>
-                  <img
-                    src={badgePreview}
-                    alt="Club badge preview"
-                    className="h-24 w-auto object-contain rounded border border-line/50"
-                  />
+              <div>
+                <p className="text-xs font-medium text-zinc-500">{t("club.region")}</p>
+                <p className="text-sm font-medium text-zinc-900 mt-0.5">{club.region || "—"}</p>
+              </div>
+              {club.sport && (
+                <div>
+                  <p className="text-xs font-medium text-zinc-500">{t("club.sport")}</p>
+                  <p className="text-sm font-medium text-zinc-900 mt-0.5">
+                    {club.sport === "football" ? t("club.football") : t("club.futsal")}
+                  </p>
                 </div>
               )}
             </div>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => updateClub({ name, region, sport: sport || undefined, accentColor, badgeUrl })}
-          className="rounded-full bg-accent px-6 py-2 text-sm font-medium text-white transition hover:bg-accent/90"
-        >
-          {t("common.save")}
-        </button>
-      </div>
-
-      <div className="rounded-[1.75rem] border border-red-200 bg-red-50/50 p-6 mt-6">
-        <h3 className="text-lg font-semibold text-red-900 mb-2">{t("club.dangerZone") || "Zona de peligro"}</h3>
-        <p className="text-sm text-red-700 mb-4">
-          {t("club.resetWarning") || "Si algo no funciona o quieres empezar de cero con los datos de demo, puedes restablecer la aplicación."}
-        </p>
-        <button
-          onClick={resetState}
-          className="rounded-full bg-red-600 px-6 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-        >
-          {t("club.resetApp") || "Restablecer aplicación"}
-        </button>
-      </div>
+      )}
     </div>
   );
 }

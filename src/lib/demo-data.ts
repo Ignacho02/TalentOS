@@ -333,6 +333,37 @@ export const demoState: AppState = {
   preferences: {
     locale: "es",
   },
+  currentUserRole: "admin",
+  currentUserTeamIds: [],
+  clubUsers: [
+    {
+      id: "user-admin-1",
+      clubId: "demo-club",
+      name: "Carlos Martínez",
+      email: "carlos@academiasevilla.es",
+      role: "admin",
+      assignedTeamIds: [],
+      createdAt: "2024-09-01T08:00:00.000Z",
+    },
+    {
+      id: "user-staff-1",
+      clubId: "demo-club",
+      name: "Marta García",
+      email: "marta@academiasevilla.es",
+      role: "user",
+      assignedTeamIds: ["team-u10", "team-u12"],
+      createdAt: "2024-09-15T10:30:00.000Z",
+    },
+    {
+      id: "user-staff-2",
+      clubId: "demo-club",
+      name: "Alejandro Ruiz",
+      email: "alejandro@academiasevilla.es",
+      role: "user",
+      assignedTeamIds: ["team-u14"],
+      createdAt: "2025-01-10T09:00:00.000Z",
+    },
+  ],
 };
 
 export const demoAssessments = demoRecords.map(calculateMaturation);

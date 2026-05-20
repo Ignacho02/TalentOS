@@ -355,5 +355,8 @@ export async function loadAppStateForSession(
     preferences: {
       locale: preferences?.locale === "en" ? "en" : fallbackLocale,
     },
+    clubUsers: [],
+    currentUserRole: "admin",
+    currentUserTeamIds: [],
   };
 }
