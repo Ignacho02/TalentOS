@@ -11,6 +11,23 @@ import { cn } from "@/lib/utils";
 import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, FileSpreadsheet, UploadCloud, Eye, Play, FileText, Zap, Brain, Target, Dumbbell } from "lucide-react";
 import type { PerformanceArea, PerformanceDefinition } from "@/lib/types";
 import { performancePresets, performanceAreaLabels } from "./performance-constants";
+import { FormErrorBanner } from "@/components/form-error-banner";
+import { FieldError, invalidInputClass } from "@/components/field-error";
+import {
+  clearFieldError,
+  validateClubAthlete,
+  validateClubTeam,
+  validateTestDefinition,
+  type FieldErrors,
+} from "@/lib/form-errors";
+
+function clubInputClass(hasError: boolean, extra?: string) {
+  return cn(
+    "w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans",
+    hasError ? invalidInputClass : "border-line",
+    extra,
+  );
+}
 
 const areaStyles: Record<string, {
   icon: React.ElementType;
@@ -63,6 +80,8 @@ export function ClubSection() {
   const [selectedTeamId, setSelectedTeamId] = usePersistentState<string | null>("datahub_club_selected_team_id", null);
   const [selectedAthleteId, setSelectedAthleteId] = usePersistentState<string | null>("datahub_club_selected_athlete_id", null);
   const [showAddTestForm, setShowAddTestForm] = useState(false);
+  const [testDefErrors, setTestDefErrors] = useState<FieldErrors>({});
+  const [testDefSummary, setTestDefSummary] = useState("");
   const [newDef, setNewDef] = useState({ name: "", nameKey: undefined as string | undefined, descriptionKey: undefined as string | undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best" as "best" | "average", interpretation: "higher_better" as "higher_better" | "lower_better", description: "", mediaUrl: "", mediaType: undefined as "image" | "video" | undefined, subCategory: undefined as string | undefined });
   const [selectedDef, setSelectedDef] = usePersistentState<PerformanceDefinition | null>("datahub_club_selected_def", null);
 
@@ -107,13 +126,20 @@ export function ClubSection() {
 
   function addDef(e: React.FormEvent) {
     e.preventDefault();
-    const n = newDef.name.trim(), u = newDef.unit.trim();
-    if (!n || !u) return;
+    const displayName = newDef.nameKey ? t(newDef.nameKey) : newDef.name;
+    const result = validateTestDefinition(t, { name: displayName, unit: newDef.unit });
+    if (!result.success) {
+      setTestDefErrors(result.fieldErrors);
+      setTestDefSummary(result.summary);
+      return;
+    }
+    setTestDefErrors({});
+    setTestDefSummary("");
     addPerformanceDefinition({
-      name: n,
+      name: result.data.name,
       nameKey: newDef.nameKey,
       area: testBatteryArea,
-      unit: u,
+      unit: result.data.unit,
       attempts: newDef.attempts,
       isRating: newDef.isRating,
       scoringStrategy: newDef.scoringStrategy,
@@ -238,6 +264,10 @@ export function ClubSection() {
           addDef={addDef}
           delDef={delDef}
           handleMedia={handleMedia}
+          testDefErrors={testDefErrors}
+          testDefSummary={testDefSummary}
+          clearTestDefErrors={() => { setTestDefErrors({}); setTestDefSummary(""); }}
+          setTestDefErrors={setTestDefErrors}
           updatePerformanceDefinition={updatePerformanceDefinition as (id: string, updates: Partial<PerformanceDefinition>) => void}
           t={t}
         />
@@ -275,6 +305,8 @@ function TeamsTab({
   const [name, setName] = useState("");
   const [ageGroup, setAgeGroup] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [formErrors, setFormErrors] = useState<FieldErrors>({});
+  const [formSummary, setFormSummary] = useState("");
 
   const selectedTeam = teams.find(t => t.id === selectedTeamId);
   const teamRoster = athletes.filter(a => a.teamId === selectedTeamId);
@@ -371,17 +403,30 @@ function TeamsTab({
     setName("");
     setAgeGroup("");
     setPhotoUrl("");
+    setFormErrors({});
+    setFormSummary("");
   }
 
   function handleSaveAdd() {
-    if (!name.trim() || !ageGroup.trim()) return;
-    addTeam({ name: name.trim(), ageGroup: ageGroup.trim(), clubId: state.club.id, photoUrl: photoUrl || null });
+    const result = validateClubTeam(t, { name, ageGroup });
+    if (!result.success) {
+      setFormErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      return;
+    }
+    addTeam({ name: result.data.name, ageGroup: result.data.ageGroup, clubId: state.club.id, photoUrl: photoUrl || null });
     closeModals();
   }
 
   function handleSaveEdit() {
-    if (!editingId || !name.trim() || !ageGroup.trim()) return;
-    updateTeam(editingId, { name: name.trim(), ageGroup: ageGroup.trim(), photoUrl: photoUrl || null });
+    if (!editingId) return;
+    const result = validateClubTeam(t, { name, ageGroup });
+    if (!result.success) {
+      setFormErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      return;
+    }
+    updateTeam(editingId, { name: result.data.name, ageGroup: result.data.ageGroup, photoUrl: photoUrl || null });
     closeModals();
   }
 
@@ -573,30 +618,33 @@ function TeamsTab({
       {showAdd && (
         <Modal title={t("club.addTeam")} onClose={closeModals}>
           <div className="space-y-4">
+            <FormErrorBanner summary={formSummary} fieldErrors={formErrors} t={t} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("club.teamNamePlaceholder")}</label>
                 <input
                   type="text"
                   value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50"
+                  onChange={e => { setName(e.target.value); setFormErrors(clearFieldError(formErrors, "name")); }}
+                  className={clubInputClass(Boolean(formErrors.name))}
                   autoFocus
                 />
+                <FieldError message={formErrors.name} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("club.ageGroupPlaceholder")}</label>
                 <input
                   type="text"
                   value={ageGroup}
-                  onChange={e => setAgeGroup(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50"
+                  onChange={e => { setAgeGroup(e.target.value); setFormErrors(clearFieldError(formErrors, "ageGroup")); }}
+                  className={clubInputClass(Boolean(formErrors.ageGroup))}
                 />
+                <FieldError message={formErrors.ageGroup} />
               </div>
             </div>
 
             <div className="pt-2">
-              <label className="text-xs font-medium text-zinc-500 mb-1 block">Team Photo (optional)</label>
+              <label className="text-xs font-medium text-zinc-500 mb-1 block">{t("datahub.photoOptional")}</label>
               <div className="flex items-center gap-4">
                 {photoUrl ? (
                   <div className="h-12 w-12 rounded-xl border border-line overflow-hidden flex-shrink-0 bg-white">
@@ -638,29 +686,32 @@ function TeamsTab({
       {editingId && (
         <Modal title={t("datahub.editPlayerTitle").replace(t("datahub.player").toLowerCase(), t("datahub.team").toLowerCase())} onClose={closeModals}>
           <div className="space-y-4">
+            <FormErrorBanner summary={formSummary} fieldErrors={formErrors} t={t} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("club.teamNamePlaceholder")}</label>
                 <input
                   type="text"
                   value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50"
+                  onChange={e => { setName(e.target.value); setFormErrors(clearFieldError(formErrors, "name")); }}
+                  className={clubInputClass(Boolean(formErrors.name))}
                 />
+                <FieldError message={formErrors.name} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("club.ageGroupPlaceholder")}</label>
                 <input
                   type="text"
                   value={ageGroup}
-                  onChange={e => setAgeGroup(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50"
+                  onChange={e => { setAgeGroup(e.target.value); setFormErrors(clearFieldError(formErrors, "ageGroup")); }}
+                  className={clubInputClass(Boolean(formErrors.ageGroup))}
                 />
+                <FieldError message={formErrors.ageGroup} />
               </div>
             </div>
 
             <div className="pt-2">
-              <label className="text-xs font-medium text-zinc-500 mb-1 block">Team Photo (optional)</label>
+              <label className="text-xs font-medium text-zinc-500 mb-1 block">{t("datahub.photoOptional")}</label>
               <div className="flex items-center gap-4">
                 {photoUrl ? (
                   <div className="h-12 w-12 rounded-xl border border-line overflow-hidden flex-shrink-0 bg-white">
@@ -729,6 +780,8 @@ function PlayersTab({
   const [position, setPosition] = useState("");
   const [dob, setDob] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [formErrors, setFormErrors] = useState<FieldErrors>({});
+  const [formSummary, setFormSummary] = useState("");
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId);
 
@@ -823,6 +876,7 @@ function PlayersTab({
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]]);
 
       let count = 0;
+      let skipped = 0;
       for (const raw of rows) {
         const map: Record<string, string> = { "Nombre": "Name", "Sexo": "Sex", "masculino": "male", "femenino": "female", "Grupo de Edad": "Age Group", "Equipo": "Team", "Posicion": "Position", "Fecha de Nacimiento (AAAA-MM-DD)": "DOB", "DOB (YYYY-MM-DD)": "DOB", "Fecha de Nacimiento": "DOB" };
         const row: Record<string, unknown> = {};
@@ -839,32 +893,55 @@ function PlayersTab({
           dobStr = dateVal.toISOString().split('T')[0];
         }
 
-        if (!athleteName || !dobStr || athleteName.includes("Ej: ") || athleteName.includes("Sample Athlete")) continue;
+        if (!athleteName || athleteName.includes("Ej: ") || athleteName.includes("Sample Athlete")) {
+          skipped++;
+          continue;
+        }
 
         const teamName = String(row["Team"] ?? "").trim();
-        const teamMatch = teams.find(t => t.name.toLowerCase() === teamName.toLowerCase());
+        const teamMatch = teams.find(team => team.name.toLowerCase() === teamName.toLowerCase());
+        const ageGroup = String(row["Age Group"] ?? "").trim();
+        const validation = validateClubAthlete(t, {
+          name: athleteName,
+          ageGroup,
+          dob: dobStr,
+          teamId: teamMatch?.id ?? "",
+        });
+
+        if (!validation.success) {
+          skipped++;
+          continue;
+        }
 
         addAthlete({
-          name: athleteName,
+          name: validation.data.name,
           sex: sexValue === "female" ? "female" : "male",
-          ageGroup: String(row["Age Group"] ?? "").trim(),
+          ageGroup: validation.data.ageGroup,
           clubName: state.club.name,
           teamName: teamMatch?.name,
           teamId: teamMatch?.id,
           position: String(row["Position"] ?? "").trim() || undefined,
-          dob: dobStr
+          dob: validation.data.dob,
         });
         count++;
       }
 
       if (count > 0) {
-        setImportFeedback(t("datahub.bulkAddSuccess")?.replace("{count}", count.toString()) || `✅ ${count} jugadores añadidos con éxito.`);
+        const successMsg = skipped > 0
+          ? t("datahub.bulkAddPartial")
+              .replace("{imported}", String(count))
+              .replace("{skipped}", String(skipped))
+          : (t("datahub.bulkAddSuccess")?.replace("{count}", count.toString()) || `✅ ${count} jugadores añadidos con éxito.`);
+        setImportFeedback(successMsg);
         setTimeout(() => {
           setImportFeedback("");
           closeModals();
         }, 2000);
       } else {
-        setImportFeedback(t("datahub.bulkAddError") || "❌ No se encontraron jugadores válidos en el archivo.");
+        const errMsg = skipped > 0
+          ? t("datahub.bulkAddValidationError").replace("{skipped}", String(skipped))
+          : (t("datahub.bulkAddError") || "❌ No se encontraron jugadores válidos en el archivo.");
+        setImportFeedback(errMsg);
         setTimeout(() => setImportFeedback(""), 3000);
       }
     } catch (e) {
@@ -960,38 +1037,51 @@ function PlayersTab({
     setPosition("");
     setDob("");
     setPhotoUrl("");
+    setFormErrors({});
+    setFormSummary("");
   }
 
   function handleSaveEdit() {
-    if (!editingId || !name.trim() || !ageGroup.trim() || !dob.trim()) return;
+    if (!editingId) return;
+    const result = validateClubAthlete(t, { name, ageGroup, dob, teamId });
+    if (!result.success) {
+      setFormErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      return;
+    }
 
-    const team = teams.find((t) => t.id === teamId);
+    const team = teams.find((item) => item.id === result.data.teamId);
     updateAthlete(editingId, {
-      name: name.trim(),
+      name: result.data.name,
       sex,
-      ageGroup: ageGroup.trim(),
+      ageGroup: result.data.ageGroup,
       teamName: team?.name,
       teamId: team?.id,
       position: position.trim() || undefined,
-      dob: dob.trim(),
+      dob: result.data.dob,
       photoUrl: photoUrl || null,
     });
     closeModals();
   }
 
   function handleSaveAdd() {
-    if (!name.trim() || !ageGroup.trim() || !dob.trim()) return;
+    const result = validateClubAthlete(t, { name, ageGroup, dob, teamId });
+    if (!result.success) {
+      setFormErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      return;
+    }
 
-    const team = teams.find((t) => t.id === teamId);
+    const team = teams.find((item) => item.id === result.data.teamId);
     addAthlete({
-      name: name.trim(),
+      name: result.data.name,
       sex,
-      ageGroup: ageGroup.trim(),
+      ageGroup: result.data.ageGroup,
       clubName: state.club.name,
       teamName: team?.name,
       teamId: team?.id,
       position: position.trim() || undefined,
-      dob: dob.trim(),
+      dob: result.data.dob,
       photoUrl: photoUrl || null,
     });
     closeModals();
@@ -1319,6 +1409,7 @@ function PlayersTab({
               <div className="h-px bg-line flex-1"></div>
             </div>
 
+            <FormErrorBanner summary={formSummary} fieldErrors={formErrors} t={t} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.playerName")}</label>
@@ -1326,17 +1417,18 @@ function PlayersTab({
                   type="text"
                   placeholder={t("datahub.playerName")}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setName(e.target.value); setFormErrors(clearFieldError(formErrors, "name")); }}
+                  className={clubInputClass(Boolean(formErrors.name))}
                   autoFocus
                 />
+                <FieldError message={formErrors.name} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.sex")}</label>
                 <select
                   value={sex}
                   onChange={(e) => setSex(e.target.value as "male" | "female")}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  className={clubInputClass(false)}
                 >
                   <option value="male">{t("datahub.male")}</option>
                   <option value="female">{t("datahub.female")}</option>
@@ -1348,22 +1440,24 @@ function PlayersTab({
                   type="text"
                   placeholder={t("datahub.ageGroup")}
                   value={ageGroup}
-                  onChange={(e) => setAgeGroup(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setAgeGroup(e.target.value); setFormErrors(clearFieldError(formErrors, "ageGroup")); }}
+                  className={clubInputClass(Boolean(formErrors.ageGroup))}
                 />
+                <FieldError message={formErrors.ageGroup} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.team")}</label>
                 <select
                   value={teamId}
-                  onChange={(e) => setTeamId(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setTeamId(e.target.value); setFormErrors(clearFieldError(formErrors, "teamId")); }}
+                  className={clubInputClass(Boolean(formErrors.teamId))}
                 >
                   <option value="">{t("club.selectTeam")}</option>
                   {teams.map((team) => (
                     <option key={team.id} value={team.id}>{team.name}</option>
                   ))}
                 </select>
+                <FieldError message={formErrors.teamId} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.position")}</label>
@@ -1372,7 +1466,7 @@ function PlayersTab({
                   placeholder={t("datahub.position")}
                   value={position}
                   onChange={(e) => setPosition(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  className={clubInputClass(false)}
                 />
               </div>
               <div className="space-y-1">
@@ -1380,9 +1474,10 @@ function PlayersTab({
                 <input
                   type="date"
                   value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setDob(e.target.value); setFormErrors(clearFieldError(formErrors, "dob")); }}
+                  className={clubInputClass(Boolean(formErrors.dob))}
                 />
+                <FieldError message={formErrors.dob} />
               </div>
             </div>
 
@@ -1446,6 +1541,7 @@ function PlayersTab({
           onClose={closeModals}
         >
           <div className="space-y-4">
+            <FormErrorBanner summary={formSummary} fieldErrors={formErrors} t={t} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.playerName")}</label>
@@ -1453,16 +1549,17 @@ function PlayersTab({
                   type="text"
                   placeholder={t("datahub.playerName")}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setName(e.target.value); setFormErrors(clearFieldError(formErrors, "name")); }}
+                  className={clubInputClass(Boolean(formErrors.name))}
                 />
+                <FieldError message={formErrors.name} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.sex")}</label>
                 <select
                   value={sex}
                   onChange={(e) => setSex(e.target.value as "male" | "female")}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  className={clubInputClass(false)}
                 >
                   <option value="male">{t("datahub.male")}</option>
                   <option value="female">{t("datahub.female")}</option>
@@ -1474,22 +1571,24 @@ function PlayersTab({
                   type="text"
                   placeholder={t("datahub.ageGroup")}
                   value={ageGroup}
-                  onChange={(e) => setAgeGroup(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setAgeGroup(e.target.value); setFormErrors(clearFieldError(formErrors, "ageGroup")); }}
+                  className={clubInputClass(Boolean(formErrors.ageGroup))}
                 />
+                <FieldError message={formErrors.ageGroup} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.team")}</label>
                 <select
                   value={teamId}
-                  onChange={(e) => setTeamId(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setTeamId(e.target.value); setFormErrors(clearFieldError(formErrors, "teamId")); }}
+                  className={clubInputClass(Boolean(formErrors.teamId))}
                 >
                   <option value="">{t("club.selectTeam")}</option>
                   {teams.map((team) => (
                     <option key={team.id} value={team.id}>{team.name}</option>
                   ))}
                 </select>
+                <FieldError message={formErrors.teamId} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">{t("datahub.position")}</label>
@@ -1498,7 +1597,7 @@ function PlayersTab({
                   placeholder={t("datahub.position")}
                   value={position}
                   onChange={(e) => setPosition(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  className={clubInputClass(false)}
                 />
               </div>
               <div className="space-y-1">
@@ -1506,9 +1605,10 @@ function PlayersTab({
                 <input
                   type="date"
                   value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  className="w-full rounded-lg border border-line px-3 py-2.5 text-sm outline-none focus:border-accent/50 font-sans"
+                  onChange={(e) => { setDob(e.target.value); setFormErrors(clearFieldError(formErrors, "dob")); }}
+                  className={clubInputClass(Boolean(formErrors.dob))}
                 />
+                <FieldError message={formErrors.dob} />
               </div>
             </div>
 
@@ -1804,6 +1904,10 @@ function TestBatteryTab({
   addDef,
   delDef,
   handleMedia,
+  testDefErrors,
+  testDefSummary,
+  clearTestDefErrors,
+  setTestDefErrors,
   updatePerformanceDefinition,
   t,
 }: {
@@ -1817,6 +1921,10 @@ function TestBatteryTab({
   addDef: (e: React.FormEvent) => void;
   delDef: (id: string) => void;
   handleMedia: (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => void;
+  testDefErrors: FieldErrors;
+  testDefSummary: string;
+  clearTestDefErrors: () => void;
+  setTestDefErrors: React.Dispatch<React.SetStateAction<FieldErrors>>;
   updatePerformanceDefinition: (id: string, updates: Partial<PerformanceDefinition>) => void;
   t: (key: string) => string;
 }) {
@@ -2224,6 +2332,7 @@ function TestBatteryTab({
             </div>
 
             <form onSubmit={addDef} className="overflow-y-auto pr-1 -mr-1 space-y-4">
+              <FormErrorBanner summary={testDefSummary} fieldErrors={testDefErrors} t={t} />
               {/* Preset Selector */}
               <div className="rounded-xl border-2 border-accent/20 bg-accent/5 p-4">
                 <label className="block text-xs font-bold text-accent mb-2 uppercase tracking-tight">{t("datahub.usePreset") || "Usar test predefinido"}</label>
@@ -2264,20 +2373,28 @@ function TestBatteryTab({
                 <div className="col-span-2 space-y-1">
                   <label className="text-xs font-medium text-zinc-500">{t("datahub.metricName")}</label>
                   <input
-                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    className={clubInputClass(Boolean(testDefErrors.name), "bg-zinc-50 focus:bg-white")}
                     placeholder={t("datahub.exampleMetricNames")}
                     value={newDef.nameKey ? t(newDef.nameKey) : newDef.name}
-                    onChange={e => setNewDef(c => ({ ...c, name: e.target.value, nameKey: undefined, descriptionKey: undefined }))}
+                    onChange={e => {
+                      setNewDef(c => ({ ...c, name: e.target.value, nameKey: undefined, descriptionKey: undefined }));
+                      setTestDefErrors(prev => clearFieldError(prev, "name"));
+                    }}
                   />
+                  <FieldError message={testDefErrors.name} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-zinc-500">{t("datahub.metricUnit")}</label>
                   <input
-                    className="w-full rounded-lg border border-line bg-zinc-50 px-3 py-2.5 text-sm outline-none focus:bg-white focus:border-accent/50 font-sans"
+                    className={clubInputClass(Boolean(testDefErrors.unit), "bg-zinc-50 focus:bg-white")}
                     placeholder={t("datahub.exampleMetricUnit")}
                     value={newDef.unit}
-                    onChange={e => setNewDef(c => ({ ...c, unit: e.target.value }))}
+                    onChange={e => {
+                      setNewDef(c => ({ ...c, unit: e.target.value }));
+                      setTestDefErrors(prev => clearFieldError(prev, "unit"));
+                    }}
                   />
+                  <FieldError message={testDefErrors.unit} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-zinc-500">{t("datahub.attemptsCount")}</label>
@@ -2370,7 +2487,7 @@ function TestBatteryTab({
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddTestForm(false)}
+                  onClick={() => { clearTestDefErrors(); setShowAddTestForm(false); }}
                   className="flex-1 rounded-xl border border-line py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition"
                 >
                   {t("datahub.cancel")}

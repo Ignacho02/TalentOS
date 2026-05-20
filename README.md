@@ -140,6 +140,7 @@ Eso significa que la app sirve bien como demo funcional o base de producto, pero
 - Cambios de formulas, clasificaciones o insight logic: `src/lib/maturation`.
 - Cambios de tipos o entidades: `src/lib/types.ts`.
 - Cambios de estado, CRUD o persistencia local: `src/lib/store/app-state.tsx`.
+- Validacion de formularios y mensajes de error: `src/lib/form-errors.ts`, `src/lib/validations.ts`, componentes en `src/components/form-error-banner.tsx` y `labeled-field.tsx`.
 - Cambios de autenticacion o integracion backend: `src/app/api` y `src/lib/supabase`.
 
 ## Limitaciones conocidas
@@ -162,3 +163,4 @@ Eso significa que la app sirve bien como demo funcional o base de producto, pero
 - `docs/roadmap.md`
 - `docs/changelog-internal.md`
 - `docs/engineering/README.md`
+- `docs/engineering/changes/2026-05-20-form-validation-feedback.md` — validacion UX en DataHub (mayo 2026)

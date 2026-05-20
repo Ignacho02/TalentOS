@@ -241,24 +241,27 @@ export function importRecordsToState(
 export function addPerformanceEntryToState(
   current: AppState,
   input: PerformanceEntryInput,
-): AppState {
+): { nextState: AppState; added: boolean } {
   const athlete = findAthleteForPerformanceEntry(current, input);
 
   if (!athlete) {
-    return current;
+    return { nextState: current, added: false };
   }
 
   return {
-    ...current,
-    performanceEntries: [
-      ...current.performanceEntries,
-      buildPerformanceEntry(athlete.id, {
-        ...input,
-        athleteId: athlete.id,
-        teamName: input.teamName ?? athlete.teamName,
-        position: input.position ?? athlete.position,
-      }),
-    ],
+    added: true,
+    nextState: {
+      ...current,
+      performanceEntries: [
+        ...current.performanceEntries,
+        buildPerformanceEntry(athlete.id, {
+          ...input,
+          athleteId: athlete.id,
+          teamName: input.teamName ?? athlete.teamName,
+          position: input.position ?? athlete.position,
+        }),
+      ],
+    },
   };
 }
 

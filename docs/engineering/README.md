@@ -129,3 +129,14 @@ Esta carpeta arranca con:
 
 - `decisions/ADR-001-documentation-structure.md`
 - `refactors/2026-04-28-codebase-cleanup-phase-1.md`
+- `changes/2026-05-20-form-validation-feedback.md` — validación y feedback de errores en formularios DataHub
+
+## Cambios recientes (índice rápido)
+
+| Fecha | Documento | Tema |
+|-------|-----------|------|
+| 2026-05-20 | `changes/2026-05-20-form-validation-feedback.md` | Validación formularios, i18n errores, Excel |
+| 2026-05-08 | `changes/2026-05-08-mobile-responsive.md` | Sidebar replegable y responsive |
+| 2026-04-30 | `changes/2026-04-30-*.md` | UUID, búsqueda global, fotos, drag-drop Excel |
+
+Changelog resumido para el equipo: [`../changelog-internal.md`](../changelog-internal.md).

@@ -1,6 +1,35 @@
-# Barra Lateral Replegable en DataHub y Análisis + Adaptación Responsive
+# Changelog interno — Maduration App
 
-## Resumen
+Registro de cambios relevantes para el equipo. Detalle técnico ampliado en `docs/engineering/changes/`.
+
+---
+
+## [2026-05-20] — Validación y mensajes de error en formularios (DataHub)
+
+### Resumen
+
+Los formularios de alta en DataHub (jugador, equipo, medición, test, resultado de rendimiento) muestran ahora **qué campos faltan o son incorrectos** en lugar de fallar en silencio. Incluye importación Excel con conteo de filas omitidas y equipo **obligatorio** al crear jugadores en Club.
+
+### Usuario
+
+- Banner: *"Revisa los campos marcados antes de guardar"* + lista con nombre del campo y mensaje concreto.
+- Mensajes bajo cada input con borde rojo.
+- Textos en ES/EN según idioma de la app.
+- Excel: aviso si se importaron X filas y se omitieron Y por datos incompletos o inválidos.
+
+### Técnico
+
+- Nueva capa: `src/lib/form-errors.ts`, esquemas en `src/lib/validations.ts`, `FormErrorBanner`, `LabeledField.error`.
+- `addPerformanceEntry` devuelve `boolean`.
+- Fix: claves React duplicadas en banner (mensajes por campo, no genérico repetido).
+
+**Documentación detallada:** [`docs/engineering/changes/2026-05-20-form-validation-feedback.md`](engineering/changes/2026-05-20-form-validation-feedback.md)
+
+---
+
+## [2026-05-08] — Barra Lateral Replegable en DataHub y Análisis + Adaptación Responsive
+
+### Resumen (histórico)
 
 Se han realizado dos grupos de cambios: (1) refactorización de la barra lateral de DataHub para hacerla replegable y se ha añadido una barra lateral equivalente en el área de Análisis; (2) adaptación del layout de la aplicación al tamaño de pantalla.
 

@@ -74,7 +74,7 @@ interface AppStateContextValue {
   addRecord: (input: AnthropometricRecordInput) => boolean;
   importRecords: (rows: AnthropometricRecordInput[]) => number;
   updateRecord: (id: string, updates: Partial<AnthropometricRecordInput>) => void;
-  addPerformanceEntry: (input: PerformanceEntryInput) => void;
+  addPerformanceEntry: (input: PerformanceEntryInput) => boolean;
   updatePerformanceEntry: (id: string, updates: Partial<PerformanceEntryInput>) => void;
   deletePerformanceEntry: (id: string) => void;
   importPerformanceEntries: (rows: PerformanceEntryInput[]) => number;
@@ -213,7 +213,13 @@ export function AppStateProvider({
   }, [state.records, syncPersistedState]);
 
   const addPerformanceEntry = (input: PerformanceEntryInput) => {
-    setState((current) => addPerformanceEntryToState(current, input));
+    let added = false;
+    setState((current) => {
+      const result = addPerformanceEntryToState(current, input);
+      added = result.added;
+      return result.nextState;
+    });
+    return added;
   };
 
   const importPerformanceEntries = (rows: PerformanceEntryInput[]) => {

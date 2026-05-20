@@ -12,6 +12,9 @@ import {
   X,
 } from "lucide-react";
 import { LabeledField } from "@/components/labeled-field";
+import { FormErrorBanner } from "@/components/form-error-banner";
+import { FieldError, invalidInputClass } from "@/components/field-error";
+import { validateAnthropometric, type FieldErrors } from "@/lib/form-errors";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput } from "@/lib/types";
@@ -62,6 +65,8 @@ export function MaturationSection({
   importMeasurementsFile,
   updateRecord,
   feedback,
+  fieldErrors,
+  formSummary,
   showAddMeasurementModal,
   setShowAddMeasurementModal,
   showEditPlayerModal,
@@ -90,6 +95,8 @@ export function MaturationSection({
   importMeasurementsFile: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   updateRecord: (id: string, updates: Partial<AnthropometricRecordInput>) => void;
   feedback: string;
+  fieldErrors: FieldErrors;
+  formSummary: string;
   showAddMeasurementModal: boolean;
   setShowAddMeasurementModal: (show: boolean) => void;
   showEditPlayerModal: boolean;
@@ -110,6 +117,8 @@ export function MaturationSection({
   const selectedAthleteId = expandedAthleteId;
   const setSelectedAthleteId = setExpandedAthleteId;
   const [editingRecord, setEditingRecord] = useState<(AnthropometricRecordInput & { id: string }) | null>(null);
+  const [inlineEditErrors, setInlineEditErrors] = useState<FieldErrors>({});
+  const [inlineEditSummary, setInlineEditSummary] = useState("");
   const measurementsFileRef = useRef<HTMLInputElement>(null);
 
   const toggleAthleteFilter = (name: string) => {
@@ -1063,6 +1072,7 @@ export function MaturationSection({
                     {editingRecord?.id === latest.inputs.id ? (
                       <div className="rounded-xl border border-accent/20 bg-accent/5 p-4 space-y-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-accent mb-1">{t("datahub.editPlayerTitle")}</p>
+                        <FormErrorBanner summary={inlineEditSummary} fieldErrors={inlineEditErrors} t={t} />
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.measurement")}</label>
@@ -1094,11 +1104,18 @@ export function MaturationSection({
                           <button
                             type="button"
                             onClick={() => {
-                              if (editingRecord) {
-                                const { id, ...updates } = editingRecord;
-                                updateRecord(id, updates);
-                                setEditingRecord(null);
+                              if (!editingRecord) return;
+                              const result = validateAnthropometric(t, editingRecord);
+                              if (!result.success) {
+                                setInlineEditErrors(result.fieldErrors);
+                                setInlineEditSummary(result.summary);
+                                return;
                               }
+                              const { id, ...updates } = editingRecord;
+                              updateRecord(id, updates);
+                              setEditingRecord(null);
+                              setInlineEditErrors({});
+                              setInlineEditSummary("");
                             }}
                             className="flex-1 rounded-xl bg-accent py-2 text-sm font-medium text-slate-950 hover:bg-accent-strong transition"
                           >
@@ -1109,7 +1126,11 @@ export function MaturationSection({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setEditingRecord({ ...latest.inputs })}
+                        onClick={() => {
+                          setEditingRecord({ ...latest.inputs });
+                          setInlineEditErrors({});
+                          setInlineEditSummary("");
+                        }}
                         className="w-full flex items-center justify-center gap-2 rounded-xl border border-line py-2.5 text-sm font-medium text-zinc-600 hover:border-accent hover:text-accent hover:bg-accent/5 transition"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
@@ -1219,6 +1240,8 @@ export function MaturationSection({
           onUploadClick={() => measurementsFileRef.current?.click()}
           onUploadChange={importMeasurementsFile}
           feedback={feedback}
+          fieldErrors={fieldErrors}
+          formSummary={formSummary}
           teams={[...new Set(state.athletes.map((a) => a.teamName).filter(Boolean))] as string[]}
           downloadTeams={downloadTeams}
           setDownloadTeams={setDownloadTeams}
@@ -1232,6 +1255,7 @@ export function MaturationSection({
               setMaturationForm={setMaturationForm}
               emptyForm={emptyForm}
               clubName={state.club.name}
+              fieldError={fieldErrors.athleteName}
               latestParentHeights={(() => {
                 const map: Record<string, { motherHeightCm?: number | null; fatherHeightCm?: number | null }> = {};
                 for (const rec of assessments) {
@@ -1251,6 +1275,7 @@ export function MaturationSection({
             <AddMeasurementFormBody
               maturationForm={maturationForm}
               setMaturationValue={setMaturationValue}
+              fieldErrors={fieldErrors}
               onCancel={() => { setShowAddMeasurementModal(false); setEditingAthleteId(null); }}
               t={t}
             />
@@ -1287,6 +1312,7 @@ export function MaturationSection({
             </div>
 
             <form onSubmit={saveEditPlayer} className="space-y-6" noValidate>
+              <FormErrorBanner summary={formSummary} fieldErrors={fieldErrors} t={t} />
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label htmlFor="edit-player-name" className="block text-sm font-medium text-zinc-700">{t("datahub.playerName")}</label>
@@ -1319,8 +1345,9 @@ export function MaturationSection({
                     type="text"
                     value={maturationForm.ageGroup}
                     onChange={(e) => setMaturationValue("ageGroup", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-line px-3 py-2 placeholder:text-zinc-500 font-sans"
+                    className={cn("mt-1 w-full rounded-lg border px-3 py-2 placeholder:text-zinc-500 font-sans", fieldErrors.ageGroup ? invalidInputClass : "border-line")}
                   />
+                  <FieldError message={fieldErrors.ageGroup} />
                 </div>
 
                 <div>
@@ -1330,8 +1357,9 @@ export function MaturationSection({
                     type="text"
                     value={maturationForm.teamName || ""}
                     onChange={(e) => setMaturationValue("teamName", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-line px-3 py-2 placeholder:text-zinc-500 font-sans"
+                    className={cn("mt-1 w-full rounded-lg border px-3 py-2 placeholder:text-zinc-500 font-sans", fieldErrors.teamName ? invalidInputClass : "border-line")}
                   />
+                  <FieldError message={fieldErrors.teamName} />
                 </div>
 
                 <div>
@@ -1352,8 +1380,9 @@ export function MaturationSection({
                     type="date"
                     value={maturationForm.dob}
                     onChange={(e) => setMaturationValue("dob", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-line px-3 py-2 placeholder:text-zinc-500 font-sans"
+                    className={cn("mt-1 w-full rounded-lg border px-3 py-2 placeholder:text-zinc-500 font-sans", fieldErrors.dob ? invalidInputClass : "border-line")}
                   />
+                  <FieldError message={fieldErrors.dob} />
                 </div>
               </div>
 
@@ -1391,6 +1420,8 @@ function ModalShell({
   onUploadClick,
   onUploadChange,
   feedback,
+  fieldErrors,
+  formSummary,
   teams,
   downloadTeams,
   setDownloadTeams,
@@ -1407,6 +1438,8 @@ function ModalShell({
   onUploadClick: () => void;
   onUploadChange: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   feedback: string;
+  fieldErrors?: FieldErrors;
+  formSummary?: string;
   teams?: string[];
   downloadTeams?: string[];
   setDownloadTeams?: (teams: string[]) => void;
@@ -1558,11 +1591,28 @@ function ModalShell({
                   <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onUploadChange} />
                 </label>
               </div>
-              {feedback && (
-                <div className={cn("mt-3 p-2 text-center text-sm font-medium rounded-lg", feedback.includes("✅") || feedback === "saved" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800")}>
-                  {feedback === "saved" ? t("datahub.playerAddedOk") : feedback === "duplicate" ? t("datahub.measurementExists") : feedback}
-                </div>
-              )}
+              {feedback && (() => {
+                let text = feedback;
+                let ok = feedback === "saved" || feedback.startsWith("imported:") || feedback.startsWith("import-partial:");
+                if (feedback === "saved") text = t("datahub.playerAddedOk");
+                else if (feedback === "duplicate") text = t("datahub.measurementExists");
+                else if (feedback.startsWith("imported:")) {
+                  text = t("datahub.importedRows").replace("{count}", feedback.split(":")[1] ?? "0");
+                } else if (feedback.startsWith("import-partial:")) {
+                  const [, imported, skipped] = feedback.split(":");
+                  text = t("datahub.importMeasurementsPartial")
+                    .replace("{imported}", imported ?? "0")
+                    .replace("{skipped}", skipped ?? "0");
+                } else if (feedback.startsWith("import-none:")) {
+                  text = t("datahub.importMeasurementsNone");
+                  ok = false;
+                }
+                return (
+                  <div className={cn("mt-3 p-2 text-center text-sm font-medium rounded-lg", ok ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800")}>
+                    {text}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -1572,10 +1622,20 @@ function ModalShell({
             <div className="h-px bg-line flex-1"></div>
           </div>
         </div>
+        {(formSummary || (fieldErrors && Object.keys(fieldErrors).length > 0)) && (
+          <FormErrorBanner summary={formSummary} fieldErrors={fieldErrors} t={t} className="mb-4" />
+        )}
         {children}
 
       </div>
     </div>
+  );
+}
+
+function maturationInputClass(hasError: boolean) {
+  return cn(
+    "rounded-2xl border bg-white/70 px-4 py-3 text-zinc-700 font-sans w-full outline-none focus:border-accent/50",
+    hasError ? invalidInputClass : "border-line",
   );
 }
 
@@ -1649,6 +1709,7 @@ function AthleteSelector({
   emptyForm,
   clubName,
   latestParentHeights,
+  fieldError,
   t,
 }: {
   editingAthleteId: string | null;
@@ -1658,6 +1719,7 @@ function AthleteSelector({
   emptyForm: AnthropometricRecordInput;
   clubName: string;
   latestParentHeights: Record<string, { motherHeightCm?: number | null; fatherHeightCm?: number | null }>;
+  fieldError?: string;
   t: (key: string) => string;
 }) {
   const [query, setQuery] = useState("");
@@ -1689,7 +1751,7 @@ function AthleteSelector({
 
   return (
     <div className="mb-4 relative">
-      <LabeledField label={t("datahub.selectAthlete")}>
+      <LabeledField label={t("datahub.selectAthlete")} error={fieldError}>
         <input
           type="text"
           autoComplete="off"
@@ -1697,7 +1759,7 @@ function AthleteSelector({
           value={query}
           onFocus={() => setOpen(true)}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) setEditingAthleteId(null); }}
-          className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700 font-sans w-full outline-none focus:border-accent/50"
+          className={maturationInputClass(Boolean(fieldError))}
         />
       </LabeledField>
       {open && filtered.length > 0 && (
@@ -1730,34 +1792,36 @@ function AthleteSelector({
 function AddMeasurementFormBody({
   maturationForm,
   setMaturationValue,
+  fieldErrors,
   onCancel,
   t,
 }: {
   maturationForm: AnthropometricRecordInput;
   setMaturationValue: <K extends keyof AnthropometricRecordInput>(key: K, value: AnthropometricRecordInput[K]) => void;
+  fieldErrors: FieldErrors;
   onCancel: () => void;
   t: (key: string) => string;
 }) {
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        <LabeledField label={t("datahub.measurement")}>
-          <input type="date" required value={maturationForm.dataCollectionDate} onChange={(e) => setMaturationValue("dataCollectionDate", e.target.value)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.measurement")} error={fieldErrors.dataCollectionDate}>
+          <input type="date" required value={maturationForm.dataCollectionDate} onChange={(e) => setMaturationValue("dataCollectionDate", e.target.value)} className={maturationInputClass(Boolean(fieldErrors.dataCollectionDate))} />
         </LabeledField>
-        <LabeledField label={t("datahub.statureCm")}>
-          <input type="number" step="0.1" required placeholder={t("datahub.exampleStature")} value={maturationForm.statureCm || ""} onChange={(e) => setMaturationValue("statureCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.statureCm")} error={fieldErrors.statureCm}>
+          <input type="number" step="0.1" required placeholder={t("datahub.exampleStature")} value={maturationForm.statureCm || ""} onChange={(e) => setMaturationValue("statureCm", parseFloat(e.target.value) || 0)} className={maturationInputClass(Boolean(fieldErrors.statureCm))} />
         </LabeledField>
-        <LabeledField label={t("datahub.bodyMassKg")}>
-          <input type="number" step="0.1" required placeholder={t("datahub.exampleMass")} value={maturationForm.bodyMassKg || ""} onChange={(e) => setMaturationValue("bodyMassKg", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.bodyMassKg")} error={fieldErrors.bodyMassKg}>
+          <input type="number" step="0.1" required placeholder={t("datahub.exampleMass")} value={maturationForm.bodyMassKg || ""} onChange={(e) => setMaturationValue("bodyMassKg", parseFloat(e.target.value) || 0)} className={maturationInputClass(Boolean(fieldErrors.bodyMassKg))} />
         </LabeledField>
-        <LabeledField label={t("datahub.sittingHeightCm")}>
-          <input type="number" step="0.1" required placeholder={t("datahub.exampleSittingHeight")} value={maturationForm.sittingHeightCm || ""} onChange={(e) => setMaturationValue("sittingHeightCm", parseFloat(e.target.value) || 0)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.sittingHeightCm")} error={fieldErrors.sittingHeightCm}>
+          <input type="number" step="0.1" required placeholder={t("datahub.exampleSittingHeight")} value={maturationForm.sittingHeightCm || ""} onChange={(e) => setMaturationValue("sittingHeightCm", parseFloat(e.target.value) || 0)} className={maturationInputClass(Boolean(fieldErrors.sittingHeightCm))} />
         </LabeledField>
-        <LabeledField label={t("datahub.motherHeightCm")}>
-          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.motherHeightCm ?? ""} onChange={(e) => setMaturationValue("motherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.motherHeightCm")} error={fieldErrors.motherHeightCm}>
+          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.motherHeightCm ?? ""} onChange={(e) => setMaturationValue("motherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className={maturationInputClass(Boolean(fieldErrors.motherHeightCm))} />
         </LabeledField>
-        <LabeledField label={t("datahub.fatherHeightCm")}>
-          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm ?? ""} onChange={(e) => setMaturationValue("fatherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
+        <LabeledField label={t("datahub.fatherHeightCm")} error={fieldErrors.fatherHeightCm}>
+          <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm ?? ""} onChange={(e) => setMaturationValue("fatherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className={maturationInputClass(Boolean(fieldErrors.fatherHeightCm))} />
         </LabeledField>
       </div>
       <div className="flex justify-end gap-3">

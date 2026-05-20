@@ -6,12 +6,17 @@ import * as XLSX from "xlsx";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput, PerformanceArea } from "@/lib/types";
-import { AnthropometricRecordSchema } from "@/lib/validations";
+import {
+  validateAnthropometric,
+  validateMaturationPlayerProfile,
+  clearFieldError,
+  type FieldErrors,
+} from "@/lib/form-errors";
 import {
   buildFallbackMeasurementTemplateRows,
   buildMeasurementsTemplateAthletes,
   downloadSheet,
-  parseMeasurementImportRows,
+  parseMeasurementImportWithStats,
 } from "@/lib/datahub/excel";
 import { resolveDataHubRouteState } from "@/lib/datahub/navigation";
 import {
@@ -48,6 +53,8 @@ export default function DataHubPage() {
   const [teamFilter, setTeamFilter] = useState("all");
   const [positionFilter, setPositionFilter] = useState("all");
   const [feedback, setFeedback] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [formSummary, setFormSummary] = useState("");
   const [editingAthleteId, setEditingAthleteId] = useState<string | null>(null);
   const [showAddMeasurementModal, setShowAddMeasurementModal] = useState(false);
   const [showEditPlayerModal, setShowEditPlayerModal] = useState(false);
@@ -177,21 +184,28 @@ export default function DataHubPage() {
     value: AnthropometricRecordInput[K],
   ) {
     setMaturationForm((current) => ({ ...current, [key]: value }));
+    setFieldErrors((current) => clearFieldError(current, String(key)));
   }
 
   function resetMaturationForm() {
     setMaturationForm({ ...emptyMaturationForm, clubName: state.club.name });
     setEditingAthleteId(null);
+    setFieldErrors({});
+    setFormSummary("");
   }
 
   function saveMaturation(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validation = AnthropometricRecordSchema.safeParse(maturationForm);
-    if (!validation.success) {
-      setFeedback(`error:${validation.error.issues?.[0]?.message ?? "validation error"}`);
+    const result = validateAnthropometric(t, maturationForm, { requireAthlete: true });
+    if (!result.success) {
+      setFieldErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      setFeedback("");
       return;
     }
 
+    setFieldErrors({});
+    setFormSummary("");
     const added = addRecord(maturationForm);
     setFeedback(added ? "saved" : "duplicate");
     if (added) {
@@ -202,12 +216,16 @@ export default function DataHubPage() {
 
   function saveEditPlayer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validation = AnthropometricRecordSchema.safeParse(maturationForm);
-    if (!validation.success) {
-      setFeedback(`error:${validation.error.issues?.[0]?.message ?? "validation error"}`);
+    const result = validateMaturationPlayerProfile(t, maturationForm);
+    if (!result.success) {
+      setFieldErrors(result.fieldErrors);
+      setFormSummary(result.summary);
+      setFeedback("");
       return;
     }
 
+    setFieldErrors({});
+    setFormSummary("");
     addRecord(maturationForm);
     setFeedback("saved");
     setShowEditPlayerModal(false);
@@ -236,6 +254,8 @@ export default function DataHubPage() {
     });
     setEditingAthleteId(athleteId);
     setFeedback("");
+    setFieldErrors({});
+    setFormSummary("");
     setShowEditPlayerModal(true);
   }
 
@@ -281,8 +301,19 @@ export default function DataHubPage() {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
       workbook.Sheets[workbook.SheetNames[0]],
     );
-    const imported = importRecords(parseMeasurementImportRows(rows, state.athletes));
-    setFeedback(imported ? `imported:${imported}` : "duplicate");
+    const { records, skipped } = parseMeasurementImportWithStats(rows, state.athletes);
+    const imported = importRecords(records);
+    if (imported > 0) {
+      setFeedback(
+        skipped > 0
+          ? `import-partial:${imported}:${skipped}`
+          : `imported:${imported}`,
+      );
+    } else if (skipped > 0) {
+      setFeedback(`import-none:${skipped}`);
+    } else {
+      setFeedback("duplicate");
+    }
     event.target.value = "";
   }
 
@@ -315,6 +346,8 @@ export default function DataHubPage() {
             importMeasurementsFile={importMeasurementsFile}
             updateRecord={updateRecord}
             feedback={feedback}
+            fieldErrors={fieldErrors}
+            formSummary={formSummary}
             showAddMeasurementModal={showAddMeasurementModal}
             setShowAddMeasurementModal={setShowAddMeasurementModal}
             showEditPlayerModal={showEditPlayerModal}

@@ -22,18 +22,19 @@ Es el bloque mas desarrollado de la app. Contiene:
 
 - `Club`
   - gestion basica de equipos
-  - gestion de jugadores
+  - gestion de jugadores (alta manual y Excel; **equipo obligatorio** al crear jugador)
+  - validacion de formularios con mensajes por campo (nombre, edad, fecha, equipo, etc.)
   - ajustes del club
   - bateria de tests y definiciones de pruebas
 - `Maturation`
-  - alta de mediciones
+  - alta de mediciones con validacion (jugador, fechas, medidas)
   - filtros avanzados
-  - importacion y exportacion Excel
+  - importacion y exportacion Excel (filas invalidas omitidas con aviso de conteo)
   - calculo de maduracion y visualizacion tabular
 - `Performance`
-  - registro de tests por area
+  - registro de tests por area con validacion (jugador, fecha, valor/rating)
   - estructura para resultados historicos
-  - carga de entrenamiento
+  - carga de entrenamiento (aviso si faltan equipo/fecha para guardar)
   - base para GPS, aun no activa
 
 ### Analysis

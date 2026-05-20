@@ -74,47 +74,75 @@ export function buildFallbackMeasurementTemplateRows(
   );
 }
 
+function buildMeasurementRowFromExcel(
+  raw: Record<string, unknown>,
+  athletes: Athlete[],
+): AnthropometricRecordInput | null {
+  const row = normalizeAnthropometricExcelRow(raw);
+  const athleteName = String(row.Name ?? "").trim();
+  const dataCollectionDate = String(row["Data Collection Date"] ?? "").trim();
+  const statureCm = Number(row["Stature (cm)"] ?? 0);
+  const bodyMassKg = Number(row["Body Mass (kg)"] ?? 0);
+  const sittingHeightCm = Number(row["Sitting Height (cm)"] ?? 0);
+
+  if (!athleteName || !dataCollectionDate || !statureCm || !bodyMassKg || !sittingHeightCm) {
+    return null;
+  }
+
+  const existingAthlete = athletes.find(
+    (athlete) => athlete.name.toLowerCase() === athleteName.toLowerCase(),
+  );
+  if (!existingAthlete) return null;
+
+  const candidate = {
+    athleteId: existingAthlete.id,
+    athleteName,
+    sex: existingAthlete.sex,
+    ageGroup: existingAthlete.ageGroup,
+    clubName: existingAthlete.clubName,
+    teamName: existingAthlete.teamName,
+    position: existingAthlete.position,
+    dataCollectionDate,
+    dob: existingAthlete.dob,
+    statureCm,
+    bodyMassKg,
+    sittingHeightCm,
+    motherHeightCm: parseNullableNumber(row["Mother Height (cm)"]) ?? null,
+    fatherHeightCm: parseNullableNumber(row["Father Height (cm)"]) ?? null,
+  };
+
+  return AnthropometricRecordSchema.safeParse(candidate).success ? candidate : null;
+}
+
 export function parseMeasurementImportRows(
   rows: Record<string, unknown>[],
   athletes: Athlete[],
 ) {
-  return rows
-    .map<AnthropometricRecordInput | null>((raw) => {
-      const row = normalizeAnthropometricExcelRow(raw);
-      const athleteName = String(row.Name ?? "").trim();
-      const dataCollectionDate = String(row["Data Collection Date"] ?? "").trim();
-      const statureCm = Number(row["Stature (cm)"] ?? 0);
-      const bodyMassKg = Number(row["Body Mass (kg)"] ?? 0);
-      const sittingHeightCm = Number(row["Sitting Height (cm)"] ?? 0);
+  return parseMeasurementImportWithStats(rows, athletes).records;
+}
 
-      if (!athleteName || !dataCollectionDate || !statureCm || !bodyMassKg || !sittingHeightCm) {
-        return null;
-      }
+export function parseMeasurementImportWithStats(
+  rows: Record<string, unknown>[],
+  athletes: Athlete[],
+) {
+  let skipped = 0;
+  const records: AnthropometricRecordInput[] = [];
 
-      const existingAthlete = athletes.find(
-        (athlete) => athlete.name.toLowerCase() === athleteName.toLowerCase(),
-      );
-      if (!existingAthlete) return null;
+  for (const raw of rows) {
+    const athleteName = String(
+      normalizeAnthropometricExcelRow(raw).Name ?? "",
+    ).trim();
+    if (!athleteName || athleteName.includes("Ej:")) continue;
 
-      return {
-        athleteId: existingAthlete.id,
-        athleteName,
-        sex: existingAthlete.sex,
-        ageGroup: existingAthlete.ageGroup,
-        clubName: existingAthlete.clubName,
-        teamName: existingAthlete.teamName,
-        position: existingAthlete.position,
-        dataCollectionDate,
-        dob: existingAthlete.dob,
-        statureCm,
-        bodyMassKg,
-        sittingHeightCm,
-        motherHeightCm: parseNullableNumber(row["Mother Height (cm)"]) ?? null,
-        fatherHeightCm: parseNullableNumber(row["Father Height (cm)"]) ?? null,
-      };
-    })
-    .filter((row): row is AnthropometricRecordInput => Boolean(row))
-    .filter((row) => AnthropometricRecordSchema.safeParse(row).success);
+    const parsed = buildMeasurementRowFromExcel(raw, athletes);
+    if (parsed) {
+      records.push(parsed);
+    } else {
+      skipped += 1;
+    }
+  }
+
+  return { records, skipped };
 }
 
 export function buildMeasurementsTemplateAthletes(

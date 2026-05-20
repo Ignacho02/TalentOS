@@ -11,6 +11,13 @@ import {
   Trash2, Trophy, UploadCloud, User, X,
 } from "lucide-react";
 import { LabeledField } from "@/components/labeled-field";
+import { FormErrorBanner } from "@/components/form-error-banner";
+import { invalidInputClass } from "@/components/field-error";
+import {
+  clearFieldError,
+  validatePerformanceEntry,
+  type FieldErrors,
+} from "@/lib/form-errors";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
@@ -141,6 +148,8 @@ export function PerformanceSection({
   // ── Add-result form ────────────────────────────────────────────────────────
   const [perfForm,      setPerfForm]      = useState<PerformanceEntryInput>({ ...emptyPerformanceForm, area });
   const [perfFeedback,  setPerfFeedback]  = useState("");
+  const [perfFieldErrors, setPerfFieldErrors] = useState<FieldErrors>({});
+  const [perfFormSummary, setPerfFormSummary] = useState("");
   const [athleteSearch, setAthleteSearch] = useState("");
   const [showAthList,   setShowAthList]   = useState(false);
   const [attempts,      setAttempts]      = useState<number[]>([]);
@@ -669,11 +678,38 @@ export function PerformanceSection({
 
   function savePerf(e: React.FormEvent) {
     e.preventDefault();
-    const ath  = state.athletes.find(a =>
-      a.id === perfForm.athleteId || a.name.toLowerCase() === perfForm.athleteName.toLowerCase()
+    const athleteName = (perfForm.athleteName || athleteSearch).trim();
+    const payload: PerformanceEntryInput = {
+      ...perfForm,
+      area,
+      athleteName,
+    };
+    const result = validatePerformanceEntry(t, payload, { isRating: Boolean(selDef?.isRating) });
+    if (!result.success) {
+      setPerfFieldErrors(result.fieldErrors);
+      setPerfFormSummary(result.summary);
+      setPerfFeedback("validation");
+      return;
+    }
+
+    const ath = state.athletes.find(
+      (a) => a.id === perfForm.athleteId || a.name.toLowerCase() === athleteName.toLowerCase(),
     );
-    const data = selDef?.isRating ? perfForm : { ...perfForm, ratingLevel: undefined, ratingValue: undefined };
-    addPerformanceEntry({ ...data, teamName: perfForm.teamName || ath?.teamName, position: perfForm.position || ath?.position });
+    const data = selDef?.isRating ? payload : { ...payload, ratingLevel: undefined, ratingValue: undefined };
+    const added = addPerformanceEntry({
+      ...data,
+      teamName: perfForm.teamName || ath?.teamName,
+      position: perfForm.position || ath?.position,
+    });
+    if (!added) {
+      setPerfFieldErrors({ athleteName: t("datahub.validations.issue.athleteNotFound") });
+      setPerfFormSummary("");
+      setPerfFeedback("validation");
+      return;
+    }
+
+    setPerfFieldErrors({});
+    setPerfFormSummary("");
     setPerfFeedback("saved");
     setPerfForm({ ...emptyPerformanceForm, area });
     setAthleteSearch("");
@@ -723,7 +759,14 @@ export function PerformanceSection({
             </div>
             <button
               type="button"
-              onClick={() => { setPerfForm({ ...emptyPerformanceForm, area }); setAthleteSearch(""); setPerfFeedback(""); setShowAddModal(true); }}
+              onClick={() => {
+                setPerfForm({ ...emptyPerformanceForm, area });
+                setAthleteSearch("");
+                setPerfFeedback("");
+                setPerfFieldErrors({});
+                setPerfFormSummary("");
+                setShowAddModal(true);
+              }}
               className="inline-flex shrink-0 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition"
             >
               <Plus className="h-4 w-4" />
@@ -1279,9 +1322,14 @@ export function PerformanceSection({
                         </div>
 
                         {/* Save / Cancel */}
+                        {(!tlTeamId || !selectedDate) && (
+                          <p className="text-xs text-red-600 pt-1">
+                            {t("datahub.validations.issue.trainingLoadPrereq")}
+                          </p>
+                        )}
                         <div className="flex gap-3 pt-2">
                           <button type="button"
-                            disabled={!tlTeamId}
+                            disabled={!tlTeamId || !selectedDate}
                             onClick={() => {
                               if (!selectedDate) return;
                               teamAthletes.forEach(ath => {
@@ -1424,16 +1472,31 @@ export function PerformanceSection({
                 <p className="text-zinc-600">{t("club.noTestsDefined")}</p>
               </div>
             ) : (
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerf}>
+              <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerf} noValidate>
+                {perfFeedback === "validation" && (
+                  <FormErrorBanner
+                    summary={perfFormSummary}
+                    fieldErrors={perfFieldErrors}
+                    t={t}
+                    className="md:col-span-2"
+                  />
+                )}
                 {/* Athlete picker */}
-                <LabeledField label={t("datahub.player")} className="md:col-span-2">
+                <LabeledField label={t("datahub.player")} className="md:col-span-2" error={perfFieldErrors.athleteName}>
                   <div className="relative" ref={dropdownRef}>
                     <input
                       type="text"
-                      className="w-full rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                      className={cn(
+                        "w-full rounded-2xl border bg-white/70 px-4 py-3 text-zinc-700",
+                        perfFieldErrors.athleteName ? invalidInputClass : "border-line",
+                      )}
                       placeholder={t("datahub.searchOrTypeName")}
                       value={athleteSearch}
-                      onChange={e => { setAthleteSearch(e.target.value); setShowAthList(true); }}
+                      onChange={e => {
+                        setAthleteSearch(e.target.value);
+                        setShowAthList(true);
+                        setPerfFieldErrors(prev => clearFieldError(prev, "athleteName"));
+                      }}
                       onFocus={() => setShowAthList(true)}
                     />
                     {showAthList && athleteSearch.length > 0 && (
@@ -1466,18 +1529,31 @@ export function PerformanceSection({
                   </div>
                 </LabeledField>
 
-                <LabeledField label={t("datahub.measurement")}>
-                  <input type="date" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
-                    value={perfForm.measurementDate} onChange={e => sv("measurementDate", e.target.value)} />
+                <LabeledField label={t("datahub.measurement")} error={perfFieldErrors.measurementDate}>
+                  <input
+                    type="date"
+                    className={cn(
+                      "rounded-2xl border bg-white/70 px-4 py-3 text-zinc-700 w-full",
+                      perfFieldErrors.measurementDate ? invalidInputClass : "border-line",
+                    )}
+                    value={perfForm.measurementDate}
+                    onChange={e => sv("measurementDate", e.target.value)}
+                  />
                 </LabeledField>
 
-                <LabeledField label={t("datahub.test")}>
-                  <select className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
+                <LabeledField label={t("datahub.test")} error={perfFieldErrors.testName}>
+                  <select
+                    className={cn(
+                      "rounded-2xl border bg-white/70 px-4 py-3 text-zinc-700 w-full",
+                      perfFieldErrors.testName ? invalidInputClass : "border-line",
+                    )}
                     value={perfForm.testName}
                     onChange={e => {
                       const def = testDefs.find(d => d.name === e.target.value);
                       setPerfForm(c => ({ ...c, testName: e.target.value, unit: def?.unit ?? c.unit }));
-                    }}>
+                      setPerfFieldErrors(prev => clearFieldError(prev, "testName"));
+                    }}
+                  >
                     {testDefs.map(d => {
                       const label = (d.nameKey ? t(d.nameKey) : null) || d.name;
                       return <option key={d.id} value={d.name}>{label} ({d.unit})</option>;
@@ -1488,10 +1564,10 @@ export function PerformanceSection({
 
                 {selDef?.isRating ? (
                   <>
-                    <LabeledField label={t("datahub.rating")}>
+                    <LabeledField label={t("datahub.rating")} error={perfFieldErrors.ratingLevel}>
                       <div className="grid grid-cols-2 gap-2">
                         {ratings.map(r => (
-                          <button key={r.v} type="button" onClick={() => sv("ratingLevel", r.v)}
+                          <button key={r.v} type="button" onClick={() => { sv("ratingLevel", r.v); setPerfFieldErrors(prev => clearFieldError(prev, "ratingLevel")); }}
                             className={cn("rounded-2xl border px-4 py-3 text-sm font-medium transition",
                               perfForm.ratingLevel === r.v ? "border-accent bg-accent text-white" : "border-line bg-white/70 text-zinc-700 hover:bg-white")}>
                             {r.l}
@@ -1531,10 +1607,18 @@ export function PerformanceSection({
                     </div>
                   </LabeledField>
                 ) : (
-                  <LabeledField label={t("datahub.value")}>
-                    <input type="number" step="0.01" className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700"
-                      placeholder={t("datahub.exampleValue")} value={perfForm.value || ""}
-                      onChange={e => sv("value", Number(e.target.value))} />
+                  <LabeledField label={t("datahub.value")} error={perfFieldErrors.value}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className={cn(
+                        "rounded-2xl border bg-white/70 px-4 py-3 text-zinc-700 w-full",
+                        perfFieldErrors.value ? invalidInputClass : "border-line",
+                      )}
+                      placeholder={t("datahub.exampleValue")}
+                      value={perfForm.value || ""}
+                      onChange={e => sv("value", Number(e.target.value))}
+                    />
                   </LabeledField>
                 )}
 
@@ -1555,7 +1639,7 @@ export function PerformanceSection({
                   </button>
                 </div>
 
-                {perfFeedback && (
+                {perfFeedback && perfFeedback !== "validation" && (
                   <p className={cn(
                     "mt-2 rounded-2xl border px-4 py-3 text-sm md:col-span-2",
                     perfFeedback === "saved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-line bg-white/70 text-zinc-700"
