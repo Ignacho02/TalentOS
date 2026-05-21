@@ -1,15 +1,18 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUserOrNoClub } from "@/lib/auth";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 
 export default async function LoginPage() {
   const cookieStore = await cookies();
-  const session = await getSessionUser();
+  const session = await getSessionUserOrNoClub();
   const locale = cookieStore.get("maduration_locale")?.value === "en" ? "en" : "es";
 
   if (session) {
+    // Tiene sesión pero no club → onboarding
+    if ("hasClub" in session && !session.hasClub) redirect("/onboarding");
+    // Tiene club → app
     redirect("/hub");
   }
 

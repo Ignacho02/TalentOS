@@ -169,14 +169,37 @@ export type ClubTab = "teams" | "players" | "testBattery" | "admin";
 
 export type ClubUserRole = "admin" | "user";
 
+/**
+ * Permisos granulares de edición para usuarios con role "user".
+ * Los admins siempre tienen todos los permisos; estos campos se ignoran para ellos.
+ */
+export interface ClubUserPermissions {
+  /** Puede añadir/editar jugadores en sus equipos asignados */
+  canEditAthletes: boolean;
+  /** Puede añadir/editar mediciones antropométricas */
+  canEditAnthropometry: boolean;
+  /** Puede añadir/editar entradas de rendimiento y tests */
+  canEditPerformance: boolean;
+  /** Puede añadir/editar registros de carga de entrenamiento */
+  canEditTrainingLoad: boolean;
+}
+
+export const DEFAULT_USER_PERMISSIONS: ClubUserPermissions = {
+  canEditAthletes: true,
+  canEditAnthropometry: true,
+  canEditPerformance: true,
+  canEditTrainingLoad: true,
+};
+
 export interface ClubUser {
   id: string;
   clubId: string;
   name: string;
   email: string;
   role: ClubUserRole;
-  /** Team IDs this user can manage (only relevant for role "user") */
+  /** Team IDs this user can see. Empty array = all teams. */
   assignedTeamIds: string[];
+  permissions: ClubUserPermissions;
   createdAt: string;
 }
 
@@ -191,8 +214,10 @@ export interface AppState {
   preferences: UserPreferences;
   /** Club users list (managed by admin) */
   clubUsers: ClubUser[];
-  /** The current logged-in user's club role (simulated; in production comes from Supabase auth metadata) */
+  /** The current logged-in user's club role */
   currentUserRole: ClubUserRole;
-  /** Current user's assigned team IDs (empty means all, only relevant for role "user") */
+  /** Current user's assigned team IDs (empty = all teams) */
   currentUserTeamIds: string[];
+  /** Current user's granular permissions */
+  currentUserPermissions: ClubUserPermissions;
 }

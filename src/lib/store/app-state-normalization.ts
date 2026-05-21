@@ -121,6 +121,7 @@ export function normalizeState(input: unknown): AppState {
     clubUsers: Array.isArray(candidate.clubUsers) ? candidate.clubUsers : demoState.clubUsers,
     currentUserRole: candidate.currentUserRole ?? demoState.currentUserRole,
     currentUserTeamIds: Array.isArray(candidate.currentUserTeamIds) ? candidate.currentUserTeamIds : demoState.currentUserTeamIds,
+    currentUserPermissions: candidate.currentUserPermissions ?? demoState.currentUserPermissions,
   };
 
   const existingTeamIds = new Set(baseState.teams.map((team) => team.id));
@@ -163,5 +164,6 @@ export function normalizeState(input: unknown): AppState {
     clubUsers: baseState.clubUsers.length > 0 ? baseState.clubUsers : demoState.clubUsers,
     currentUserRole: baseState.currentUserRole,
     currentUserTeamIds: baseState.currentUserTeamIds,
+    currentUserPermissions: baseState.currentUserPermissions,
   };
 }

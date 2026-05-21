@@ -9,10 +9,16 @@ import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import { cn } from "@/lib/utils";
 import { Beaker, Plus, Trash2, Users, Palette, Shield, Edit2, Search, X, Check, User, BarChart2, Activity, ChevronRight, ChevronDown, FileSpreadsheet, UploadCloud, Eye, Play, FileText, Zap, Brain, Target, Dumbbell } from "lucide-react";
-import type { PerformanceArea, PerformanceDefinition, ClubUser, ClubUserRole } from "@/lib/types";
+import type { PerformanceArea, PerformanceDefinition, ClubUser, ClubUserRole, ClubUserPermissions } from "@/lib/types";
+import { DEFAULT_USER_PERMISSIONS } from "@/lib/types";
 import { performancePresets, performanceAreaLabels } from "./performance-constants";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { FieldError, invalidInputClass } from "@/components/field-error";
+import {
+  createClubUserAction,
+  updateClubUserAction,
+  deleteClubUserAction,
+} from "@/lib/actions/club-users";
 import {
   clearFieldError,
   validateClubAthlete,
@@ -72,7 +78,7 @@ export function ClubSection() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition, addClubUser, updateClubUser, deleteClubUser, setCurrentUserRole } = useAppState();
+  const { state, addTeam, updateTeam, deleteTeam, addAthlete, updateAthlete, deleteAthlete, updateClub, addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition, addClubUser, updateClubUser, deleteClubUser } = useAppState();
   
   const [activeTab, setActiveTab] = usePersistentState<"plantilla" | "testBattery" | "admin">("datahub_club_active_tab_v2", "plantilla");
   const [structureSubTab, setStructureSubTab] = usePersistentState<"teams" | "players">("datahub_club_sub_tab", "players");
@@ -283,7 +289,6 @@ export function ClubSection() {
           addClubUser={addClubUser}
           updateClubUser={updateClubUser}
           deleteClubUser={deleteClubUser}
-          setCurrentUserRole={setCurrentUserRole}
         />
       )}
     </div>
@@ -1738,7 +1743,6 @@ function AdminTab({
   addClubUser,
   updateClubUser,
   deleteClubUser,
-  setCurrentUserRole,
 }: {
   club: { name: string; region: string; sport?: "football" | "futsal"; accentColor?: string; badgeUrl?: string };
   updateClub: (updates: { name?: string; region?: string; sport?: "football" | "futsal"; accentColor?: string; badgeUrl?: string }) => void;
@@ -1749,7 +1753,6 @@ function AdminTab({
   addClubUser: (user: Omit<ClubUser, "id" | "createdAt">) => void;
   updateClubUser: (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => void;
   deleteClubUser: (id: string) => void;
-  setCurrentUserRole: (role: ClubUserRole, teamIds: string[]) => void;
 }) {
   const { t } = useLocale();
   const { resetState } = useAppState();
@@ -1766,10 +1769,13 @@ function AdminTab({
   // User form state
   const [showAddUser, setShowAddUser] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [userForm, setUserForm] = useState({ name: "", email: "", role: "user" as ClubUserRole, assignedTeamIds: [] as string[] });
-
-  // Simulate role switcher (dev/demo helper)
-  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
+  const [userForm, setUserForm] = useState<{
+    name: string;
+    email: string;
+    role: ClubUserRole;
+    assignedTeamIds: string[];
+    permissions: ClubUserPermissions;
+  }>({ name: "", email: "", role: "user", assignedTeamIds: [], permissions: { ...DEFAULT_USER_PERMISSIONS } });
 
   const handleBadgeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1800,25 +1806,62 @@ function AdminTab({
 
   function openAddUser() {
     setEditingUserId(null);
-    setUserForm({ name: "", email: "", role: "user", assignedTeamIds: [] });
+    setUserForm({ name: "", email: "", role: "user", assignedTeamIds: [], permissions: { ...DEFAULT_USER_PERMISSIONS } });
     setShowAddUser(true);
   }
 
   function openEditUser(user: ClubUser) {
     setEditingUserId(user.id);
-    setUserForm({ name: user.name, email: user.email, role: user.role, assignedTeamIds: user.assignedTeamIds });
+    setUserForm({ name: user.name, email: user.email, role: user.role, assignedTeamIds: user.assignedTeamIds, permissions: { ...user.permissions } });
     setShowAddUser(true);
   }
 
-  function handleSaveUser() {
+  const [userSaving, setUserSaving] = useState(false);
+  const [userSaveError, setUserSaveError] = useState<string | null>(null);
+
+  async function handleSaveUser() {
     if (!userForm.name.trim() || !userForm.email.trim()) return;
-    if (editingUserId) {
-      updateClubUser(editingUserId, { name: userForm.name.trim(), email: userForm.email.trim(), role: userForm.role, assignedTeamIds: userForm.assignedTeamIds });
-    } else {
-      addClubUser({ clubId: club.name, name: userForm.name.trim(), email: userForm.email.trim(), role: userForm.role, assignedTeamIds: userForm.assignedTeamIds });
+    setUserSaving(true);
+    setUserSaveError(null);
+    try {
+      if (editingUserId) {
+        await updateClubUserAction({
+          memberId: editingUserId,
+          role: userForm.role,
+          teamIds: userForm.assignedTeamIds,
+          permissions: userForm.permissions,
+        });
+        updateClubUser(editingUserId, {
+          name: userForm.name.trim(),
+          email: userForm.email.trim(),
+          role: userForm.role,
+          assignedTeamIds: userForm.assignedTeamIds,
+          permissions: userForm.permissions,
+        });
+      } else {
+        await createClubUserAction({
+          email: userForm.email.trim(),
+          name: userForm.name.trim(),
+          role: userForm.role,
+          teamIds: userForm.assignedTeamIds,
+          permissions: userForm.permissions,
+        });
+        addClubUser({
+          clubId: club.name,
+          name: userForm.name.trim(),
+          email: userForm.email.trim(),
+          role: userForm.role,
+          assignedTeamIds: userForm.assignedTeamIds,
+          permissions: userForm.permissions,
+        });
+      }
+      setShowAddUser(false);
+      setEditingUserId(null);
+    } catch (err) {
+      setUserSaveError(err instanceof Error ? err.message : "Error desconocido al guardar el usuario.");
+    } finally {
+      setUserSaving(false);
     }
-    setShowAddUser(false);
-    setEditingUserId(null);
   }
 
   function toggleTeam(teamId: string) {
@@ -1836,45 +1879,6 @@ function AdminTab({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{t("club.settings")}</h2>
-        {/* Demo role switcher */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowRoleSwitcher((v) => !v)}
-            className={cn(
-              "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
-              currentUserRole === "admin"
-                ? "border-accent/30 bg-accent/10 text-accent"
-                : "border-line bg-zinc-50 text-zinc-600",
-            )}
-          >
-            <Shield className="h-3 w-3" />
-            {currentUserRole === "admin" ? t("club.adminRoleAdmin") : t("club.adminRoleUser")}
-            <ChevronDown className="h-3 w-3" />
-          </button>
-          {showRoleSwitcher && (
-            <div className="absolute right-0 top-full mt-1 w-64 rounded-xl border border-line bg-white shadow-lg z-20 p-2">
-              <p className="px-3 py-2 text-xs text-zinc-500 font-medium uppercase tracking-wide">Demo: simular rol</p>
-              {[
-                { role: "admin" as ClubUserRole, teamIds: [], label: t("club.adminRoleAdmin"), desc: t("club.adminRoleAdminDesc") },
-                { role: "user" as ClubUserRole, teamIds: clubUsers.find((u) => u.role === "user")?.assignedTeamIds ?? [], label: t("club.adminRoleUser"), desc: t("club.adminRoleUserDesc") },
-              ].map((opt) => (
-                <button
-                  key={opt.role}
-                  type="button"
-                  onClick={() => { setCurrentUserRole(opt.role, opt.teamIds); setShowRoleSwitcher(false); }}
-                  className={cn(
-                    "w-full text-left rounded-lg px-3 py-2.5 transition mb-1 last:mb-0",
-                    currentUserRole === opt.role ? "bg-accent/10 text-accent" : "hover:bg-zinc-50 text-zinc-700",
-                  )}
-                >
-                  <p className="text-sm font-medium">{opt.label}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ── ADMIN VIEW ── */}
@@ -2007,6 +2011,30 @@ function AdminTab({
                               : t("club.adminAllTeams")}
                           </p>
                         )}
+                        {user.role === "user" && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {(
+                              [
+                                { key: "canEditAthletes" as const, label: t("club.permAthletes") || "Jugadores" },
+                                { key: "canEditAnthropometry" as const, label: t("club.permAnthropometry") || "Antro." },
+                                { key: "canEditPerformance" as const, label: t("club.permPerformance") || "Rend." },
+                                { key: "canEditTrainingLoad" as const, label: t("club.permTrainingLoad") || "Carga" },
+                              ]
+                            ).map((p) => (
+                              <span
+                                key={p.key}
+                                className={cn(
+                                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                  user.permissions[p.key]
+                                    ? "bg-accent/8 text-accent"
+                                    : "bg-zinc-100 text-zinc-300 line-through",
+                                )}
+                              >
+                                {p.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
@@ -2019,7 +2047,14 @@ function AdminTab({
                         </button>
                         <button
                           type="button"
-                          onClick={() => deleteClubUser(user.id)}
+                          onClick={async () => {
+                            try {
+                              await deleteClubUserAction(user.id);
+                              deleteClubUser(user.id);
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : "Error al eliminar el usuario.");
+                            }
+                          }}
                           className="rounded-lg p-2 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition"
                           title={t("club.adminDeleteUser")}
                         >
@@ -2108,14 +2143,74 @@ function AdminTab({
                   </div>
                 )}
 
-                <div className="flex gap-2 pt-1">
+                {/* Permisos de edición — solo para role "user" */}
+                {userForm.role === "user" && (
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600 mb-2">
+                      {t("club.adminUserPermissions") || "Permisos de edición"}
+                    </label>
+                    <p className="text-xs text-zinc-400 mb-3">
+                      {t("club.adminUserPermissionsHint") || "Elige qué puede modificar este usuario. Siempre podrá ver los datos."}
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {(
+                        [
+                          { key: "canEditAthletes" as const, label: t("club.permAthletes") || "Gestionar jugadores" },
+                          { key: "canEditAnthropometry" as const, label: t("club.permAnthropometry") || "Mediciones antropométricas" },
+                          { key: "canEditPerformance" as const, label: t("club.permPerformance") || "Tests de rendimiento" },
+                          { key: "canEditTrainingLoad" as const, label: t("club.permTrainingLoad") || "Carga de entrenamiento" },
+                        ]
+                      ).map((perm) => (
+                        <button
+                          key={perm.key}
+                          type="button"
+                          onClick={() =>
+                            setUserForm((f) => ({
+                              ...f,
+                              permissions: {
+                                ...f.permissions,
+                                [perm.key]: !f.permissions[perm.key],
+                              },
+                            }))
+                          }
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-xs font-medium transition",
+                            userForm.permissions[perm.key]
+                              ? "border-accent/40 bg-accent/5 text-accent"
+                              : "border-zinc-200 bg-zinc-50 text-zinc-400",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition",
+                              userForm.permissions[perm.key]
+                                ? "border-accent bg-accent"
+                                : "border-zinc-300 bg-white",
+                            )}
+                          >
+                            {userForm.permissions[perm.key] && (
+                              <Check className="h-2.5 w-2.5 text-white" />
+                            )}
+                          </span>
+                          {perm.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1 flex-col">
+                  {userSaveError && (
+                    <p className="text-sm text-red-500">{userSaveError}</p>
+                  )}
+                  <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={handleSaveUser}
-                    disabled={!userForm.name.trim() || !userForm.email.trim()}
+                    disabled={!userForm.name.trim() || !userForm.email.trim() || userSaving}
                     className="rounded-full bg-accent px-5 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-40"
                   >
-                    {t("club.adminSaveUser")}
+                    {userSaving ? "Guardando…" : t("club.adminSaveUser")}
                   </button>
                   <button
                     type="button"
@@ -2124,6 +2219,7 @@ function AdminTab({
                   >
                     {t("club.adminCancelUser")}
                   </button>
+                  </div>
                 </div>
               </div>
             )}

@@ -99,7 +99,7 @@ interface AppStateContextValue {
   addClubUser: (user: Omit<ClubUser, "id" | "createdAt">) => void;
   updateClubUser: (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => void;
   deleteClubUser: (id: string) => void;
-  setCurrentUserRole: (role: AppState["currentUserRole"], teamIds: string[]) => void;
+  setCurrentUserRole: (role: AppState["currentUserRole"], teamIds: string[], permissions?: AppState["currentUserPermissions"]) => void;
   resetState: () => void;
 }
 
@@ -348,8 +348,8 @@ export function AppStateProvider({
     setState((current) => deleteClubUserFromState(current, id));
   };
 
-  const setCurrentUserRole = (role: AppState["currentUserRole"], teamIds: string[]) => {
-    setState((current) => setCurrentUserRoleInState(current, role, teamIds));
+  const setCurrentUserRole = (role: AppState["currentUserRole"], teamIds: string[], permissions?: AppState["currentUserPermissions"]) => {
+    setState((current) => setCurrentUserRoleInState(current, role, teamIds, permissions));
   };
 
   const value = useMemo<AppStateContextValue>(

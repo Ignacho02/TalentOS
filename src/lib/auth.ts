@@ -12,6 +12,16 @@ export interface SessionUser {
   role: "owner" | "coach" | "analyst";
 }
 
+/**
+ * Usuario autenticado pero que todavía no ha creado ni se ha unido a ningún club.
+ * Se usa para redirigirle al onboarding.
+ */
+export interface AuthenticatedUserWithoutClub {
+  id: string;
+  email: string;
+  hasClub: false;
+}
+
 type AuthUserResult = {
   data: { user: User | null };
   error: { message: string } | null;
@@ -76,8 +86,75 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   };
 }
 
+/**
+ * Igual que getSessionUser pero también detecta el caso
+ * "usuario autenticado sin club" para poder redirigir al onboarding.
+ */
+export async function getSessionUserOrNoClub(): Promise<
+  SessionUser | AuthenticatedUserWithoutClub | null
+> {
+  const cookieStore = await cookies();
+  const hasSupabaseSession = cookieStore
+    .getAll()
+    .some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
+
+  if (!hasSupabaseSession) return null;
+
+  const supabase = await createSupabaseClient();
+  const authResult = await withTimeout<AuthUserResult>(
+    "auth.getUser",
+    supabase.auth.getUser(),
+    { data: { user: null }, error: null },
+    10000,
+  );
+  const user = authResult.data.user;
+
+  if (!user?.email) return null;
+
+  const { data: member } = await withTimeout<MemberResult>(
+    "club_members.select",
+    supabase
+      .from("club_members")
+      .select("club_id, role")
+      .eq("user_id", user.id)
+      .single(),
+    { data: null, error: null },
+    10000,
+  );
+
+  // Autenticado pero sin club → onboarding
+  if (!member) {
+    return { id: user.id, email: user.email, hasClub: false };
+  }
+
+  const { data: club } = await withTimeout<ClubResult>(
+    "clubs.select(session)",
+    supabase.from("clubs").select("name").eq("id", member.club_id).maybeSingle(),
+    { data: null, error: null },
+  );
+
+  return {
+    id: user.id,
+    email: user.email,
+    clubId: member.club_id,
+    clubName: club?.name ?? "Maduration Club",
+    role: member.role,
+  };
+}
+
 export async function requireSession() {
   const session = await getSessionUser();
   if (!session) redirect("/login");
   return session;
+}
+
+/**
+ * Igual que requireSession pero redirige a /onboarding si el usuario
+ * está autenticado pero no tiene club todavía.
+ */
+export async function requireSessionWithClub(): Promise<SessionUser> {
+  const result = await getSessionUserOrNoClub();
+  if (!result) redirect("/login");
+  if ("hasClub" in result && !result.hasClub) redirect("/onboarding");
+  return result as SessionUser;
 }

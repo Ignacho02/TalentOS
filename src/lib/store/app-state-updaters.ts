@@ -489,6 +489,11 @@ export function deleteClubUserFromState(current: AppState, id: string): AppState
   return { ...current, clubUsers: current.clubUsers.filter((u) => u.id !== id) };
 }
 
-export function setCurrentUserRoleInState(current: AppState, role: AppState["currentUserRole"], teamIds: string[]): AppState {
-  return { ...current, currentUserRole: role, currentUserTeamIds: teamIds };
+export function setCurrentUserRoleInState(current: AppState, role: AppState["currentUserRole"], teamIds: string[], permissions?: AppState["currentUserPermissions"]): AppState {
+  return {
+    ...current,
+    currentUserRole: role,
+    currentUserTeamIds: teamIds,
+    ...(permissions ? { currentUserPermissions: permissions } : {}),
+  };
 }

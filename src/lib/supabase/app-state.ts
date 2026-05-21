@@ -104,6 +104,17 @@ type DbPerformanceDefinition = {
   media_type: "image" | "video" | null;
 };
 
+type DbMember = {
+  user_id: string;
+  role: string;
+  team_ids: string[] | null;
+  created_at: string;
+  can_edit_athletes: boolean | null;
+  can_edit_anthropometry: boolean | null;
+  can_edit_performance: boolean | null;
+  can_edit_training_load: boolean | null;
+};
+
 type SupabaseResult<T> = {
   data: T | null;
   error: { message: string } | null;
@@ -251,6 +262,38 @@ function mapPerformanceDefinition(definition: DbPerformanceDefinition): Performa
   };
 }
 
+/** Mapea el role de la BD ("owner" | "coach" | "analyst") al role de la UI ("admin" | "user") */
+function dbRoleToUiRole(dbRole: string): "admin" | "user" {
+  return dbRole === "owner" || dbRole === "admin" ? "admin" : "user";
+}
+
+function memberPermissions(member: DbMember): import("@/lib/types").ClubUserPermissions {
+  return {
+    canEditAthletes: member.can_edit_athletes ?? true,
+    canEditAnthropometry: member.can_edit_anthropometry ?? true,
+    canEditPerformance: member.can_edit_performance ?? true,
+    canEditTrainingLoad: member.can_edit_training_load ?? true,
+  };
+}
+
+function mapMember(
+  member: DbMember,
+  clubId: string,
+  session: SessionUser,
+): import("@/lib/types").ClubUser {
+  const isSelf = member.user_id === session.id;
+  return {
+    id: member.user_id,
+    clubId,
+    name: isSelf ? (session.email.split("@")[0] ?? "Usuario") : `Usuario (${member.user_id.slice(0, 8)}…)`,
+    email: isSelf ? session.email : "",
+    role: dbRoleToUiRole(member.role),
+    assignedTeamIds: member.team_ids ?? [],
+    permissions: memberPermissions(member),
+    createdAt: member.created_at,
+  };
+}
+
 async function safeQuery<T>(
   label: string,
   query: PromiseLike<SupabaseResult<T>>,
@@ -276,6 +319,7 @@ export async function loadAppStateForSession(
     trainingLoadEntriesData,
     performanceDefinitionsData,
     preferences,
+    membersData,
   ] = await Promise.all([
     safeQuery<DbClub | null>(
       "clubs.select",
@@ -333,6 +377,14 @@ export async function loadAppStateForSession(
       supabase.from("user_preferences").select("locale").eq("user_id", session.id).maybeSingle(),
       null,
     ),
+    safeQuery<DbMember[]>(
+      "club_members.select",
+      supabase
+        .from("club_members")
+        .select("user_id, role, team_ids, created_at, can_edit_athletes, can_edit_anthropometry, can_edit_performance, can_edit_training_load")
+        .eq("club_id", session.clubId),
+      [],
+    ),
   ]);
 
   const mappedClub = mapClub(club, session);
@@ -341,6 +393,21 @@ export async function loadAppStateForSession(
   const athletes = athletesData.map((athlete) => mapAthlete(athlete, mappedClub, teamsById));
   const athletesById = new Map(athletes.map((athlete) => [athlete.id, athlete]));
   const definitions = performanceDefinitionsData.map(mapPerformanceDefinition);
+
+  // Rol real del usuario actual desde la sesión de Supabase
+  const currentUserRole = dbRoleToUiRole(session.role);
+
+  // team_ids del usuario actual (para el filtro de acceso por equipo)
+  const currentMember = membersData.find((m) => m.user_id === session.id);
+  const currentUserTeamIds = currentMember?.team_ids ?? [];
+
+  // Permisos del usuario actual (admins/owners tienen todo)
+  const currentUserPermissions = currentMember
+    ? memberPermissions(currentMember)
+    : { canEditAthletes: true, canEditAnthropometry: true, canEditPerformance: true, canEditTrainingLoad: true };
+
+  // Lista de todos los miembros del club (para la pestaña de administración)
+  const clubUsers = membersData.map((m) => mapMember(m, session.clubId, session));
 
   return {
     club: mappedClub,
@@ -355,8 +422,9 @@ export async function loadAppStateForSession(
     preferences: {
       locale: preferences?.locale === "en" ? "en" : fallbackLocale,
     },
-    clubUsers: [],
-    currentUserRole: "admin",
-    currentUserTeamIds: [],
+    clubUsers,
+    currentUserRole,
+    currentUserTeamIds,
+    currentUserPermissions,
   };
 }

@@ -335,6 +335,12 @@ export const demoState: AppState = {
   },
   currentUserRole: "admin",
   currentUserTeamIds: [],
+  currentUserPermissions: {
+    canEditAthletes: true,
+    canEditAnthropometry: true,
+    canEditPerformance: true,
+    canEditTrainingLoad: true,
+  },
   clubUsers: [
     {
       id: "user-admin-1",
@@ -343,6 +349,7 @@ export const demoState: AppState = {
       email: "carlos@academiasevilla.es",
       role: "admin",
       assignedTeamIds: [],
+      permissions: { canEditAthletes: true, canEditAnthropometry: true, canEditPerformance: true, canEditTrainingLoad: true },
       createdAt: "2024-09-01T08:00:00.000Z",
     },
     {
@@ -352,6 +359,7 @@ export const demoState: AppState = {
       email: "marta@academiasevilla.es",
       role: "user",
       assignedTeamIds: ["team-u10", "team-u12"],
+      permissions: { canEditAthletes: true, canEditAnthropometry: true, canEditPerformance: false, canEditTrainingLoad: false },
       createdAt: "2024-09-15T10:30:00.000Z",
     },
     {
@@ -361,6 +369,7 @@ export const demoState: AppState = {
       email: "alejandro@academiasevilla.es",
       role: "user",
       assignedTeamIds: ["team-u14"],
+      permissions: { canEditAthletes: false, canEditAnthropometry: true, canEditPerformance: true, canEditTrainingLoad: true },
       createdAt: "2025-01-10T09:00:00.000Z",
     },
   ],
