@@ -26,6 +26,17 @@ import {
   updatePerformanceDefinitionAction,
 } from "@/lib/actions/performance-definitions";
 import { addTeamAction, deleteTeamAction, updateTeamAction } from "@/lib/actions/teams";
+import {
+  addPerformanceEntryAction,
+  updatePerformanceEntryAction,
+  deletePerformanceEntryAction,
+  importPerformanceEntriesAction,
+} from "@/lib/actions/performance-entries";
+import {
+  addTrainingLoadEntryAction,
+  deleteTrainingLoadEntryAction,
+  importTrainingLoadEntriesAction,
+} from "@/lib/actions/training-load-entries";
 import type {
   AppState,
   AnthropometricRecordInput,
@@ -72,6 +83,7 @@ import {
   persistAppState,
   readStoredAppState,
 } from "./app-state-storage";
+import { updateClubAction } from "@/lib/actions/update-club";
 
 interface AppStateContextValue {
   state: AppState;
@@ -99,7 +111,7 @@ interface AppStateContextValue {
   addClubUser: (user: Omit<ClubUser, "id" | "createdAt">) => void;
   updateClubUser: (id: string, updates: Partial<Omit<ClubUser, "id" | "clubId" | "createdAt">>) => void;
   deleteClubUser: (id: string) => void;
-  setCurrentUserRole: (role: AppState["currentUserRole"], teamIds: string[], permissions?: AppState["currentUserPermissions"]) => void;
+  setCurrentUserRole: (role: AppState["currentUserRole"], teamIds: string[]) => void;
   resetState: () => void;
 }
 
@@ -228,6 +240,9 @@ export function AppStateProvider({
       added = result.added;
       return result.nextState;
     });
+    if (added) {
+      void addPerformanceEntryAction(input).catch(reportPersistenceError);
+    }
     return added;
   };
 
@@ -240,15 +255,21 @@ export function AppStateProvider({
       return result.nextState;
     });
 
+    if (rows.length > 0) {
+      void importPerformanceEntriesAction(rows).catch(reportPersistenceError);
+    }
+
     return imported;
   };
 
   const updatePerformanceEntry = (id: string, updates: Partial<PerformanceEntryInput>) => {
     setState((current) => updatePerformanceEntryInState(current, id, updates));
+    void updatePerformanceEntryAction(id, updates).catch(reportPersistenceError);
   };
 
   const deletePerformanceEntry = (id: string) => {
     setState((current) => deletePerformanceEntryInState(current, id));
+    void deletePerformanceEntryAction(id).catch(reportPersistenceError);
   };
 
   const setLocale = (locale: Locale) => {
@@ -293,14 +314,26 @@ export function AppStateProvider({
 
   const updateClub = (updates: Partial<Club>) => {
     setState((current) => updateClubInState(current, updates));
+    // Persistir en Supabase (fire-and-forget, el estado local ya se actualizó)
+    updateClubAction({
+      name: updates.name,
+      region: updates.region,
+      sport: updates.sport,
+      accentColor: updates.accentColor,
+      badgeUrl: updates.badgeUrl,
+    }).catch((err) => {
+      reportPersistenceError(err);
+    });
   };
 
   const addTrainingLoadEntry = (entry: Omit<TrainingLoadEntry, "id" | "load">) => {
     setState((current) => addTrainingLoadEntryToState(current, entry));
+    void addTrainingLoadEntryAction(entry).catch(reportPersistenceError);
   };
 
   const deleteTrainingLoadEntry = (id: string) => {
     setState((current) => deleteTrainingLoadEntryFromState(current, id));
+    void deleteTrainingLoadEntryAction(id).catch(reportPersistenceError);
   };
 
   const addPerformanceDefinition = (definition: Omit<PerformanceDefinition, "id">) => {
@@ -348,8 +381,8 @@ export function AppStateProvider({
     setState((current) => deleteClubUserFromState(current, id));
   };
 
-  const setCurrentUserRole = (role: AppState["currentUserRole"], teamIds: string[], permissions?: AppState["currentUserPermissions"]) => {
-    setState((current) => setCurrentUserRoleInState(current, role, teamIds, permissions));
+  const setCurrentUserRole = (role: AppState["currentUserRole"], teamIds: string[]) => {
+    setState((current) => setCurrentUserRoleInState(current, role, teamIds));
   };
 
   const value = useMemo<AppStateContextValue>(

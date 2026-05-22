@@ -75,20 +75,35 @@ export interface MethodOutputs {
   fransenRatio: number | null;
   fransenAphv: number | null;
   fransenOffset: number | null;
+  kozielMalinaPahCm: number | null;
+  kozielMalinaPercentageAdultHeight: number | null;
+  sherarOffset: number | null;
 }
 
 export interface DerivedMetrics {
   chronologicalAge: number;
   legLengthCm: number;
+  sittingHeightRatio: number;
+  growthVelocityCmPerYear: number | null;
+}
+
+export interface SitarOutputs {
+  sitarAphv: number;
+  sitarPhv: number;
+  sitarPah: number;
+  sitarActive: boolean;
 }
 
 export interface MaturationResult {
   inputs: AnthropometricRecord;
   derivedMetrics: DerivedMetrics;
   methodOutputs: MethodOutputs;
+  sitarOutputs?: SitarOutputs;
   classification: {
     maturityBand: MaturityBand;
+    pahBand: "< 85%" | "85-90%" | "90-95%" | "> 95%";
     primaryOffset: number;
+    whoBmiZScore: number | null;
   };
   warnings: string[];
   algorithmVersion: string;

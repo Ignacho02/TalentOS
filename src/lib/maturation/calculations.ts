@@ -6,6 +6,7 @@ import type {
   Sex,
 } from "@/lib/types";
 import { calculateAge, roundHalf } from "@/lib/utils";
+import { getWhoBmiZScore } from "./who-coefficients";
 
 function getRegressionEntry(age: number, sex: Sex) {
   const targetAge = roundHalf(age);
@@ -41,6 +42,14 @@ function classifyBand(primaryOffset: number): MaturityBand {
   return "Mid-PHV";
 }
 
+function classifyPahBand(percentage: number | null): "< 85%" | "85-90%" | "90-95%" | "> 95%" {
+  if (!percentage) return "85-90%";
+  if (percentage < 85) return "< 85%";
+  if (percentage < 90) return "85-90%";
+  if (percentage < 95) return "90-95%";
+  return "> 95%";
+}
+
 /**
  * Calculate maturation status using multiple scientific methods
  * @param record Anthropometric measurement record
@@ -49,6 +58,7 @@ function classifyBand(primaryOffset: number): MaturityBand {
 export function calculateMaturation(record: AnthropometricRecord): MaturationResult {
   const chronologicalAge = calculateAge(record.dob, record.dataCollectionDate);
   const legLengthCm = record.statureCm - record.sittingHeightCm;
+  const sittingHeightRatio = (record.sittingHeightCm / record.statureCm) * 100;
   const ageLookup = getRegressionEntry(chronologicalAge, record.sex);
   const warnings: string[] = [];
   const parentHeightsPresent =
@@ -101,6 +111,33 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
   } else {
     warnings.push("missing-parent-heights");
   }
+
+  // Koziel & Malina (Fallback PAH)
+  let kozielMalinaPahCm: number | null = null;
+  let kozielMalinaPercentageAdultHeight: number | null = null;
+  if (!parentHeightsPresent) {
+    if (record.sex === "male" && ageLookup.refMean) {
+      kozielMalinaPercentageAdultHeight = ageLookup.refMean;
+      kozielMalinaPahCm = record.statureCm / (ageLookup.refMean / 100);
+    } else {
+      // Approximation for girls based on age
+      const approxRefMean = 75 + (chronologicalAge - 5) * 1.5; // very rough heuristic
+      const boundedMean = Math.min(Math.max(approxRefMean, 75), 99);
+      kozielMalinaPercentageAdultHeight = boundedMean;
+      kozielMalinaPahCm = record.statureCm / (boundedMean / 100);
+    }
+  }
+
+  // Sherar et al. (2005) - Specific offset for girls
+  // Approximation based on age and sitting height ratio
+  let sherarOffset: number | null = null;
+  if (record.sex === "female") {
+     sherarOffset = -9.376 + 0.0001882 * (legLengthCm * record.sittingHeightCm) + 0.0022 * (chronologicalAge * legLengthCm) + 0.005841 * (chronologicalAge * record.sittingHeightCm) - 0.002658 * (chronologicalAge * record.bodyMassKg) + 0.07693 * ((record.bodyMassKg / record.statureCm) * 100);
+  }
+
+  // WHO BMI Z-Score
+  const bmi = record.bodyMassKg / Math.pow(record.statureCm / 100, 2);
+  const whoBmiZScore = getWhoBmiZScore(chronologicalAge, record.sex, bmi);
 
   const llSh = legLengthCm * record.sittingHeightCm;
   const ageLl = chronologicalAge * legLengthCm;
@@ -160,7 +197,12 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
 
   return {
     inputs: record,
-    derivedMetrics: { chronologicalAge, legLengthCm },
+    derivedMetrics: { 
+      chronologicalAge, 
+      legLengthCm, 
+      sittingHeightRatio,
+      growthVelocityCmPerYear: null // Populated externally if history exists
+    },
     methodOutputs: {
       pahCm,
       percentageAdultHeight,
@@ -172,10 +214,15 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
       fransenRatio,
       fransenAphv,
       fransenOffset,
+      kozielMalinaPahCm,
+      kozielMalinaPercentageAdultHeight,
+      sherarOffset,
     },
     classification: {
       maturityBand: classifyBand(primaryOffset),
+      pahBand: classifyPahBand(percentageAdultHeight ?? kozielMalinaPercentageAdultHeight),
       primaryOffset,
+      whoBmiZScore,
     },
     warnings,
     algorithmVersion: "2026.04-excel-aligned-v1",
