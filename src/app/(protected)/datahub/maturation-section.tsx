@@ -75,6 +75,7 @@ export function MaturationSection({
   setEditingAthleteId,
   openEditForAthlete,
   emptyForm,
+  canEditAnthropometry,
 }: {
   state: ReturnType<typeof useAppState>["state"];
   filteredRows: ReturnType<typeof useAppState>["assessments"];
@@ -105,6 +106,7 @@ export function MaturationSection({
   setEditingAthleteId: (id: string | null) => void;
   openEditForAthlete: (athleteId: string) => void;
   emptyForm: AnthropometricRecordInput;
+  canEditAnthropometry?: boolean;
 }) {
   const { t, locale } = useLocale();
   const [viewMode, setViewMode] = useState({
@@ -247,7 +249,8 @@ export function MaturationSection({
       <div className="flex justify-end">
         <button
           onClick={() => setShowAddMeasurementModal(true)}
-          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
+          disabled={!canEditAnthropometry}
+          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="h-4 w-4" />
           {t("datahub.addMeasurementTitle")}
@@ -1117,7 +1120,8 @@ export function MaturationSection({
                               setInlineEditErrors({});
                               setInlineEditSummary("");
                             }}
-                            className="flex-1 rounded-xl bg-accent py-2 text-sm font-medium text-slate-950 hover:bg-accent-strong transition"
+                            disabled={!canEditAnthropometry}
+                            className="flex-1 rounded-xl bg-accent py-2 text-sm font-medium text-slate-950 hover:bg-accent-strong transition disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {t("datahub.save")}
                           </button>
@@ -1278,6 +1282,7 @@ export function MaturationSection({
               fieldErrors={fieldErrors}
               onCancel={() => { setShowAddMeasurementModal(false); setEditingAthleteId(null); }}
               t={t}
+              canEditAnthropometry={canEditAnthropometry}
             />
           </form>
         </ModalShell>
@@ -1795,12 +1800,14 @@ function AddMeasurementFormBody({
   fieldErrors,
   onCancel,
   t,
+  canEditAnthropometry = true,
 }: {
   maturationForm: AnthropometricRecordInput;
   setMaturationValue: <K extends keyof AnthropometricRecordInput>(key: K, value: AnthropometricRecordInput[K]) => void;
   fieldErrors: FieldErrors;
   onCancel: () => void;
   t: (key: string) => string;
+  canEditAnthropometry?: boolean;
 }) {
   return (
     <>

@@ -1,6 +1,6 @@
 "use server";
 
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createSupabaseClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth";
 
 export async function updateClubAction(updates: {
@@ -17,7 +17,7 @@ export async function updateClubAction(updates: {
     throw new Error("Solo el administrador puede editar los datos del club.");
   }
 
-  const adminClient = createSupabaseAdminClient();
+  const supabase = await createSupabaseClient();
 
   const dbUpdates: Record<string, unknown> = {};
   if (updates.name !== undefined)        dbUpdates.name         = updates.name.trim();
@@ -28,7 +28,7 @@ export async function updateClubAction(updates: {
 
   if (Object.keys(dbUpdates).length === 0) return;
 
-  const { error } = await adminClient
+  const { error } = await supabase
     .from("clubs")
     .update(dbUpdates)
     .eq("id", session.clubId);

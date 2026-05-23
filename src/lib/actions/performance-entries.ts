@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { PerformanceEntry, PerformanceEntryInput } from "@/lib/types";
 import { isUUID } from "@/lib/utils";
+import { assertCanEditPerformance, getClubMemberRow } from "@/lib/actions/club-member-access";
 
 // ---------------------------------------------------------------------------
 // Helpers: TS → BD
@@ -70,6 +71,7 @@ async function resolveAthleteId(
     .from("athletes")
     .select("id")
     .eq("name", input.athleteName)
+    .eq("club_id", clubId)
     .maybeSingle();
 
   return (data?.id as string) ?? null;
@@ -93,6 +95,8 @@ export async function addPerformanceEntryAction(
     return null;
   }
 
+  await assertCanEditPerformance(session, athleteId);
+
   const { data, error } = await supabase
     .from("performance_entries")
     .insert(toEntryInsert(input, athleteId))
@@ -113,10 +117,22 @@ export async function updatePerformanceEntryAction(
   id: string,
   updates: Partial<PerformanceEntryInput>,
 ): Promise<void> {
-  await requireSession();
+  const session = await requireSession();
   if (!isUUID(id)) return;
 
   const supabase = await createSupabaseClient();
+  const { data: entry } = await supabase
+    .from("performance_entries")
+    .select("athlete_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!entry?.athlete_id) {
+    throw new Error("Entrada de rendimiento no encontrada.");
+  }
+
+  await assertCanEditPerformance(session, entry.athlete_id);
+
   const { error } = await supabase
     .from("performance_entries")
     .update(toEntryUpdate(updates))
@@ -132,10 +148,22 @@ export async function updatePerformanceEntryAction(
 // ---------------------------------------------------------------------------
 
 export async function deletePerformanceEntryAction(id: string): Promise<void> {
-  await requireSession();
+  const session = await requireSession();
   if (!isUUID(id)) return;
 
   const supabase = await createSupabaseClient();
+  const { data: entry } = await supabase
+    .from("performance_entries")
+    .select("athlete_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!entry?.athlete_id) {
+    throw new Error("Entrada de rendimiento no encontrada.");
+  }
+
+  await assertCanEditPerformance(session, entry.athlete_id);
+
   const { error } = await supabase.from("performance_entries").delete().eq("id", id);
 
   if (error) throw new Error(error.message);
@@ -154,16 +182,21 @@ export async function importPerformanceEntriesAction(
 ): Promise<{ imported: number; skipped: number }> {
   const session = await requireSession();
   const supabase = await createSupabaseClient();
+  const member = await getClubMemberRow(session);
 
-  // Cargar todos los atletas del club de una sola query
-  const { data: athletes } = await supabase
-    .from("athletes")
-    .select("id, name")
-    .eq("club_id", session.clubId);
+  const canEditPerformance = member.role === "owner" || member.role === "admin" || member.can_edit_performance !== false;
+  if (!canEditPerformance) {
+    throw new Error("No tienes permiso para importar entradas de rendimiento.");
+  }
 
-  const athleteMap = new Map<string, string>(
-    (athletes ?? []).map((a) => [a.name.toLowerCase(), a.id as string]),
-  );
+  const athleteIds = [...new Set(rows.map((row) => row.athleteId).filter(isUUID))];
+  const athletesQuery = supabase.from("athletes").select("id").in("id", athleteIds).eq("club_id", session.clubId);
+  if (member.team_ids && member.team_ids.length > 0) {
+    athletesQuery.in("team_id", member.team_ids);
+  }
+
+  const { data: allowedAthletes } = await athletesQuery;
+  const validIds = new Set((allowedAthletes ?? []).map((a) => a.id as string));
 
   const inserts: ReturnType<typeof toEntryInsert>[] = [];
 

@@ -63,15 +63,19 @@ export function PerformanceSection({
   performanceEntries,
   initialPanel = null,
   onPanelChange,
+  canEditPerformance,
 }: {
   area: PerformanceArea;
   setArea: (v: PerformanceArea) => void;
   performanceEntries: PerformanceEntry[];
   initialPanel?: { areaKey: PerformanceArea; athleteId: string } | null;
   onPanelChange?: (panel: { areaKey: PerformanceArea; athleteId: string } | null) => void;
+  canEditPerformance?: boolean;
 }) {
   const { addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
   const { t, locale } = useLocale();
+  const canEditTrainingLoad =
+    state.currentUserRole === "admin" || state.currentUserPermissions.canEditTrainingLoad;
 
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
@@ -767,7 +771,8 @@ export function PerformanceSection({
                 setPerfFormSummary("");
                 setShowAddModal(true);
               }}
-              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition"
+              disabled={!canEditPerformance}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="h-4 w-4" />
               {t("datahub.addResult") || "Añadir resultado"}
@@ -1033,6 +1038,7 @@ export function PerformanceSection({
               setShowAddModal(true);
             }}
             t={t}
+            canEditPerformance={canEditPerformance}
           />
         );
       })()}
@@ -1134,8 +1140,14 @@ export function PerformanceSection({
                 <h3 className="text-base font-bold text-zinc-900">{formatDate(selectedDate)}</h3>
                 <button
                   type="button"
-                  onClick={() => setTlShowPanel(v => !v)}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 transition"
+                  onClick={() => setTlShowPanel((v) => !v)}
+                  disabled={!canEditTrainingLoad}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition",
+                    canEditTrainingLoad
+                      ? "bg-accent text-white hover:bg-accent/90"
+                      : "border border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed",
+                  )}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   {locale === "en" ? "Add session" : "Añadir sesión"}
@@ -1329,9 +1341,9 @@ export function PerformanceSection({
                         )}
                         <div className="flex gap-3 pt-2">
                           <button type="button"
-                            disabled={!tlTeamId || !selectedDate}
+                            disabled={!tlTeamId || !selectedDate || !canEditTrainingLoad}
                             onClick={() => {
-                              if (!selectedDate) return;
+                              if (!selectedDate || !canEditTrainingLoad) return;
                               teamAthletes.forEach(ath => {
                                 const attended = tlAttendedMap[ath.id] !== false;
                                 const rpe      = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);  // 1 = neutral, never 0 (breaks load calc)
@@ -1363,6 +1375,12 @@ export function PerformanceSection({
                             {t("datahub.cancel") || "Cancelar"}
                           </button>
                         </div>
+                        {!canEditTrainingLoad && (
+                          <p className="text-sm text-red-600 pt-2">
+                            {t("datahub.trainingLoadNoPermission") ||
+                              "No tienes permiso para editar registros de carga de entrenamiento."}
+                          </p>
+                        )}
                       </>
                     )}
                   </div>

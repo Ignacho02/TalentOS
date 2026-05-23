@@ -12,6 +12,7 @@ import type {
   TrainingLoadEntry,
 } from "@/lib/types";
 import type { SessionUser } from "@/lib/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import { withTimeout } from "@/lib/supabase/safe-query";
 
@@ -113,6 +114,13 @@ type DbMember = {
   can_edit_anthropometry: boolean | null;
   can_edit_performance: boolean | null;
   can_edit_training_load: boolean | null;
+};
+
+type DbAuthUser = {
+  id: string;
+  email: string | null;
+  raw_user_meta_data: Record<string, unknown> | null;
+  user_metadata?: Record<string, unknown> | null;
 };
 
 type SupabaseResult<T> = {
@@ -276,17 +284,59 @@ function memberPermissions(member: DbMember): import("@/lib/types").ClubUserPerm
   };
 }
 
+function getAuthUserDisplayName(authUser: DbAuthUser | undefined): string | undefined {
+  if (!authUser) return undefined;
+
+  // Check raw_user_meta_data (which Supabase populates during invitation)
+  if (authUser.raw_user_meta_data && typeof authUser.raw_user_meta_data === "object") {
+    const rawName = 
+      authUser.raw_user_meta_data["full_name"] ?? 
+      authUser.raw_user_meta_data["fullName"] ?? 
+      authUser.raw_user_meta_data["name"] ?? 
+      authUser.raw_user_meta_data["display_name"] ?? 
+      authUser.raw_user_meta_data["displayName"];
+    if (typeof rawName === "string" && rawName.trim()) {
+      return rawName.trim();
+    }
+  }
+
+  // Check user_metadata (which we update via admin API)
+  if (authUser.user_metadata && typeof authUser.user_metadata === "object") {
+    const metaName = 
+      authUser.user_metadata["full_name"] ?? 
+      authUser.user_metadata["fullName"] ?? 
+      authUser.user_metadata["name"] ?? 
+      authUser.user_metadata["display_name"] ?? 
+      authUser.user_metadata["displayName"];
+    if (typeof metaName === "string" && metaName.trim()) {
+      return metaName.trim();
+    }
+  }
+
+  // Fallback to email prefix
+  if (authUser.email) {
+    return authUser.email.split("@")[0];
+  }
+
+  return undefined;
+}
+
 function mapMember(
   member: DbMember,
   clubId: string,
   session: SessionUser,
+  authUser?: DbAuthUser,
 ): import("@/lib/types").ClubUser {
   const isSelf = member.user_id === session.id;
+  const inviteName = getAuthUserDisplayName(authUser);
+
   return {
     id: member.user_id,
     clubId,
-    name: isSelf ? (session.email.split("@")[0] ?? "Usuario") : `Usuario (${member.user_id.slice(0, 8)}…)`,
-    email: isSelf ? session.email : "",
+    name: isSelf
+      ? session.email.split("@")[0] ?? "Usuario"
+      : inviteName ?? `Usuario (${member.user_id.slice(0, 8)}…)`,
+    email: isSelf ? session.email : authUser?.email ?? "",
     role: dbRoleToUiRole(member.role),
     assignedTeamIds: member.team_ids ?? [],
     permissions: memberPermissions(member),
@@ -387,6 +437,25 @@ export async function loadAppStateForSession(
     ),
   ]);
 
+  const adminSupabase = createSupabaseAdminClient();
+  const memberIds = membersData.map((member) => member.user_id);
+  let authUsersData: DbAuthUser[] = [];
+  if (memberIds.length > 0) {
+    try {
+      const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers({
+        limit: 1000,
+      });
+      if (listError) {
+        console.warn("[supabase] auth.admin.listUsers failed:", listError.message);
+      } else {
+        authUsersData = (listData?.users ?? []).filter((u) => memberIds.includes(u.id));
+      }
+    } catch (err) {
+      console.warn("[supabase] auth.admin.listUsers error:", err);
+    }
+  }
+  const authUsersById = new Map(authUsersData.map((user) => [user.id, user]));
+
   const mappedClub = mapClub(club, session);
   const teams = teamsData.map(mapTeam);
   const teamsById = new Map(teams.map((team) => [team.id, team]));
@@ -400,24 +469,51 @@ export async function loadAppStateForSession(
   // team_ids del usuario actual (para el filtro de acceso por equipo)
   const currentMember = membersData.find((m) => m.user_id === session.id);
   const currentUserTeamIds = currentMember?.team_ids ?? [];
+  const hasTeamRestrictions = currentMember && currentMember.team_ids && currentMember.team_ids.length > 0;
+  const isAdmin = currentUserRole === "admin";
 
   // Permisos del usuario actual (admins/owners tienen todo)
   const currentUserPermissions = currentMember
     ? memberPermissions(currentMember)
     : { canEditAthletes: true, canEditAnthropometry: true, canEditPerformance: true, canEditTrainingLoad: true };
 
+  const filteredTeams = isAdmin || !hasTeamRestrictions ? teams : teams.filter((team) => currentUserTeamIds.includes(team.id));
+  const athleteAllowed = (athlete: Athlete) =>
+    isAdmin || !hasTeamRestrictions || (athlete.teamId ? currentUserTeamIds.includes(athlete.teamId) : false);
+  const filteredAthletes = athletes.filter(athleteAllowed);
+  const athletesByIdFiltered = new Map(filteredAthletes.map((athlete) => [athlete.id, athlete]));
+
+  const filteredRecords = recordsData
+    .map((record) => mapRecord(record, mappedClub, athletesByIdFiltered))
+    .filter((record) => {
+      const athlete = athletesByIdFiltered.get(record.athleteId);
+      return athlete ? athleteAllowed(athlete) : false;
+    });
+  const filteredPerformanceEntries = performanceEntriesData
+    .map((entry) => mapPerformanceEntry(entry, athletesByIdFiltered))
+    .filter((entry) => {
+      const athlete = athletesByIdFiltered.get(entry.athleteId);
+      return athlete ? athleteAllowed(athlete) : false;
+    });
+  const filteredTrainingLoadEntries = trainingLoadEntriesData
+    .map(mapTrainingLoadEntry)
+    .filter((entry) => {
+      const athlete = athletesByIdFiltered.get(entry.athleteId);
+      return athlete ? athleteAllowed(athlete) : false;
+    });
+
   // Lista de todos los miembros del club (para la pestaña de administración)
-  const clubUsers = membersData.map((m) => mapMember(m, session.clubId, session));
+  const clubUsers = membersData.map((member) =>
+    mapMember(member, session.clubId, session, authUsersById.get(member.user_id)),
+  );
 
   return {
     club: mappedClub,
-    teams,
-    athletes,
-    records: recordsData.map((record) => mapRecord(record, mappedClub, athletesById)),
-    performanceEntries: performanceEntriesData.map((entry) =>
-      mapPerformanceEntry(entry, athletesById),
-    ),
-    trainingLoadEntries: trainingLoadEntriesData.map(mapTrainingLoadEntry),
+    teams: filteredTeams,
+    athletes: filteredAthletes,
+    records: filteredRecords,
+    performanceEntries: filteredPerformanceEntries,
+    trainingLoadEntries: filteredTrainingLoadEntries,
     performanceDefinitions: definitions,
     preferences: {
       locale: preferences?.locale === "en" ? "en" : fallbackLocale,

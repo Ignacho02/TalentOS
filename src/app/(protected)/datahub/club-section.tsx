@@ -73,7 +73,7 @@ function downloadSheet(filename: string, rows: Array<Record<string, unknown>>, s
   XLSX.writeFile(workbook, filename);
 }
 
-export function ClubSection() {
+export function ClubSection({ canEditAthletes = true }: { canEditAthletes?: boolean }) {
   const { t } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -241,6 +241,7 @@ export function ClubSection() {
           setSelectedTeamId={(id) => {
             setSelectedTeamId(id);
           }}
+          canEditAthletes={canEditAthletes}
         />
       )}
       {activeTab === "plantilla" && structureSubTab === "players" && (
@@ -254,6 +255,7 @@ export function ClubSection() {
           setSelectedAthleteId={(id) => {
             setSelectedAthleteId(id);
           }}
+          canEditAthletes={canEditAthletes}
         />
       )}
       {activeTab === "testBattery" && (
@@ -303,6 +305,7 @@ function TeamsTab({
   deleteTeam,
   selectedTeamId,
   setSelectedTeamId,
+  canEditAthletes = true,
 }: {
   teams: Array<{ id: string; name: string; ageGroup: string; clubId: string; photoUrl?: string | null }>;
   athletes: Array<{ id: string; name: string; teamId?: string; photoUrl?: string | null; position?: string; displayOrder?: number; category?: string }>;
@@ -311,6 +314,7 @@ function TeamsTab({
   deleteTeam: (id: string) => void;
   selectedTeamId: string | null;
   setSelectedTeamId: (id: string | null) => void;
+  canEditAthletes?: boolean;
 }) {
   const { t } = useLocale();
   const { state, updateAthlete } = useAppState();
@@ -776,6 +780,7 @@ function PlayersTab({
   deleteAthlete,
   selectedAthleteId,
   setSelectedAthleteId,
+  canEditAthletes = true,
 }: {
   athletes: Array<{ id: string; name: string; sex: string; ageGroup: string; teamName?: string; position?: string; dob: string; clubName: string; teamId?: string; photoUrl?: string | null }>;
   teams: Array<{ id: string; name: string }>;
@@ -784,6 +789,7 @@ function PlayersTab({
   deleteAthlete: (id: string) => void;
   selectedAthleteId: string | null;
   setSelectedAthleteId: (id: string | null) => void;
+  canEditAthletes?: boolean;
 }) {
   const { t } = useLocale();
   const { state } = useAppState();
@@ -1132,7 +1138,8 @@ function PlayersTab({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); openEdit(a); }}
-          className="rounded-full p-2 hover:bg-accent/10 text-zinc-400 hover:text-accent transition"
+          disabled={!canEditAthletes}
+          className="rounded-full p-2 hover:bg-accent/10 text-zinc-400 hover:text-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
           title={t("datahub.edit")}
         >
           <Edit2 className="h-4 w-4" />
@@ -1148,7 +1155,8 @@ function PlayersTab({
         <button
           type="button"
           onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90"
+          disabled={!canEditAthletes}
+          className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="h-4 w-4" />
           {t("club.addPlayer")}
@@ -1687,7 +1695,8 @@ function PlayersTab({
                     closeModals();
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
+                disabled={!canEditAthletes}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 className="h-4 w-4" />
                 {t("datahub.delete")}
@@ -1765,6 +1774,8 @@ function AdminTab({
   const [accentColor, setAccentColor] = useState(club.accentColor || "#0d9488");
   const [badgeUrl, setBadgeUrl] = useState(club.badgeUrl || "");
   const [badgePreview, setBadgePreview] = useState<string | null>(club.badgeUrl || null);
+  const [clubFeedback, setClubFeedback] = useState<"" | "saving" | "saved" | "error">("");
+  const [clubError, setClubError] = useState("");
 
   // User form state
   const [showAddUser, setShowAddUser] = useState(false);
@@ -1797,6 +1808,18 @@ function AdminTab({
     return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
   }
 
+  async function handleSaveClub() {
+    setClubFeedback("saving");
+    setClubError("");
+    // Call updateClub which will update state immediately and sync to Supabase
+    updateClub({ name, region, sport: sport || undefined, accentColor, badgeUrl });
+    // Show saved feedback after a brief moment
+    setTimeout(() => {
+      setClubFeedback("saved");
+      setTimeout(() => setClubFeedback(""), 3000);
+    }, 300);
+  }
+
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--accent", accentColor);
@@ -1827,6 +1850,7 @@ function AdminTab({
       if (editingUserId) {
         await updateClubUserAction({
           memberId: editingUserId,
+          name: userForm.name.trim(),
           role: userForm.role,
           teamIds: userForm.assignedTeamIds,
           permissions: userForm.permissions,
@@ -1949,13 +1973,31 @@ function AdminTab({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => updateClub({ name, region, sport: sport || undefined, accentColor, badgeUrl })}
-              className="rounded-full bg-accent px-6 py-2 text-sm font-medium text-white transition hover:bg-accent/90"
-            >
-              {t("common.save")}
-            </button>
+            <div className="flex gap-3 items-end">
+              <button
+                type="button"
+                onClick={handleSaveClub}
+                disabled={clubFeedback === "saving"}
+                className={cn(
+                  "rounded-full px-6 py-2 text-sm font-medium text-white transition",
+                  clubFeedback === "saving"
+                    ? "bg-zinc-400 cursor-not-allowed"
+                    : clubFeedback === "saved"
+                      ? "bg-emerald-500 hover:bg-emerald-600"
+                      : clubFeedback === "error"
+                        ? "bg-red-500 hover:bg-red-600"
+                        : "bg-accent hover:bg-accent/90"
+                )}
+              >
+                {clubFeedback === "saving" ? t("common.saving") || "Guardando..." : t("common.save")}
+              </button>
+              {clubFeedback === "saved" && (
+                <span className="text-sm text-emerald-600 font-medium">✓ {t("common.saved") || "Guardado"}</span>
+              )}
+              {clubFeedback === "error" && (
+                <span className="text-sm text-red-600 font-medium">{clubError || "Error al guardar"}</span>
+              )}
+            </div>
           </div>
 
           {/* User management */}

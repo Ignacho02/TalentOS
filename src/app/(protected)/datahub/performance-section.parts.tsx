@@ -355,6 +355,7 @@ export function PlayerAreaModal({
   onClose,
   onAddResult,
   t,
+  canEditPerformance,
 }: {
   athlete: { id: string; name: string; teamName?: string; position?: string; photoUrl?: string | null };
   areaKey: PerformanceArea;
@@ -365,6 +366,7 @@ export function PlayerAreaModal({
   onClose: () => void;
   onAddResult: () => void;
   t: (key: string) => string;
+  canEditPerformance?: boolean;
 }) {
   const strokeByArea: Record<PerformanceArea, string> = {
     physical: "#3b82f6",
@@ -464,7 +466,8 @@ export function PlayerAreaModal({
             <button
               type="button"
               onClick={onAddResult}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent/90"
+              disabled={!canEditPerformance}
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="h-3.5 w-3.5" />Añadir resultado
             </button>
@@ -612,7 +615,8 @@ export function PlayerAreaModal({
                                       <button
                                         type="button"
                                         onClick={() => startEdit(entry)}
-                                        className="rounded-full p-1.5 text-zinc-400 transition hover:bg-accent/10 hover:text-accent"
+                                        disabled={!canEditPerformance}
+                                        className="rounded-full p-1.5 text-zinc-400 transition hover:bg-accent/10 hover:text-accent disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-400"
                                         title={t("common.edit") || "Editar"}
                                       >
                                         <Edit2 className="h-3 w-3" />
@@ -620,7 +624,8 @@ export function PlayerAreaModal({
                                       <button
                                         type="button"
                                         onClick={() => confirmDelete(entry.id)}
-                                        className="rounded-full p-1.5 text-zinc-400 transition hover:bg-red-50 hover:text-red-500"
+                                        disabled={!canEditPerformance}
+                                        className="rounded-full p-1.5 text-zinc-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-400"
                                         title={t("common.delete") || "Eliminar"}
                                       >
                                         <Trash2 className="h-3 w-3" />

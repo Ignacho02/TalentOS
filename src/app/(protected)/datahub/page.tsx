@@ -327,7 +327,11 @@ export default function DataHubPage() {
       )}
       <main className="min-w-0 flex-1 p-4 sm:p-6 overflow-x-hidden">
         {section === "landing" && <DataHubLanding />}
-        {section === "club" && <ClubSection />}
+        {section === "club" && (
+          <ClubSection
+            canEditAthletes={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAthletes}
+          />
+        )}
         {section === "maturation" && (
           <MaturationSection
             state={state}
@@ -356,6 +360,7 @@ export default function DataHubPage() {
             setEditingAthleteId={setEditingAthleteId}
             openEditForAthlete={openEditForAthlete}
             emptyForm={emptyMaturationForm}
+            canEditAnthropometry={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAnthropometry}
           />
         )}
         {section === "performance" && (
@@ -365,6 +370,7 @@ export default function DataHubPage() {
             performanceEntries={state.performanceEntries}
             initialPanel={initialPanel}
             onPanelChange={handlePanelChange}
+            canEditPerformance={state.currentUserRole === "admin" || state.currentUserPermissions.canEditPerformance}
           />
         )}
       </main>

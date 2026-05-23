@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { Athlete } from "@/lib/types";
 import { isUUID } from "@/lib/utils";
+import { assertCanEditAthletes } from "@/lib/actions/club-member-access";
 
 function toAthleteInsert(athlete: Omit<Athlete, "id">, clubId: string) {
   return {
@@ -37,6 +38,7 @@ function toAthleteUpdate(updates: Partial<Athlete>) {
 
 export async function addAthleteAction(athlete: Omit<Athlete, "id">) {
   const session = await requireSession();
+  await assertCanEditAthletes(session, athlete.teamId ?? null);
   const supabase = await createSupabaseClient();
   const { data, error } = await supabase
     .from("athletes")
@@ -50,9 +52,22 @@ export async function addAthleteAction(athlete: Omit<Athlete, "id">) {
 }
 
 export async function updateAthleteAction(id: string, updates: Partial<Athlete>) {
-  await requireSession();
+  const session = await requireSession();
   const supabase = await createSupabaseClient();
   if (!isUUID(id)) return;
+
+  const existing = await supabase
+    .from("athletes")
+    .select("team_id, club_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!existing.data || existing.error || existing.data.club_id !== session.clubId) {
+    throw new Error("Atleta no encontrado en el club.");
+  }
+
+  await assertCanEditAthletes(session, updates.teamId !== undefined ? updates.teamId ?? null : existing.data.team_id);
+
   const { data, error } = await supabase
     .from("athletes")
     .update(toAthleteUpdate(updates))
@@ -66,9 +81,22 @@ export async function updateAthleteAction(id: string, updates: Partial<Athlete>)
 }
 
 export async function deleteAthleteAction(id: string) {
-  await requireSession();
+  const session = await requireSession();
   const supabase = await createSupabaseClient();
   if (!isUUID(id)) return;
+
+  const existing = await supabase
+    .from("athletes")
+    .select("team_id, club_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!existing.data || existing.error || existing.data.club_id !== session.clubId) {
+    throw new Error("Atleta no encontrado en el club.");
+  }
+
+  await assertCanEditAthletes(session, existing.data.team_id);
+
   const { error } = await supabase.from("athletes").delete().eq("id", id);
 
   if (error) throw new Error(error.message);

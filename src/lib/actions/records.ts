@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/auth";
+import { requireSession, type SessionUser } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { AnthropometricRecordInput } from "@/lib/types";
 import { isUUID } from "@/lib/utils";
+import { assertCanEditAnthropometry, assertCanEditAthletes } from "@/lib/actions/club-member-access";
 
 async function ensureTeam(input: AnthropometricRecordInput, clubId: string) {
   if (!input.teamName) return null;
@@ -14,6 +15,7 @@ async function ensureTeam(input: AnthropometricRecordInput, clubId: string) {
     .from("teams")
     .select("id")
     .eq("name", input.teamName)
+    .eq("club_id", clubId)
     .maybeSingle();
 
   if (existing?.id) return existing.id as string;
@@ -32,17 +34,19 @@ async function ensureTeam(input: AnthropometricRecordInput, clubId: string) {
   return data.id as string;
 }
 
-async function ensureAthlete(input: AnthropometricRecordInput, clubId: string) {
+async function ensureAthlete(input: AnthropometricRecordInput, session: SessionUser) {
   const supabase = await createSupabaseClient();
 
   if (input.athleteId && isUUID(input.athleteId)) {
     const { data } = await supabase
       .from("athletes")
-      .select("id")
+      .select("id, club_id, team_id")
       .eq("id", input.athleteId)
       .maybeSingle();
 
-    if (data?.id) return data.id as string;
+    if (data?.id && data.club_id === session.clubId) {
+      return data.id as string;
+    }
   }
 
   const { data: existing } = await supabase
@@ -50,15 +54,18 @@ async function ensureAthlete(input: AnthropometricRecordInput, clubId: string) {
     .select("id")
     .eq("name", input.athleteName)
     .eq("dob", input.dob)
+    .eq("club_id", session.clubId)
     .maybeSingle();
 
   if (existing?.id) return existing.id as string;
 
-  const teamId = await ensureTeam(input, clubId);
+  const teamId = await ensureTeam(input, session.clubId);
+  await assertCanEditAthletes(session as any, teamId);
+
   const { data, error } = await supabase
     .from("athletes")
     .insert({
-      club_id: clubId,
+      club_id: session.clubId,
       team_id: teamId,
       name: input.athleteName,
       sex: input.sex,
@@ -107,7 +114,8 @@ function toRecordUpdate(updates: Partial<AnthropometricRecordInput>) {
 export async function addRecordAction(input: AnthropometricRecordInput) {
   const session = await requireSession();
   const supabase = await createSupabaseClient();
-  const athleteId = await ensureAthlete(input, session.clubId);
+  const athleteId = await ensureAthlete(input, session);
+  await assertCanEditAnthropometry(session, athleteId);
   const { data, error } = await supabase
     .from("anthropometric_records")
     .insert(toRecordInsert(input, athleteId))
@@ -124,9 +132,22 @@ export async function updateRecordAction(
   id: string,
   updates: Partial<AnthropometricRecordInput>,
 ) {
-  await requireSession();
+  const session = await requireSession();
   const supabase = await createSupabaseClient();
   if (!isUUID(id)) return;
+
+  const { data: record } = await supabase
+    .from("anthropometric_records")
+    .select("athlete_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!record?.athlete_id) {
+    throw new Error("Registro no encontrado.");
+  }
+
+  await assertCanEditAnthropometry(session, record.athlete_id);
+
   const { data, error } = await supabase
     .from("anthropometric_records")
     .update(toRecordUpdate(updates))
@@ -141,9 +162,22 @@ export async function updateRecordAction(
 }
 
 export async function deleteRecordAction(id: string) {
-  await requireSession();
+  const session = await requireSession();
   const supabase = await createSupabaseClient();
   if (!isUUID(id)) return;
+
+  const { data: record } = await supabase
+    .from("anthropometric_records")
+    .select("athlete_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!record?.athlete_id) {
+    throw new Error("Registro no encontrado.");
+  }
+
+  await assertCanEditAnthropometry(session, record.athlete_id);
+
   const { error } = await supabase.from("anthropometric_records").delete().eq("id", id);
 
   if (error) throw new Error(error.message);

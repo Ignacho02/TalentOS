@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/auth";
 import { createSupabaseClient } from "@/lib/supabase/server";
 import type { TrainingLoadEntry } from "@/lib/types";
 import { isUUID } from "@/lib/utils";
+import { assertCanEditTrainingLoad, getClubMemberRow } from "@/lib/actions/club-member-access";
 
 // ---------------------------------------------------------------------------
 // Helper: TS → BD
@@ -41,6 +42,8 @@ export async function addTrainingLoadEntryAction(
     return null;
   }
 
+  await assertCanEditTrainingLoad(session, entry.athleteId);
+
   const supabase = await createSupabaseClient();
   const { data, error } = await supabase
     .from("training_load_entries")
@@ -58,10 +61,22 @@ export async function addTrainingLoadEntryAction(
 // ---------------------------------------------------------------------------
 
 export async function deleteTrainingLoadEntryAction(id: string): Promise<void> {
-  await requireSession();
+  const session = await requireSession();
   if (!isUUID(id)) return;
 
   const supabase = await createSupabaseClient();
+  const { data: entry } = await supabase
+    .from("training_load_entries")
+    .select("athlete_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!entry?.athlete_id) {
+    throw new Error("Entrada de carga de entrenamiento no encontrada.");
+  }
+
+  await assertCanEditTrainingLoad(session, entry.athlete_id);
+
   const { error } = await supabase.from("training_load_entries").delete().eq("id", id);
 
   if (error) throw new Error(error.message);
@@ -78,16 +93,26 @@ export async function importTrainingLoadEntriesAction(
 ): Promise<{ imported: number; skipped: number }> {
   const session = await requireSession();
   const supabase = await createSupabaseClient();
+  const member = await getClubMemberRow(session);
 
-  // Verificar que los atletas existen en este club
+  const canEditTrainingLoad = member.role === "owner" || member.role === "admin" || member.can_edit_training_load !== false;
+  if (!canEditTrainingLoad) {
+    throw new Error("No tienes permiso para importar entradas de carga de entrenamiento.");
+  }
+
+  // Verificar que los atletas existen en este club y están dentro del alcance del usuario
   const athleteIds = [...new Set(rows.map((r) => r.athleteId).filter(isUUID))];
-
-  const { data: existingAthletes } = await supabase
+  const athletesQuery = supabase
     .from("athletes")
     .select("id")
     .in("id", athleteIds)
     .eq("club_id", session.clubId);
 
+  if (member.team_ids && member.team_ids.length > 0) {
+    athletesQuery.in("team_id", member.team_ids);
+  }
+
+  const { data: existingAthletes } = await athletesQuery;
   const validIds = new Set((existingAthletes ?? []).map((a) => a.id as string));
 
   const inserts = rows

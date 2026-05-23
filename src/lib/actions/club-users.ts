@@ -98,6 +98,16 @@ export async function createClubUserAction(input: {
     throw new Error(`Error al asignar al usuario al club: ${memberError.message}`);
   }
 
+  // Update auth user metadata to ensure display name is available
+  // This ensures getAuthUserDisplayName() can find it later
+  try {
+    await adminClient.auth.admin.updateUserById(newUserId, {
+      user_metadata: { full_name: input.name.trim() },
+    });
+  } catch (err) {
+    console.warn("Could not update auth metadata for new user:", err);
+  }
+
   return { id: newUserId };
 }
 
@@ -107,6 +117,7 @@ export async function createClubUserAction(input: {
 
 export async function updateClubUserAction(input: {
   memberId: string;
+  name?: string;
   role: "admin" | "user";
   teamIds: string[];
   permissions: ClubUserPermissions;
@@ -130,6 +141,17 @@ export async function updateClubUserAction(input: {
     .eq("club_id", session.clubId);
 
   if (error) throw new Error(`Error al actualizar el usuario: ${error.message}`);
+
+  // If name is provided, sync it to auth user metadata
+  if (input.name && input.name.trim()) {
+    try {
+      await adminClient.auth.admin.updateUserById(input.memberId, {
+        user_metadata: { full_name: input.name.trim() },
+      });
+    } catch (err) {
+      console.warn("Could not update auth metadata for user:", err);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
