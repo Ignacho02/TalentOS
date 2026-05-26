@@ -10,6 +10,8 @@ import {
   Plus,
   UploadCloud,
   X,
+  Info,
+  Settings,
 } from "lucide-react";
 import { LabeledField } from "@/components/labeled-field";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -17,8 +19,10 @@ import { FieldError, invalidInputClass } from "@/components/field-error";
 import { validateAnthropometric, type FieldErrors } from "@/lib/form-errors";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
-import type { AnthropometricRecordInput } from "@/lib/types";
+import type { AnthropometricRecordInput, UnifiedMaturityProfile } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
+import { MaturationPreferences } from "@/components/maturation-preferences";
+import { createUnifiedProfile } from "@/lib/maturation/unified-maturation";
 
 /** Filter range bounds — kept in one place to avoid drift between state and UI. */
 const FILTER_RANGES = {
@@ -27,9 +31,12 @@ const FILTER_RANGES = {
   mass: { min: 0, max: 250 },
   sitting: { min: 0, max: 200 },
   offset: { min: -20, max: 20 },
+  fransen: { min: -20, max: 20 },
   moore: { min: 0, max: 30 },
   pah: { min: 0, max: 200 },
   mirwald: { min: -20, max: 20 },
+  shr: { min: 40, max: 70 },
+  whoBmi: { min: -4, max: 4 },
 };
 
 /** Default initial values for the column filter state. */
@@ -43,9 +50,12 @@ const DEFAULT_COLUMN_FILTERS = {
   mass: { min: FILTER_RANGES.mass.min, max: FILTER_RANGES.mass.max },
   sitting: { min: FILTER_RANGES.sitting.min, max: FILTER_RANGES.sitting.max },
   offset: { min: FILTER_RANGES.offset.min, max: FILTER_RANGES.offset.max },
+  fransen: { min: FILTER_RANGES.fransen.min, max: FILTER_RANGES.fransen.max },
   moore: { min: FILTER_RANGES.moore.min, max: FILTER_RANGES.moore.max },
   pah: { min: FILTER_RANGES.pah.min, max: FILTER_RANGES.pah.max },
   mirwald: { min: FILTER_RANGES.mirwald.min, max: FILTER_RANGES.mirwald.max },
+  shr: { min: FILTER_RANGES.shr.min, max: FILTER_RANGES.shr.max },
+  whoBmi: { min: FILTER_RANGES.whoBmi.min, max: FILTER_RANGES.whoBmi.max },
 };
 
 export function MaturationSection({
@@ -179,6 +189,9 @@ export function MaturationSection({
       if (row.classification.primaryOffset < columnFilters.offset.min || row.classification.primaryOffset > columnFilters.offset.max) {
         return false;
       }
+      if (row.methodOutputs.fransenOffset !== null && (row.methodOutputs.fransenOffset < columnFilters.fransen.min || row.methodOutputs.fransenOffset > columnFilters.fransen.max)) {
+        return false;
+      }
       if (row.methodOutputs.mooreAphv < columnFilters.moore.min || row.methodOutputs.mooreAphv > columnFilters.moore.max) {
         return false;
       }
@@ -187,6 +200,12 @@ export function MaturationSection({
         return false;
       }
       if (row.methodOutputs.mirwaldOffset < columnFilters.mirwald.min || row.methodOutputs.mirwaldOffset > columnFilters.mirwald.max) {
+        return false;
+      }
+      if (row.derivedMetrics.sittingHeightRatio < columnFilters.shr.min || row.derivedMetrics.sittingHeightRatio > columnFilters.shr.max) {
+        return false;
+      }
+      if (row.classification.whoBmiZScore !== null && (row.classification.whoBmiZScore < columnFilters.whoBmi.min || row.classification.whoBmiZScore > columnFilters.whoBmi.max)) {
         return false;
       }
 
@@ -231,6 +250,11 @@ export function MaturationSection({
   const [groupByPHV, setGroupByPHV] = useState(true);
   const [sortWithinGroup, setSortWithinGroup] = useState<"name" | "age" | "offset">("name");
   const [downloadTeams, setDownloadTeams] = useState<string[]>([]);
+  
+  // Concept-centric: user preferences for maturation calculation
+  const [selectedEngine, setSelectedEngine] = useState<"auto" | "fransen" | "sherar" | "moore" | "mirwald" | "consensus">("auto");
+  const [bioBandingStrategy, setBioBandingStrategy] = useState<"offset" | "pah">("offset");
+  const [showScientificBasis, setShowScientificBasis] = useState(false);
 
   const handleTeamClick = (team: string | null) => {
     setSelectedTeam(team);
@@ -246,7 +270,14 @@ export function MaturationSection({
   return (
     <div className="space-y-4">
       {/* Add measurement button — above the table panel */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={() => setShowScientificBasis(!showScientificBasis)}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          title={t("maturationMethods.scientificBasis")}
+        >
+          <Settings className="h-4 w-4" />
+        </button>
         <button
           onClick={() => setShowAddMeasurementModal(true)}
           disabled={!canEditAnthropometry}
@@ -256,6 +287,31 @@ export function MaturationSection({
           {t("datahub.addMeasurementTitle")}
         </button>
       </div>
+
+      {/* Scientific Basis Panel */}
+      {showScientificBasis && (() => {
+        const selectedAthlete = selectedAthleteId 
+          ? state.athletes.find((athlete) => athlete.id === selectedAthleteId)
+          : null;
+        const athleteSex = selectedAthlete?.sex === "female" ? "female" : "male";
+        
+        // Count measurements for this athlete
+        const athleteMeasurementCount = selectedAthleteId
+          ? assessments.filter((row) => row.inputs.athleteId === selectedAthleteId).length
+          : 0;
+        
+        return (
+          <MaturationPreferences
+            selectedEngine={selectedEngine}
+            onEngineChange={setSelectedEngine}
+            bioBandingStrategy={bioBandingStrategy}
+            onBioStrategyChange={setBioBandingStrategy}
+            t={t}
+            sex={athleteSex}
+            measurementCount={athleteMeasurementCount}
+          />
+        );
+      })()}
 
       {/* Tabla de datos */}
       <section className="panel rounded-[1.75rem] p-6 overflow-visible">
@@ -358,7 +414,7 @@ export function MaturationSection({
                   </th>
                 )}
 {viewMode.maturation && (
-                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={5}>
+                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={7}>
 {t("maturation")}
                   </th>
                 )}
@@ -701,46 +757,8 @@ export function MaturationSection({
                         </div>
                       )}
                     </th>
-                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 relative group">
-                      <button
-                        onClick={() => setShowColumnFilter(showColumnFilter === "moore" ? null : "moore")}
-                        className="flex items-center gap-1 hover:text-accent"
-                      >
-                        Moore APHV
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                      {showColumnFilter === "moore" && (
-                        <div className="absolute left-1/2 -translate-x-1/2 z-10 mt-1 w-72 rounded-lg border border-line bg-white p-3 shadow-lg">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between text-sm text-zinc-600">
-                              <span>Moore APHV</span>
-                              <span>{columnFilters.moore.min} - {columnFilters.moore.max}</span>
-                            </div>
-                            <Range
-                              step={0.5}
-                              min={FILTER_RANGES.moore.min}
-                              max={FILTER_RANGES.moore.max}
-                              values={[columnFilters.moore.min, columnFilters.moore.max]}
-                              onChange={(values) => setColumnFilters((prev) => ({ ...prev, moore: { min: values[0], max: values[1] } }))}
-                              renderTrack={({ props, children }) => {
-                                const range = FILTER_RANGES.moore.max - FILTER_RANGES.moore.min;
-                                const leftPct = ((columnFilters.moore.min - FILTER_RANGES.moore.min) / range) * 100;
-                                const rightPct = 100 - ((columnFilters.moore.max - FILTER_RANGES.moore.min) / range) * 100;
-                                return (
-                                  <div {...props} className="relative h-2 bg-slate-200 rounded-full">
-                                    <div className="absolute inset-0 rounded-full" style={{ left: `${leftPct}%`, right: `${rightPct}%`, background: "hsl(174 60% 40% / 0.35)" }} />
-                                    {children}
-                                  </div>
-                                );
-                              }}
-                              renderThumb={({ props, isDragged }) => {
-                                const { key, ...rest } = props;
-                                return <div key={key} {...rest} className={cn("h-4 w-4 bg-accent rounded-full border-2 border-white shadow", isDragged && "shadow-lg")} />;
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
+                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 text-sm">
+                      APHV
                     </th>
                     <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 relative group">
                       <button
@@ -785,29 +803,70 @@ export function MaturationSection({
                     </th>
                     <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 relative group">
                       <button
-                        onClick={() => setShowColumnFilter(showColumnFilter === "mirwald" ? null : "mirwald")}
-                        className="flex items-center gap-1 hover:text-accent"
+                        onClick={() => setShowColumnFilter(showColumnFilter === "shr" ? null : "shr")}
+                        className="flex items-center gap-1 hover:text-accent text-sm"
                       >
-                        Mirwald
+                        SHR
                         <ChevronDown className="h-3 w-3" />
                       </button>
-                      {showColumnFilter === "mirwald" && (
+                      {showColumnFilter === "shr" && (
                         <div className="absolute right-0 left-auto z-10 mt-1 w-72 rounded-lg border border-line bg-white p-3 shadow-lg">
                           <div className="space-y-3">
                             <div className="flex items-center justify-between text-sm text-zinc-600">
-                              <span>Mirwald</span>
-                              <span>{columnFilters.mirwald.min} - {columnFilters.mirwald.max}</span>
+                              <span>Sitting Height Ratio</span>
+                              <span>{columnFilters.shr.min} - {columnFilters.shr.max}%</span>
+                            </div>
+                            <Range
+                              step={1}
+                              min={FILTER_RANGES.shr.min}
+                              max={FILTER_RANGES.shr.max}
+                              values={[columnFilters.shr.min, columnFilters.shr.max]}
+                              onChange={(values) => setColumnFilters((prev) => ({ ...prev, shr: { min: values[0], max: values[1] } }))}
+                              renderTrack={({ props, children }) => {
+                                const range = FILTER_RANGES.shr.max - FILTER_RANGES.shr.min;
+                                const leftPct = ((columnFilters.shr.min - FILTER_RANGES.shr.min) / range) * 100;
+                                const rightPct = 100 - ((columnFilters.shr.max - FILTER_RANGES.shr.min) / range) * 100;
+                                return (
+                                  <div {...props} className="relative h-2 bg-slate-200 rounded-full">
+                                    <div className="absolute inset-0 rounded-full" style={{ left: `${leftPct}%`, right: `${rightPct}%`, background: "hsl(174 60% 40% / 0.35)" }} />
+                                    {children}
+                                  </div>
+                                );
+                              }}
+                              renderThumb={({ props, isDragged }) => {
+                                const { key, ...rest } = props;
+                                return <div key={key} {...rest} className={cn("h-4 w-4 bg-accent rounded-full border-2 border-white shadow", isDragged && "shadow-lg")} />;
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </th>
+                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 relative group">
+                      <button
+                        onClick={() => setShowColumnFilter(showColumnFilter === "whoBmi" ? null : "whoBmi")}
+                        className="flex items-center gap-1 hover:text-accent text-sm"
+                      >
+                        WHO BMI Z
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                      {showColumnFilter === "whoBmi" && (
+                        <div className="absolute right-0 left-auto z-10 mt-1 w-72 rounded-lg border border-line bg-white p-3 shadow-lg">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between text-sm text-zinc-600">
+                              <span>WHO BMI Z-Score</span>
+                              <span>{columnFilters.whoBmi.min} - {columnFilters.whoBmi.max}</span>
                             </div>
                             <Range
                               step={0.5}
-                              min={FILTER_RANGES.mirwald.min}
-                              max={FILTER_RANGES.mirwald.max}
-                              values={[columnFilters.mirwald.min, columnFilters.mirwald.max]}
-                              onChange={(values) => setColumnFilters((prev) => ({ ...prev, mirwald: { min: values[0], max: values[1] } }))}
+                              min={FILTER_RANGES.whoBmi.min}
+                              max={FILTER_RANGES.whoBmi.max}
+                              values={[columnFilters.whoBmi.min, columnFilters.whoBmi.max]}
+                              onChange={(values) => setColumnFilters((prev) => ({ ...prev, whoBmi: { min: values[0], max: values[1] } }))}
                               renderTrack={({ props, children }) => {
-                                const range = FILTER_RANGES.mirwald.max - FILTER_RANGES.mirwald.min;
-                                const leftPct = ((columnFilters.mirwald.min - FILTER_RANGES.mirwald.min) / range) * 100;
-                                const rightPct = 100 - ((columnFilters.mirwald.max - FILTER_RANGES.mirwald.min) / range) * 100;
+                                const range = FILTER_RANGES.whoBmi.max - FILTER_RANGES.whoBmi.min;
+                                const leftPct = ((columnFilters.whoBmi.min - FILTER_RANGES.whoBmi.min) / range) * 100;
+                                const rightPct = 100 - ((columnFilters.whoBmi.max - FILTER_RANGES.whoBmi.min) / range) * 100;
                                 return (
                                   <div {...props} className="relative h-2 bg-slate-200 rounded-full">
                                     <div className="absolute inset-0 rounded-full" style={{ left: `${leftPct}%`, right: `${rightPct}%`, background: "hsl(174 60% 40% / 0.35)" }} />
@@ -889,11 +948,30 @@ export function MaturationSection({
                         )}
                         {viewMode.maturation && (
                           <>
-                            <td className="bg-[#eaf4f2] px-3 py-3 font-medium">{row.classification.maturityBand}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.classification.primaryOffset, 2)}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mooreAphv, 2)}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3">{formatNumber(row.methodOutputs.mirwaldOffset, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center font-medium">{row.classification.maturityBand}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.classification.primaryOffset, 2)}</td>
+                            {/* APHV (single column with method indicator) */}
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">
+                              {(() => {
+                                const athleteSex = athlete && athlete.sex === "female" ? "female" : "male";
+                                const profile = createUnifiedProfile(row, selectedEngine, bioBandingStrategy, athleteSex);
+                                return (
+                                  <div className="space-y-0.5">
+                                    <div className="font-medium">
+                                      {profile.aphv !== null
+                                        ? formatNumber(profile.aphv, 2)
+                                        : "—"}
+                                    </div>
+                                    <div className="text-xs text-slate-500">
+                                      {profile.methodLabel}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.derivedMetrics.sittingHeightRatio, 1)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">{row.classification.whoBmiZScore !== null ? formatNumber(row.classification.whoBmiZScore, 2) : "—"}</td>
                           </>
                         )}
                       </tr>
@@ -901,7 +979,7 @@ export function MaturationSection({
                   );
                 };
 
-                const totalCols = 1 + (viewMode.anthropometric ? 7 : 0) + (viewMode.maturation ? 5 : 0);
+                const totalCols = 1 + (viewMode.anthropometric ? 7 : 0) + (viewMode.maturation ? 6 : 0);
 
                 // No grouping at all
                 if (!groupByTeam && !groupByPHV) {
@@ -1410,6 +1488,7 @@ export function MaturationSection({
           </div>
         </div>
       )}
+
     </div>
   );
 }

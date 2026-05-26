@@ -101,12 +101,51 @@ export interface MaturationResult {
   sitarOutputs?: SitarOutputs;
   classification: {
     maturityBand: MaturityBand;
-    pahBand: "< 85%" | "85-90%" | "90-95%" | "> 95%";
+    pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%";
     primaryOffset: number;
     whoBmiZScore: number | null;
   };
   warnings: string[];
   algorithmVersion: string;
+}
+
+/**
+ * CONCEPT-CENTRIC: Single unified maturity profile derived from ONE active engine
+ * Prevents scientific redundancy (multiple APHV/Offset representations)
+ * All metrics auto-derived from selected engine
+ */
+export interface UnifiedMaturityProfile {
+  // Engine selection (never mix multiple methods simultaneously)
+  selectedEngine: "auto" | "fransen" | "sherar" | "moore" | "mirwald" | "consensus";
+  
+  // Primary biological metrics (derived from selected engine)
+  aphv: number | null;           // Age at peak height velocity
+  offset: number | null;          // Offset from PHV (maturation status)
+  maturityBand: MaturityBand;     // Pre/Mid/Post-PHV classification
+  
+  // PAH metrics
+  pah: number | null;             // Predicted adult height
+  pahPercentage: number | null;   // % of predicted adult height
+  pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%";
+  
+  // Bio-banding strategy (how to group athletes)
+  bioBandingStrategy: "offset" | "pah";  // Which metric drives grouping
+  
+  // Method label for display ("fransen", "auto", "consensus", etc)
+  methodLabel: string;
+  methodYear?: number;
+  
+  // Advanced: alternative methods (only shown if user enables)
+  alternativeMethods?: Array<{
+    engine: "fransen" | "sherar" | "moore" | "mirwald" | "consensus";
+    aphv: number | null;
+    offset: number | null;
+    methodLabel: string;
+  }>;
+  
+  // Source data
+  result: MaturationResult;
+  athleteSex: Sex;
 }
 
 export interface ImportRowResult {
