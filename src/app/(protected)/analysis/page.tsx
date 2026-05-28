@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
-  Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
-  Radar, RadarChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, ResponsiveContainer,
-  Tooltip, XAxis, YAxis, Scatter, ScatterChart, Legend,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, ResponsiveContainer,
+  ReferenceLine, Scatter, ScatterChart, Tooltip, XAxis, YAxis, Legend,
 } from "recharts";
 import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
-  ArrowLeft, ArrowRight, Info, X, Menu
+  ArrowLeft, ArrowRight, Info, X, Menu, Maximize2
 } from "lucide-react";
 import { buildInsights } from "@/lib/maturation/insights";
 import { useAppState } from "@/lib/store/app-state";
@@ -29,7 +28,7 @@ import {
   getLatestAssessmentsByAthlete,
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
-import type { MaturityBand, TrainingLoadEntry, PerformanceEntry, MaturationResult } from "@/lib/types";
+import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult } from "@/lib/types";
 import type { TeamStats, AlertItem, RapidGrowthAlert } from "@/lib/maturation/analysis-helpers";
 
 const bandColors: Record<string, string> = {
@@ -38,7 +37,73 @@ const bandColors: Record<string, string> = {
   "Post-PHV": "#0f172a",
 };
 
+const performanceAreaChartColors: Record<PerformanceArea, string> = {
+  physical: "#3b82f6",
+  technicalTactical: "#8b5cf6",
+  psychological: "#f59e0b",
+  motorSkills: "#10b981",
+};
+
+const performanceAreaOrder: PerformanceArea[] = ["physical", "technicalTactical", "psychological", "motorSkills"];
+
+const performanceAreaStyles: Record<PerformanceArea, {
+  chipActive: string;
+  chipIdle: string;
+  softText: string;
+  icon: string;
+  ring: string;
+}> = {
+  physical: {
+    chipActive: "border-blue-300 bg-blue-600 text-white",
+    chipIdle: "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100",
+    softText: "text-blue-700",
+    icon: "text-blue-600",
+    ring: "hover:border-blue-200 focus:ring-blue-500/20",
+  },
+  technicalTactical: {
+    chipActive: "border-violet-300 bg-violet-600 text-white",
+    chipIdle: "border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100",
+    softText: "text-violet-700",
+    icon: "text-violet-600",
+    ring: "hover:border-violet-200 focus:ring-violet-500/20",
+  },
+  psychological: {
+    chipActive: "border-amber-300 bg-amber-500 text-white",
+    chipIdle: "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100",
+    softText: "text-amber-700",
+    icon: "text-amber-600",
+    ring: "hover:border-amber-200 focus:ring-amber-500/20",
+  },
+  motorSkills: {
+    chipActive: "border-emerald-300 bg-emerald-600 text-white",
+    chipIdle: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100",
+    softText: "text-emerald-700",
+    icon: "text-emerald-600",
+    ring: "hover:border-emerald-200 focus:ring-emerald-500/20",
+  },
+};
+
 type AnalysisTab = "individual" | "collective" | "assistant";
+type IndividualSubTab = "maturation" | "performance" | "load";
+type ExpandedPerformanceComparisonCandidate = {
+  athleteId: string;
+  name: string;
+  teamName: string;
+  position: string;
+  maturityBand: MaturityBand;
+  value: number;
+  unit: string;
+};
+
+type PerformancePercentileStrip = {
+  testName: string;
+  area: PerformanceArea;
+  unit: string;
+  min: number;
+  max: number;
+  value: number;
+  percentile: number;
+};
 
 // ---------------------------------------------------------------------------
 // INDIVIDUAL TAB
@@ -90,11 +155,18 @@ function IndividualView({
   const [compTeam, setCompTeam] = useState("");
   const [compPos, setCompPos] = useState("");
   const [showComparisonPanel, setShowComparisonPanel] = usePersistentState<boolean>("analysis_indiv_comp_panel", false);
-  const [activeSubTab, setActiveSubTab] = usePersistentState<'maturation' | 'performance' | 'load'>("analysis_indiv_subtab", "maturation");
+  const [activeSubTab, setActiveSubTab] = usePersistentState<IndividualSubTab>("analysis_indiv_subtab", "maturation");
   const [expandedTeams, setExpandedTeams] = useState<Record<string, boolean>>({});
   const [isSelectorExpanded, setIsSelectorExpanded] = useState(!initialPlayer);
+  const [performanceTestAreas, setPerformanceTestAreas] = usePersistentState<string[]>("analysis_indiv_perf_areas", []);
+  const [performanceSelectedTests, setPerformanceSelectedTests] = usePersistentState<string[]>("analysis_indiv_perf_tests", []);
+  const [expandedPerformanceTestName, setExpandedPerformanceTestName] = useState<string | null>(null);
+  const [expandedPerformanceComparisonIds, setExpandedPerformanceComparisonIds] = useState<string[]>([]);
+  const [expandedPerformanceTeamFilter, setExpandedPerformanceTeamFilter] = useState("");
+  const [expandedPerformancePositionFilter, setExpandedPerformancePositionFilter] = useState("");
+  const [expandedPerformanceBandFilter, setExpandedPerformanceBandFilter] = useState<MaturityBand | "">("");
 
-  // Sync with searchParams (only for primary player selection)
+  // Hack to force Recharts to re-measure after animations/tab switches
   useEffect(() => {
     const player = searchParams.get("player") || null;
     setSelectedAthleteId(player);
@@ -162,6 +234,12 @@ function IndividualView({
   }, [comparisonConfig, comparisonIds, latestByAthlete, selectedLatest, state.athletes]);
 
   const comparisonLatest = activeComparisonAthletes;
+  const isComparisonTeamMode = activeComparisonAthletes.length > 4;
+
+  const getAreaLabel = (area: string) => {
+    const areaKey = `datahub.performance${area.charAt(0).toUpperCase()}${area.slice(1)}`;
+    return t(areaKey) || area;
+  };
 
   const selectedHistory = useMemo(
     () =>
@@ -249,6 +327,16 @@ function IndividualView({
     };
   }, [selectedLatest, teamAssessments, currentBaseline, comparisonConfig, activeComparisonAthletes, comparisonLatest, comparisonIds]);
 
+  const maturityOffsetChartData = useMemo(
+    () =>
+      teamAssessments.map((assessment) => ({
+        athleteId: assessment.inputs.athleteId,
+        name: assessment.inputs.athleteName,
+        offset: Number(assessment.classification.primaryOffset.toFixed(2)),
+      })),
+    [teamAssessments],
+  );
+
   const combinedHistory = useMemo(() => {
     if (!selectedLatest) return [];
     const dates = new Set<string>();
@@ -259,19 +347,27 @@ function IndividualView({
 
     return Array.from(dates).sort().map(date => {
       const entry: any = { date: formatDate(date) };
+      const values: number[] = [];
       const primaryMatch = selectedHistory.find(h => h.inputs.dataCollectionDate === date);
       if (primaryMatch) {
-        entry[selectedLatest.inputs.athleteName] = Number(primaryMatch.classification.primaryOffset.toFixed(2));
+        const value = Number(primaryMatch.classification.primaryOffset.toFixed(2));
+        entry[selectedLatest.inputs.athleteName] = value;
+        values.push(value);
       }
       comparisonHistories.forEach(ch => {
         const match = ch.history.find(h => h.inputs.dataCollectionDate === date);
         if (match) {
-          entry[ch.name] = Number(match.classification.primaryOffset.toFixed(2));
+          const value = Number(match.classification.primaryOffset.toFixed(2));
+          entry[ch.name] = value;
+          values.push(value);
         }
       });
+      if (isComparisonTeamMode) {
+        entry.meanOffset = values.length ? Number((values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(2)) : null;
+      }
       return entry;
     });
-  }, [selectedHistory, comparisonHistories, selectedLatest]);
+  }, [selectedHistory, comparisonHistories, selectedLatest, isComparisonTeamMode]);
 
   const athleteLoad = useMemo(() => {
     if (!selectedAthleteId) return [];
@@ -329,12 +425,257 @@ function IndividualView({
         latest: history[history.length - 1],
         history
       };
-    }).filter(Boolean) as { testName: string, area: string, latest: any, history: any[] }[];
+    }).filter(Boolean) as { testName: string, area: PerformanceArea, latest: any, history: any[] }[];
   }, [state.performanceEntries, state.performanceDefinitions, selectedAthleteId]);
+
+  const activePerformanceSelectedTests = useMemo(() => {
+    const availableTests = new Set(athletePerformance.map((test) => test.testName));
+    return performanceSelectedTests.filter((testName) => availableTests.has(testName));
+  }, [athletePerformance, performanceSelectedTests]);
+
+  const filteredAthletePerformance = useMemo(() => {
+    if (activePerformanceSelectedTests.length === 0) return athletePerformance;
+    return athletePerformance.filter((p) => activePerformanceSelectedTests.includes(p.testName));
+  }, [activePerformanceSelectedTests, athletePerformance]);
+
+  const expandedPerformanceTest = useMemo(
+    () => athletePerformance.find((test) => test.testName === expandedPerformanceTestName) ?? null,
+    [athletePerformance, expandedPerformanceTestName],
+  );
+
+  const expandedPerformanceComparisonCandidates = useMemo(() => {
+    if (!expandedPerformanceTestName || !selectedAthleteId) return [];
+
+    return latestByAthlete
+      .filter((athlete) => athlete.inputs.athleteId !== selectedAthleteId)
+      .map((athlete) => {
+        const athleteProfile = state.athletes.find((profile) => profile.id === athlete.inputs.athleteId);
+        const latestEntry = state.performanceEntries
+          .filter((entry) => entry.athleteId === athlete.inputs.athleteId && entry.testName === expandedPerformanceTestName)
+          .sort((a, b) => b.measurementDate.localeCompare(a.measurementDate))[0];
+
+        if (!latestEntry) return null;
+
+        return {
+          athleteId: athlete.inputs.athleteId,
+          name: athlete.inputs.athleteName,
+          teamName: athlete.inputs.teamName,
+          position: athlete.inputs.position || athleteProfile?.position || "",
+          maturityBand: athlete.classification.maturityBand,
+          value: latestEntry.value,
+          unit: latestEntry.unit,
+        };
+      })
+      .filter((candidate): candidate is ExpandedPerformanceComparisonCandidate => candidate !== null)
+      .sort((a, b) => a.teamName.localeCompare(b.teamName) || a.name.localeCompare(b.name));
+  }, [expandedPerformanceTestName, latestByAthlete, selectedAthleteId, state.athletes, state.performanceEntries]);
+
+  const expandedPerformanceTeamOptions = useMemo(
+    () => Array.from(new Set(expandedPerformanceComparisonCandidates.map((candidate) => candidate.teamName).filter(Boolean))).sort(),
+    [expandedPerformanceComparisonCandidates],
+  );
+
+  const expandedPerformancePositionOptions = useMemo(
+    () => Array.from(new Set(expandedPerformanceComparisonCandidates.map((candidate) => candidate.position).filter(Boolean))).sort(),
+    [expandedPerformanceComparisonCandidates],
+  );
+
+  const expandedPerformanceBandOptions = useMemo(
+    () => (["Pre-PHV", "Mid-PHV", "Post-PHV"] as MaturityBand[]).filter((band) =>
+      expandedPerformanceComparisonCandidates.some((candidate) => candidate.maturityBand === band),
+    ),
+    [expandedPerformanceComparisonCandidates],
+  );
+
+  const filteredExpandedPerformanceComparisonCandidates = useMemo(() => {
+    return expandedPerformanceComparisonCandidates.filter((candidate) => {
+      if (expandedPerformanceTeamFilter && candidate.teamName !== expandedPerformanceTeamFilter) return false;
+      if (expandedPerformancePositionFilter && candidate.position !== expandedPerformancePositionFilter) return false;
+      if (expandedPerformanceBandFilter && candidate.maturityBand !== expandedPerformanceBandFilter) return false;
+      return true;
+    });
+  }, [
+    expandedPerformanceBandFilter,
+    expandedPerformanceComparisonCandidates,
+    expandedPerformancePositionFilter,
+    expandedPerformanceTeamFilter,
+  ]);
+
+  const expandedPerformanceComparisons = useMemo(() => {
+    if (!expandedPerformanceTestName) return [];
+    const ids = new Set(expandedPerformanceComparisonIds);
+
+    return latestByAthlete
+      .filter((athlete) => ids.has(athlete.inputs.athleteId))
+      .map((athlete) => {
+        const history = state.performanceEntries
+          .filter((entry) => entry.athleteId === athlete.inputs.athleteId && entry.testName === expandedPerformanceTestName)
+          .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate))
+          .map((entry) => ({
+            value: entry.value,
+            measurementDate: entry.measurementDate,
+          }));
+
+        if (history.length === 0) return null;
+
+        return {
+          id: athlete.inputs.athleteId,
+          name: athlete.inputs.athleteName,
+          history,
+        };
+      })
+      .filter((comparison): comparison is { id: string; name: string; history: { value: number; measurementDate: string }[] } => comparison !== null);
+  }, [expandedPerformanceComparisonIds, expandedPerformanceTestName, latestByAthlete, state.performanceEntries]);
+
+  const expandedPerformanceChartData = useMemo(() => {
+    if (!expandedPerformanceTest) return [];
+
+    const dates = new Set<string>();
+    expandedPerformanceTest.history.forEach((entry) => dates.add(entry.measurementDate));
+    expandedPerformanceComparisons.forEach((comparison) => {
+      comparison.history.forEach((entry) => dates.add(entry.measurementDate));
+    });
+
+    return Array.from(dates).sort().map((date) => {
+      const row: Record<string, string | number> = { date: formatDate(date) };
+      const primaryEntry = expandedPerformanceTest.history.find((entry) => entry.measurementDate === date);
+      if (primaryEntry) row.primary = Number(primaryEntry.value.toFixed(2));
+
+      expandedPerformanceComparisons.forEach((comparison) => {
+        const comparisonEntry = comparison.history.find((entry) => entry.measurementDate === date);
+        if (comparisonEntry) row[comparison.id] = Number(comparisonEntry.value.toFixed(2));
+      });
+
+      return row;
+    });
+  }, [expandedPerformanceComparisons, expandedPerformanceTest]);
+
+  const performancePercentileStrips = useMemo(() => {
+    if (!selectedLatest || filteredAthletePerformance.length === 0) return [];
+    const comparisonAthleteIds = new Set([selectedLatest.inputs.athleteId, ...comparisonLatest.map(a => a.inputs.athleteId)]);
+
+    return filteredAthletePerformance.map((test) => {
+      const latestByAthlete = state.performanceEntries
+        .filter((e) => e.testName === test.testName && comparisonAthleteIds.has(e.athleteId))
+        .reduce<Record<string, PerformanceEntry>>((acc, e) => {
+          const existing = acc[e.athleteId];
+          if (!existing || e.measurementDate > existing.measurementDate) {
+            acc[e.athleteId] = e;
+          }
+          return acc;
+        }, {});
+
+      const values = Object.values(latestByAthlete).map((e) => e.value).sort((a, b) => a - b);
+      if (values.length === 0) return null;
+
+      const current = test.latest.value;
+      const rank = values.filter((v) => v <= current).length;
+      const percentile = Math.max(1, Math.min(99, values.length > 1 ? Math.round(((rank - 1) / (values.length - 1)) * 100) : 50));
+
+      return {
+        testName: test.testName,
+        area: test.area,
+        unit: test.latest.unit,
+        min: values[0],
+        max: values[values.length - 1],
+        value: current,
+        percentile,
+      };
+    }).filter((strip): strip is PerformancePercentileStrip => strip !== null).sort((a, b) => {
+      const areaDelta = performanceAreaOrder.indexOf(a.area) - performanceAreaOrder.indexOf(b.area);
+      if (areaDelta !== 0) return areaDelta;
+      return b.percentile - a.percentile || a.testName.localeCompare(b.testName);
+    });
+  }, [selectedLatest, filteredAthletePerformance, state.performanceEntries, comparisonLatest]);
+
+  const performanceComparisonDotPlots = useMemo(() => {
+    if (!selectedLatest || comparisonIds.length === 0 || filteredAthletePerformance.length === 0) return [];
+
+    return filteredAthletePerformance.slice(0, 3).map((test) => {
+      const points = [selectedLatest, ...comparisonLatest]
+        .map((athlete) => {
+          const latestEntry = state.performanceEntries
+            .filter((e) => e.athleteId === athlete.inputs.athleteId && e.testName === test.testName)
+            .sort((a, b) => b.measurementDate.localeCompare(a.measurementDate))[0];
+
+          return {
+            athleteId: athlete.inputs.athleteId,
+            name: athlete.inputs.athleteName,
+            value: latestEntry?.value ?? 0,
+            y: 1,
+            isPrimary: athlete.inputs.athleteId === selectedAthleteId,
+            isComparison: athlete.inputs.athleteId !== selectedAthleteId,
+          };
+        })
+        .filter((p) => p.value !== undefined);
+
+      const values = points.map((p) => p.value);
+      const min = values.length > 0 ? Math.min(...values) : 0;
+      const max = values.length > 0 ? Math.max(...values) : 0;
+
+      return {
+        testName: test.testName,
+        area: test.area,
+        unit: test.latest.unit,
+        points,
+        min,
+        max,
+      };
+    });
+  }, [selectedLatest, comparisonIds, comparisonLatest, filteredAthletePerformance, state.performanceEntries, selectedAthleteId]);
+
+  const athleteLoadTrend = useMemo(() => {
+    if (athleteLoad.length === 0) return [];
+    const acuteAlpha = 2 / (7 + 1);
+    const chronicAlpha = 2 / (28 + 1);
+    let acute = athleteLoad[0].load;
+    let chronic = athleteLoad[0].load;
+
+    return athleteLoad.map((entry, index) => {
+      if (index > 0) {
+        acute = acuteAlpha * entry.load + (1 - acuteAlpha) * acute;
+        chronic = chronicAlpha * entry.load + (1 - chronicAlpha) * chronic;
+      }
+      return {
+        date: formatDate(entry.date),
+        load: entry.load,
+        acute: Number(acute.toFixed(1)),
+        chronic: Number(chronic.toFixed(1)),
+      };
+    });
+  }, [athleteLoad]);
+
+  const maturationTimelinePoints = useMemo(() => {
+    return selectedHistory.map((h) => ({
+      date: formatDate(h.inputs.dataCollectionDate),
+      band: h.classification.maturityBand,
+      offset: Number(h.classification.primaryOffset.toFixed(2)),
+    }));
+  }, [selectedHistory]);
+
+  const performanceTestTypes = useMemo(() => {
+    if (!state.performanceDefinitions) return [];
+    return Array.from(new Set(state.performanceDefinitions.map((t) => t.area))).sort();
+  }, [state.performanceDefinitions]);
+
+  const performanceTestsByArea = useMemo(() => {
+    if (!state.performanceDefinitions) return {};
+    return state.performanceDefinitions.reduce<Record<string, string[]>>((acc, test) => {
+      if (!acc[test.area]) acc[test.area] = [];
+      acc[test.area].push(test.name);
+      return acc;
+    }, {});
+  }, [state.performanceDefinitions]);
 
   const handleExportPDF = () => {
     window.print();
   };
+
+  const subTabs: { id: IndividualSubTab; label: string; Icon: typeof TrendingUp }[] = [
+    { id: "maturation", label: locale === "es" ? "Maduracion" : "Maturation", Icon: TrendingUp },
+    { id: "performance", label: locale === "es" ? "Rendimiento" : "Performance", Icon: Trophy },
+    { id: "load", label: locale === "es" ? "Carga de entrenamiento" : "Training Load", Icon: Dumbbell },
+  ];
 
   return (
     <div className="space-y-6">
@@ -724,21 +1065,17 @@ function IndividualView({
 
           {/* Sub-tabs Navigation */}
           <div className="flex border-b border-slate-200 no-print overflow-x-auto">
-            {[
-              { id: 'maturation', label: locale === 'es' ? 'Maduración' : 'Maturation', icon: <TrendingUp className="h-4 w-4" /> },
-              { id: 'performance', label: locale === 'es' ? 'Rendimiento' : 'Performance', icon: <Trophy className="h-4 w-4" /> },
-              { id: 'load', label: locale === 'es' ? 'Carga de entrenamiento' : 'Training Load', icon: <Dumbbell className="h-4 w-4" /> },
-            ].map((tab) => (
+            {subTabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveSubTab(tab.id as 'maturation' | 'performance' | 'load')}
+                onClick={() => setActiveSubTab(tab.id)}
                 className={`flex items-center gap-2 px-6 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                   activeSubTab === tab.id
                     ? "border-teal-600 text-teal-600 bg-teal-50/30"
                     : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                {tab.icon}
+                <tab.Icon className="h-4 w-4" />
                 {tab.label}
               </button>
             ))}
@@ -755,13 +1092,13 @@ function IndividualView({
                 baselineLabel={currentBaseline.label}
               />
 
-              {/* Team Comparison */}
+              {/* MATURITY OFFSET & TEAM COMPARISON SECTION */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-teal-600" />
+                    <TrendingUp className="h-5 w-5 text-teal-600" />
                     <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                      {t("analysis.individual.teamComparison")}
+                      {locale === 'es' ? 'Offset de maduración' : 'Maturity offset'}
                     </h3>
                   </div>
                   <div className="text-xs font-bold text-slate-400">
@@ -771,18 +1108,25 @@ function IndividualView({
                 
                 <div className="h-56 w-full relative">
                   <ResponsiveContainer width="99.9%" height={224} minWidth={0} debounce={100}>
-                    <BarChart data={teamAssessments.map(a => ({
-                      name: a.inputs.athleteName,
-                      offset: Number(a.classification.primaryOffset.toFixed(2)),
-                      isSelf: a.inputs.athleteId === selectedAthleteId
-                    }))}>
-                      <XAxis dataKey="name" hide />
-                      <YAxis />
+                    <ComposedChart layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }} data={maturityOffsetChartData}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 10 }}
+                        axisLine={false}
+                        tickLine={false}
+                        domain={[
+                          (dataMin: number) => Math.min(dataMin - 0.25, -0.25),
+                          (dataMax: number) => Math.max(dataMax + 0.25, 0.25),
+                        ]}
+                      />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={132} axisLine={false} tickLine={false} />
                       <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("datahub.offset")]} />
-                      <Bar dataKey="offset">
-                        {teamAssessments.map((entry, index) => {
-                          const isPrimary = entry.inputs.athleteId === selectedAthleteId;
-                          const isComparison = comparisonIds.includes(entry.inputs.athleteId);
+                      <ReferenceLine x={0} stroke="#94a3b8" strokeWidth={1.5} />
+                      <Bar dataKey="offset" barSize={14} radius={5}>
+                        {maturityOffsetChartData.map((entry, index) => {
+                          const isPrimary = entry.athleteId === selectedAthleteId;
+                          const isComparison = comparisonIds.includes(entry.athleteId);
                           return (
                             <Cell 
                               key={`cell-${index}`} 
@@ -791,7 +1135,7 @@ function IndividualView({
                           );
                         })}
                       </Bar>
-                    </BarChart>
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="mt-4 flex items-center justify-between text-xs pt-4 border-t border-slate-100">
@@ -810,6 +1154,85 @@ function IndividualView({
                   </div>
                 </div>
               </div>
+
+              {/* APHV PREDICTION METHODS SECTION */}
+              {selectedLatest && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="h-5 w-5 text-amber-600" />
+                      <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                        Moore APHV
+                      </h3>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="text-center py-4">
+                        <div className="text-4xl font-bold text-amber-600">{formatNumber(selectedLatest.methodOutputs.mooreAphv, 2)}</div>
+                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 space-y-1">
+                        <div>{locale === 'es' ? 'Método: Regresión de Moore' : 'Method: Moore regression'}</div>
+                        <div>{locale === 'es' ? 'Basado en antropometría y edad' : 'Based on anthropometry and age'}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="h-5 w-5 text-blue-600" />
+                      <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                        Mirwald APHV
+                      </h3>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="text-center py-4">
+                        <div className="text-4xl font-bold text-blue-600">{formatNumber(selectedLatest.methodOutputs.mirwaldAphv, 2)}</div>
+                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 space-y-1">
+                        <div>{locale === 'es' ? 'Método: Ecuación de Mirwald' : 'Method: Mirwald equation'}</div>
+                        <div>{locale === 'es' ? 'Basado en dimensiones corporales' : 'Based on body dimensions'}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PAH (PROJECTED ADULT HEIGHT) SECTION */}
+              {selectedLatest && selectedLatest.methodOutputs.pahCm && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Activity className="h-5 w-5 text-emerald-600" />
+                    <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                      {locale === 'es' ? 'Altura adulta proyectada' : 'Projected adult height'}
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-sm text-slate-500 mb-1">{locale === 'es' ? 'Altura actual' : 'Current height'}</div>
+                      <div className="text-3xl font-bold text-slate-900">{formatNumber(selectedLatest.inputs.statureCm, 1)}</div>
+                      <div className="text-xs text-slate-400">cm</div>
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <ArrowRight className="h-5 w-5 text-slate-300" />
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm text-slate-500 mb-1">{locale === 'es' ? 'Altura proyectada' : 'Projected height'}</div>
+                      <div className="text-3xl font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.pahCm, 1)}</div>
+                      <div className="text-xs text-slate-400">cm</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-slate-100">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">{locale === 'es' ? 'Porcentaje de altura adulta' : 'Percentage of adult height'}</span>
+                      <span className="font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.percentageAdultHeight, 1)}%</span>
+                    </div>
+                    <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, selectedLatest.methodOutputs.percentageAdultHeight ?? 0)}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Temporal Trend */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -839,17 +1262,29 @@ function IndividualView({
                         dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
                         activeDot={{ r: 6, strokeWidth: 0 }}
                       />
-                      {comparisonHistories.map((ch, i) => (
-                        <Line 
-                          key={ch.id}
-                          type="monotone" 
-                          dataKey={ch.name} 
-                          stroke={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]} 
-                          strokeWidth={2}
+                      {isComparisonTeamMode ? (
+                        <Line
+                          type="monotone"
+                          dataKey="meanOffset"
+                          stroke="#3b82f6"
+                          strokeWidth={3}
                           strokeDasharray="5 5"
-                          dot={{ r: 3 }}
+                          dot={false}
+                          name={locale === 'es' ? 'Media del Equipo' : 'Team Mean'}
                         />
-                      ))}
+                      ) : (
+                        comparisonHistories.map((ch, i) => (
+                          <Line 
+                            key={ch.id}
+                            type="monotone" 
+                            dataKey={ch.name} 
+                            stroke={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]} 
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            dot={{ r: 3 }}
+                          />
+                        ))
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -896,6 +1331,38 @@ function IndividualView({
                 </div>
               )}
 
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <MapPin className="h-5 w-5 text-teal-600" />
+                  <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                    {locale === 'es' ? 'Línea de tiempo de maduración' : 'Maturation timeline'}
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <div className="min-w-[720px]">
+                    <div className="flex items-center gap-4">
+                      {maturationTimelinePoints.map((point) => (
+                        <div key={point.date} className="flex-1 min-w-[160px]">
+                          <div className="relative h-12">
+                            <div className={`absolute left-1/2 top-1/2 h-2 w-full -translate-x-1/2 -translate-y-1/2 rounded-full ${
+                              point.band === 'Pre-PHV' ? 'bg-teal-200' : point.band === 'Mid-PHV' ? 'bg-amber-200' : 'bg-slate-300'
+                            }`} />
+                            <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 rounded-full border-2 border-white shadow-sm ${
+                              point.band === 'Pre-PHV' ? 'bg-teal-500' : point.band === 'Mid-PHV' ? 'bg-amber-500' : 'bg-slate-500'
+                            }`} />
+                          </div>
+                          <div className="mt-4 text-center text-xs text-slate-500">
+                            <div>{point.date}</div>
+                            <div className="font-semibold text-slate-800">{point.band}</div>
+                            <div>{formatNumber(point.offset, 2)} {t('datahub.offset')}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Detailed Report Table */}
               <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                 <div className="p-5 border-b border-slate-100 flex items-center justify-between">
@@ -933,38 +1400,123 @@ function IndividualView({
 
           {activeSubTab === 'performance' && (
             <div className="space-y-6">
-              {/* Performance Snapshot */}
+              {/* Test Type & Selection Filters */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">{locale === 'es' ? 'Tipo de test' : 'Test type'}</label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {performanceTestTypes.map((area) => {
+                        const areaKey = area as PerformanceArea;
+                        const selected = performanceTestAreas.includes(area);
+                        const style = performanceAreaStyles[areaKey] ?? performanceAreaStyles.physical;
+                        return (
+                          <button
+                            key={area}
+                            onClick={() => {
+                              const testsInArea = performanceTestsByArea[area] || [];
+                              if (performanceTestAreas.includes(area)) {
+                                setPerformanceTestAreas(performanceTestAreas.filter((a) => a !== area));
+                                setPerformanceSelectedTests(performanceSelectedTests.filter((t) => !testsInArea.includes(t)));
+                              } else {
+                                setPerformanceTestAreas([...performanceTestAreas, area]);
+                                setPerformanceSelectedTests([...performanceSelectedTests, ...testsInArea.filter((t) => !performanceSelectedTests.includes(t))]);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${selected ? style.chipActive : style.chipIdle}`}
+                          >
+                            {getAreaLabel(area)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {performanceTestAreas.length > 0 && (
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">{locale === 'es' ? 'Tests específicos' : 'Specific tests'}</label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {performanceTestAreas.flatMap((area) => performanceTestsByArea[area] || []).map((testName) => {
+                          const definition = state.performanceDefinitions.find((test) => test.name === testName);
+                          const areaKey = definition?.area ?? "physical";
+                          const selected = performanceSelectedTests.includes(testName);
+                          const style = performanceAreaStyles[areaKey] ?? performanceAreaStyles.physical;
+                          return (
+                            <button
+                              key={testName}
+                              onClick={() => {
+                                if (performanceSelectedTests.includes(testName)) {
+                                  setPerformanceSelectedTests(performanceSelectedTests.filter((t) => t !== testName));
+                                } else {
+                                  setPerformanceSelectedTests([...performanceSelectedTests, testName]);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${selected ? style.chipActive : style.chipIdle}`}
+                            >
+                              {testName}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Performance Evolution */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-6">
                   <Trophy className="h-5 w-5 text-teal-600" />
-                  <h3 className="font-bold text-slate-900">{t("analysis.individual.performanceTitle")}</h3>
+                  <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Evolucion de Rendimiento' : 'Performance Evolution'}</h3>
                 </div>
-                {athletePerformance.length > 0 ? (
+                {filteredAthletePerformance.length > 0 ? (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {athletePerformance.map(({ testName, latest, history, area }) => (
-                      <div key={testName} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-white shadow-sm flex items-center justify-center">
-                              <Target className="h-4 w-4 text-teal-600" />
+                    {filteredAthletePerformance.map(({ testName, latest, history, area }) => {
+                      const style = performanceAreaStyles[area] ?? performanceAreaStyles.physical;
+                      const color = performanceAreaChartColors[area] ?? performanceAreaChartColors.physical;
+                      return (
+                        <button
+                          key={testName}
+                          type="button"
+                          title={locale === 'es' ? 'Ampliar grafico' : 'Expand chart'}
+                          onClick={() => {
+                            setExpandedPerformanceTestName(testName);
+                            setExpandedPerformanceComparisonIds(
+                              comparisonIds.filter((id) =>
+                                state.performanceEntries.some((entry) => entry.athleteId === id && entry.testName === testName),
+                              ),
+                            );
+                          }}
+                          className={`group p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 focus:outline-none focus:ring-2 transition-colors text-left ${style.ring}`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="h-8 w-8 rounded-lg bg-white shadow-sm flex items-center justify-center">
+                                <Target className={`h-4 w-4 ${style.icon}`} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-sm truncate max-w-[140px]">{testName}</div>
+                                <div className={`text-[10px] font-semibold uppercase tracking-wider ${style.softText}`}>{getAreaLabel(area)}</div>
+                              </div>
                             </div>
-                            <div className="font-semibold text-sm truncate max-w-[120px]">{testName}</div>
+                            <div className="text-right shrink-0">
+                              <div className={`font-bold ${style.softText}`}>{formatNumber(latest.value, 2)} {latest.unit}</div>
+                              <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400">
+                                {formatDate(latest.measurementDate)}
+                                <Maximize2 className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-bold text-teal-600">{formatNumber(latest.value, 2)} {latest.unit}</div>
-                            <div className="text-[10px] text-slate-400">{formatDate(latest.measurementDate)}</div>
+                          <div className="h-12 w-full mt-2 relative">
+                            <ResponsiveContainer width="99.9%" height={48} minWidth={0} debounce={100}>
+                              <LineChart data={history.map(h => ({ val: h.value }))}>
+                                <Line type="monotone" dataKey="val" stroke={color} strokeWidth={2} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
                           </div>
-                        </div>
-                        {/* Sparkline */}
-                        <div className="h-12 w-full mt-2 relative">
-                          <ResponsiveContainer width="99.9%" height={48} minWidth={0} debounce={100}>
-                            <LineChart data={history.map(h => ({ val: h.value }))}>
-                              <Line type="monotone" dataKey="val" stroke="#0d9488" strokeWidth={2} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400">
@@ -973,9 +1525,49 @@ function IndividualView({
                   </div>
                 )}
               </div>
-              
-              {/* Performance Metrics Evolution */}
-              {athletePerformance.length > 0 && (
+
+              {performancePercentileStrips.length > 0 && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex items-center gap-2 mb-6">
+                    <Shield className="h-5 w-5 text-slate-700" />
+                    <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Rendimiento normalizado' : 'Performance percentiles'}</h3>
+                  </div>
+                  <div className="max-h-[360px] space-y-4 overflow-y-auto pr-2">
+                    {performancePercentileStrips.map((strip, index) => {
+                      const style = performanceAreaStyles[strip.area] ?? performanceAreaStyles.physical;
+                      const showAreaHeader = index === 0 || performancePercentileStrips[index - 1].area !== strip.area;
+                      return (
+                      <div key={strip.testName} className={showAreaHeader ? "pt-1" : ""}>
+                        {showAreaHeader && (
+                          <div className={`mb-3 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${style.chipIdle}`}>
+                            {getAreaLabel(strip.area)}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-3 text-sm font-semibold">
+                          <span className="min-w-0 truncate">{strip.testName}</span>
+                          <span className={`shrink-0 ${style.softText}`}>{strip.percentile}º percentile</span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.max(4, strip.percentile)}%`,
+                              backgroundColor: performanceAreaChartColors[strip.area],
+                            }}
+                          />
+                        </div>
+                        <div className="mt-2 flex justify-between text-xs text-slate-500">
+                          <span>{getAreaLabel(strip.area)}</span>
+                          <span>{formatNumber(strip.min, 2)}-{formatNumber(strip.max, 2)} {strip.unit}</span>
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {false && filteredAthletePerformance.length > 0 && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-6">
                     <TrendingUp className="h-5 w-5 text-teal-600" />
@@ -986,12 +1578,12 @@ function IndividualView({
                       <LineChart
                         data={(() => {
                           const allDates = Array.from(new Set(
-                            athletePerformance.flatMap(p => p.history.map(h => h.measurementDate))
+                            filteredAthletePerformance.flatMap(p => p.history.map(h => h.measurementDate))
                           )).sort();
                           
                           return allDates.map(date => {
                             const entry: any = { date: formatDate(date) };
-                            athletePerformance.forEach(p => {
+                            filteredAthletePerformance.forEach(p => {
                               const match = p.history.find(h => h.measurementDate === date);
                               if (match) entry[p.testName] = Number(match.value.toFixed(2));
                             });
@@ -1007,7 +1599,7 @@ function IndividualView({
                           formatter={(val: any) => [formatNumber(Number(val), 2), ""]}
                         />
                         <Legend verticalAlign="top" align="right" />
-                        {athletePerformance.slice(0, 5).map((p, i) => (
+                        {filteredAthletePerformance.slice(0, 5).map((p, i) => (
                           <Line 
                             key={p.testName}
                             type="monotone" 
@@ -1024,47 +1616,244 @@ function IndividualView({
               )}
 
               {/* Performance Comparison Chart (Multiple athletes) */}
-              {comparisonIds.length > 0 && athletePerformance.length > 0 && (
+              {performanceComparisonDotPlots.length > 0 && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-6">
-                    <Activity className="h-5 w-5 text-amber-600" />
+                    <Activity className="h-5 w-5 text-slate-700" />
                     <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Comparativa de Rendimiento' : 'Performance Comparison'}</h3>
                   </div>
                   <div className="space-y-8">
-                    {athletePerformance.slice(0, 3).map(test => (
+                    {performanceComparisonDotPlots.map((test) => {
+                      const style = performanceAreaStyles[test.area] ?? performanceAreaStyles.physical;
+                      const color = performanceAreaChartColors[test.area] ?? performanceAreaChartColors.physical;
+                      return (
                       <div key={test.testName} className="space-y-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-500 uppercase">
-                          <span>{test.testName} ({test.latest.unit})</span>
+                        <div className="flex items-center justify-between gap-3 text-xs font-bold uppercase">
+                          <span className="text-slate-500">{test.testName} ({test.unit})</span>
+                          <span className={`rounded-full border px-2 py-0.5 normal-case ${style.chipIdle}`}>{getAreaLabel(test.area)}</span>
                         </div>
                         <div className="h-32 w-full relative">
                           <ResponsiveContainer width="99.9%" height={128} minWidth={0} debounce={100}>
-                            <BarChart 
-                              layout="vertical" 
-                              data={[
-                                { name: selectedLatest?.inputs.athleteName, val: test.latest.value, fill: '#0d9488' },
-                                ...comparisonIds.map((id, i) => {
-                                  const cLatest = latestByAthlete.find(la => la.inputs.athleteId === id);
-                                  const cPerf = state.performanceEntries
-                                    .filter(e => e.athleteId === id && e.testName === test.testName)
-                                    .sort((a, b) => b.measurementDate.localeCompare(a.measurementDate))[0];
-                                  return { 
-                                    name: cLatest?.inputs.athleteName, 
-                                    val: cPerf?.value || 0,
-                                    fill: ['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]
-                                  };
-                                })
-                              ]}
-                              margin={{ left: 80 }}
+                            <ScatterChart margin={{ left: 20, right: 20, top: 10, bottom: 10 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis
+                                type="number"
+                                dataKey="value"
+                                domain={[(dataMin: number) => dataMin * 0.95, (dataMax: number) => dataMax * 1.05]}
+                                tick={{ fontSize: 10 }}
+                              />
+                              <YAxis type="number" dataKey="y" hide />
+                              <Tooltip
+                                formatter={(value: any) => [formatNumber(Number(value), 2), test.testName]}
+                                cursor={{ strokeDasharray: '3 3' }}
+                              />
+                              <Scatter data={test.points} fill={color}>
+                                {test.points.map((point) => (
+                                  <Cell
+                                    key={point.athleteId}
+                                    fill={point.isPrimary ? color : '#94a3b8'}
+                                  />
+                                ))}
+                              </Scatter>
+                            </ScatterChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+                          {test.points.map((point) => (
+                            <span
+                              key={point.athleteId}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-1 ${point.isPrimary ? style.chipIdle : 'bg-slate-100 text-slate-500'}`}
                             >
-                              <XAxis type="number" hide />
-                              <YAxis type="category" dataKey="name" fontSize={10} width={80} />
-                              <Tooltip formatter={(v) => formatNumber(Number(v), 2)} />
-                              <Bar dataKey="val" radius={[0, 4, 4, 0]} />
-                            </BarChart>
+                              {point.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {expandedPerformanceTest && selectedLatest && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print" role="dialog" aria-modal="true">
+                  <button
+                    type="button"
+                    aria-label={locale === 'es' ? 'Cerrar grafico ampliado' : 'Close expanded chart'}
+                    className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+                    onClick={() => {
+                      setExpandedPerformanceTestName(null);
+                      setExpandedPerformanceComparisonIds([]);
+                    }}
+                  />
+                  <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+                    <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${performanceAreaStyles[expandedPerformanceTest.area].softText}`}>
+                          <TrendingUp className="h-4 w-4" />
+                          {locale === 'es' ? 'Evolucion de Rendimiento' : 'Performance Evolution'}
+                        </div>
+                        <h3 className="mt-1 truncate text-2xl font-bold text-slate-900">{expandedPerformanceTest.testName}</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {selectedLatest.inputs.athleteName} - {getAreaLabel(expandedPerformanceTest.area)} - {expandedPerformanceTest.latest.unit}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={locale === 'es' ? 'Cerrar' : 'Close'}
+                        onClick={() => {
+                          setExpandedPerformanceTestName(null);
+                          setExpandedPerformanceComparisonIds([]);
+                        }}
+                        className="self-end rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 sm:self-start"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto lg:grid-cols-[1fr_320px]">
+                      <div className="min-h-[420px] p-5">
+                        <div className="h-[420px] w-full">
+                          <ResponsiveContainer width="99.9%" height={420} minWidth={0} debounce={100}>
+                            <LineChart data={expandedPerformanceChartData} margin={{ top: 18, right: 28, left: 4, bottom: 8 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={11} axisLine={false} tickLine={false} />
+                              <YAxis fontSize={11} axisLine={false} tickLine={false} />
+                              <Tooltip
+                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                formatter={(value) => [formatNumber(Number(value ?? 0), 2), expandedPerformanceTest.latest.unit]}
+                              />
+                              <Legend verticalAlign="top" align="right" iconType="circle" />
+                              <Line
+                                type="monotone"
+                                dataKey="primary"
+                                name={selectedLatest.inputs.athleteName}
+                                stroke={performanceAreaChartColors[expandedPerformanceTest.area]}
+                                strokeWidth={4}
+                                dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                                activeDot={{ r: 7, strokeWidth: 0 }}
+                              />
+                              {expandedPerformanceComparisons.map((comparison, index) => (
+                                <Line
+                                  key={comparison.id}
+                                  type="monotone"
+                                  dataKey={comparison.id}
+                                  name={comparison.name}
+                                  stroke={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6', '#64748b'][index % 5]}
+                                  strokeWidth={2}
+                                  strokeDasharray="5 5"
+                                  dot={{ r: 3 }}
+                                />
+                              ))}
+                            </LineChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
-                    ))}
+
+                      <aside className="border-t border-slate-100 bg-slate-50/70 p-5 lg:border-l lg:border-t-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <h4 className="text-sm font-bold text-slate-900">{locale === 'es' ? 'Comparaciones' : 'Comparisons'}</h4>
+                          {expandedPerformanceComparisonIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedPerformanceComparisonIds([])}
+                              className="text-xs font-bold text-teal-700 hover:text-teal-900"
+                            >
+                              {locale === 'es' ? 'Limpiar' : 'Clear'}
+                            </button>
+                          )}
+                        </div>
+                        {expandedPerformanceComparisonCandidates.length > 0 && (
+                          <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+                            <select
+                              value={expandedPerformanceTeamFilter}
+                              onChange={(event) => setExpandedPerformanceTeamFilter(event.target.value)}
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/10"
+                            >
+                              <option value="">{locale === 'es' ? 'Todos los equipos' : 'All teams'}</option>
+                              {expandedPerformanceTeamOptions.map((team) => (
+                                <option key={team} value={team}>{team}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={expandedPerformancePositionFilter}
+                              onChange={(event) => setExpandedPerformancePositionFilter(event.target.value)}
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/10"
+                            >
+                              <option value="">{locale === 'es' ? 'Todas las posiciones' : 'All positions'}</option>
+                              {expandedPerformancePositionOptions.map((position) => (
+                                <option key={position} value={position}>{position}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={expandedPerformanceBandFilter}
+                              onChange={(event) => setExpandedPerformanceBandFilter(event.target.value as MaturityBand | "")}
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/10"
+                            >
+                              <option value="">{locale === 'es' ? 'Todos los grupos madurativos' : 'All maturity groups'}</option>
+                              {expandedPerformanceBandOptions.map((band) => (
+                                <option key={band} value={band}>{band}</option>
+                              ))}
+                            </select>
+                            {(expandedPerformanceTeamFilter || expandedPerformancePositionFilter || expandedPerformanceBandFilter) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedPerformanceTeamFilter("");
+                                  setExpandedPerformancePositionFilter("");
+                                  setExpandedPerformanceBandFilter("");
+                                }}
+                                className="w-full rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-200"
+                              >
+                                {locale === 'es' ? 'Reiniciar filtros' : 'Reset filters'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                          {filteredExpandedPerformanceComparisonCandidates.length > 0 ? (
+                            filteredExpandedPerformanceComparisonCandidates.map((candidate) => {
+                              const selected = expandedPerformanceComparisonIds.includes(candidate.athleteId);
+                              return (
+                                <button
+                                  key={candidate.athleteId}
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedPerformanceComparisonIds((current) =>
+                                      current.includes(candidate.athleteId)
+                                        ? current.filter((id) => id !== candidate.athleteId)
+                                        : [...current, candidate.athleteId],
+                                    );
+                                  }}
+                                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                                    selected
+                                      ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                      : 'border-slate-200 bg-white text-slate-700 hover:border-teal-200'
+                                  }`}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-sm font-bold">{candidate.name}</span>
+                                    <span className="block truncate text-xs text-slate-500">
+                                      {[candidate.teamName, candidate.position, candidate.maturityBand].filter(Boolean).join(" · ")}
+                                    </span>
+                                  </span>
+                                  <span className="flex shrink-0 items-center gap-2 text-xs font-bold">
+                                    {formatNumber(candidate.value, 2)} {candidate.unit}
+                                    {selected && <CheckCircle2 className="h-4 w-4" />}
+                                  </span>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-white p-4 text-sm text-slate-500">
+                              {expandedPerformanceComparisonCandidates.length > 0
+                                ? (locale === 'es' ? 'No hay jugadores con esos filtros.' : 'No athletes match those filters.')
+                                : (locale === 'es' ? 'No hay otros jugadores con este test.' : 'No other athletes have this test.')}
+                            </div>
+                          )}
+                        </div>
+                      </aside>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1084,20 +1873,15 @@ function IndividualView({
                   <div className="space-y-6">
                     <div className="h-80 w-full relative">
                       <ResponsiveContainer width="99.9%" height={320} minWidth={0} debounce={100}>
-                        <BarChart data={combinedLoadHistory}>
+                        <AreaChart data={athleteLoadTrend} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                           <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
                           <YAxis fontSize={10} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value: any, name: any) => [formatNumber(Number(value), 1), name]} />
                           <Legend verticalAlign="top" align="right" />
-                          <Bar dataKey={selectedLatest?.inputs.athleteName} name={selectedLatest?.inputs.athleteName} fill="#0d9488" radius={[4, 4, 0, 0]} />
-                          {comparisonIds.map((id, i) => {
-                            const name = latestByAthlete.find(a => a.inputs.athleteId === id)?.inputs.athleteName || id;
-                            return (
-                              <Bar key={id} dataKey={name} name={name} fill={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]} radius={[4, 4, 0, 0]} />
-                            );
-                          })}
-                        </BarChart>
+                          <Area type="monotone" dataKey="chronic" name={locale === 'es' ? 'Carga Crónica' : 'Chronic Load'} stroke="#3b82f6" fill="#bfdbfe" fillOpacity={0.6} />
+                          <Area type="monotone" dataKey="acute" name={locale === 'es' ? 'Carga Aguda' : 'Acute Load'} stroke="#f59e0b" fill="#fde68a" fillOpacity={0.7} />
+                        </AreaChart>
                       </ResponsiveContainer>
                     </div>
 
@@ -1267,11 +2051,12 @@ function CollectiveView({
   }, [selectedTeam]);
 
   const distributionData = teamStats
-    ? (["Pre-PHV", "Mid-PHV", "Post-PHV"] as MaturityBand[]).map((band) => ({
-        name: band,
-        value: teamStats.bandCounts[band],
-        fill: bandColors[band],
-      }))
+    ? [{
+        name: selectedTeam,
+        "Pre-PHV": teamStats.bandCounts["Pre-PHV"],
+        "Mid-PHV": teamStats.bandCounts["Mid-PHV"],
+        "Post-PHV": teamStats.bandCounts["Post-PHV"],
+      }]
     : [];
 
   const offsetData = teamStats
@@ -1283,6 +2068,15 @@ function CollectiveView({
           band: a.classification.maturityBand,
         }))
         .sort((a, b) => a.offset - b.offset)
+    : [];
+
+  const maturityScatterData = teamStats
+    ? teamStats.athletes.map((a) => ({
+        age: Number(a.derivedMetrics.chronologicalAge.toFixed(2)),
+        offset: Number(a.classification.primaryOffset.toFixed(2)),
+        name: a.inputs.athleteName,
+        band: a.classification.maturityBand,
+      }))
     : [];
 
   const handleExportPDF = () => {
@@ -1391,15 +2185,15 @@ function CollectiveView({
               <h2 className="mb-4 text-lg font-semibold">{t("analysis.collective.distributionTitle")}</h2>
               <div className="h-56 w-full relative">
                 <ResponsiveContainer width="99.9%" height={224} minWidth={0} debounce={100}>
-                  <PieChart>
-                    <Pie data={distributionData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>
-                      {distributionData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.fill} />
-                      ))}
-                    </Pie>
+                  <BarChart layout="vertical" data={distributionData} margin={{ left: 24, right: 24 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" hide />
                     <Tooltip formatter={(val: any) => [formatNumber(Number(val), 0), t("analysisExtra.count")]} />
                     <Legend />
-                  </PieChart>
+                    <Bar dataKey="Pre-PHV" stackId="a" fill={bandColors["Pre-PHV"]} />
+                    <Bar dataKey="Mid-PHV" stackId="a" fill={bandColors["Mid-PHV"]} />
+                    <Bar dataKey="Post-PHV" stackId="a" fill={bandColors["Post-PHV"]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -1499,19 +2293,39 @@ function CollectiveView({
                 </ResponsiveContainer>
               </div>
             </div>
+          </div>
 
-            <div className="panel rounded-[1.75rem] p-6">
+          <div className="panel rounded-[1.75rem] p-6">
+            <h2 className="mb-4 text-lg font-semibold">{locale === 'es' ? 'Edad cronológica vs Offset PHV' : 'Chronological age vs PHV offset'}</h2>
+            <div className="h-72 w-full relative">
+              <ResponsiveContainer width="99.9%" height={288} minWidth={0} debounce={100}>
+                <ScatterChart margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="age" type="number" tick={{ fontSize: 10 }} unit={locale === 'es' ? 'años' : 'yrs'} name={locale === 'es' ? 'Edad' : 'Age'} />
+                  <YAxis dataKey="offset" type="number" tick={{ fontSize: 10 }} name={t("datahub.offset")} />
+                  <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(value: any) => [formatNumber(Number(value), 2), '']} />
+                  <Scatter data={maturityScatterData}>
+                    {maturityScatterData.map((entry, idx) => (
+                      <Cell key={`scatter-${idx}`} fill={bandColors[entry.band as keyof typeof bandColors]} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="panel rounded-[1.75rem] p-6">
               <h2 className="mb-4 text-lg font-semibold">{t("analysis.collective.psychologicalProfile")}</h2>
               <div className="h-64 w-full relative">
                 {teamStats.psychScores.length > 0 ? (
                   <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
-                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={teamStats.psychScores}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
-                      <PolarRadiusAxis angle={30} domain={[0, 10]} />
-                      <Radar name={t("analysis.collective.teamMean")} dataKey="value" stroke="#0f766e" fill="#0f766e" fillOpacity={0.5} />
+                    <BarChart layout="vertical" data={teamStats.psychScores} margin={{ left: 120, right: 16 }}>
+                      <XAxis type="number" domain={[0, 10]} hide />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={120} />
+                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(15, 23, 42, 0.08)" />
                       <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("analysis.collective.teamMean")]} />
-                    </RadarChart>
+                      <Bar dataKey="value" fill="#0f766e" radius={[0, 4, 4, 0]} barSize={16} />
+                    </BarChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
@@ -1520,7 +2334,6 @@ function CollectiveView({
                 )}
               </div>
             </div>
-          </div>
 
           {/* Full athlete table */}
           <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
