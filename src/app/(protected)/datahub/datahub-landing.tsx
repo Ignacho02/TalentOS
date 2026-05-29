@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Building2, Brain, Dumbbell } from "lucide-react";
+import { ArrowRight, Building2, Dumbbell } from "lucide-react";
 import { useLocale } from "@/lib/i18n/locale-context";
 
 const sections = [
@@ -16,21 +16,11 @@ const sections = [
     textColor: "text-blue-600",
   },
   {
-    id: "maturation",
+    id: "sports",
     href: "/datahub?tab=maturation",
-    icon: Brain,
-    titleKey: "datahubNav.maturation",
-    descriptionKey: "datahub.sectionBodyMaturation",
-    color: "bg-emerald-500",
-    softColor: "bg-emerald-100",
-    textColor: "text-emerald-600",
-  },
-  {
-    id: "performance",
-    href: "/datahub?tab=performance",
     icon: Dumbbell,
-    titleKey: "datahubNav.performance",
-    descriptionKey: "datahub.sectionBodyPerformance",
+    titleKey: "datahubNav.sports",
+    descriptionKey: "datahub.sectionBodySports",
     color: "bg-purple-500",
     softColor: "bg-purple-100",
     textColor: "text-purple-600",

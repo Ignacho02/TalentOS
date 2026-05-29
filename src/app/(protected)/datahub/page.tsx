@@ -3,6 +3,7 @@
 import { useDeferredValue, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
+import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput, PerformanceArea } from "@/lib/types";
@@ -18,7 +19,7 @@ import {
   downloadSheet,
   parseMeasurementImportWithStats,
 } from "@/lib/datahub/excel";
-import { resolveDataHubRouteState } from "@/lib/datahub/navigation";
+import { resolveDataHubRouteState, type DataHubSportsSubSection } from "@/lib/datahub/navigation";
 import {
   filterAssessmentsForDataHub,
   getLatestAssessmentsByAthlete,
@@ -46,6 +47,7 @@ export default function DataHubPage() {
   );
 
   const [section, setSection] = useState(initialRouteState.section);
+  const [sportsSubSection, setSportsSubSection] = useState<DataHubSportsSubSection>(initialRouteState.sportsSubSection);
   const [performanceArea, setPerformanceArea] = useState(initialRouteState.performanceArea);
   const [expandedAthleteId, setExpandedAthleteId] = useState<string | null>(initialRouteState.expandedAthleteId);
   const [initialPanel] = useState(initialRouteState.selectedPanel);
@@ -117,9 +119,10 @@ export default function DataHubPage() {
       searchParams.get("playerArea"),
     );
     setSection(routeState.section);
+    setSportsSubSection(routeState.sportsSubSection);
     setPerformanceArea(routeState.performanceArea);
-    // Only restore expandedAthleteId from URL when in maturation section
-    if (routeState.section === "maturation") {
+    // Only restore expandedAthleteId from URL when in maturation sub-section
+    if (routeState.section === "sports" && routeState.sportsSubSection === "maturation") {
       setExpandedAthleteId(routeState.expandedAthleteId);
     }
   }, [searchParams]);
@@ -135,6 +138,7 @@ export default function DataHubPage() {
         sessionStorage.removeItem("datahub_club_selected_athlete_id");
         sessionStorage.removeItem("datahub_club_selected_def");
         sessionStorage.removeItem("datahub_perf_tab");
+        sessionStorage.removeItem("datahub_training_load_sub_tab");
       }
     };
   }, []);
@@ -155,6 +159,7 @@ export default function DataHubPage() {
         sessionStorage.removeItem("datahub_club_selected_athlete_id");
         sessionStorage.removeItem("datahub_club_selected_def");
         sessionStorage.removeItem("datahub_perf_tab");
+        sessionStorage.removeItem("datahub_training_load_sub_tab");
       }
     }
     prevSectionRef.current = currentSection;
@@ -177,6 +182,24 @@ export default function DataHubPage() {
     } else {
       updateUrl({ player: null, playerArea: null });
     }
+  }
+
+  function handleSetSection(section: "club" | "sports" | "landing") {
+    setSection(section);
+    if (section === "club") {
+      router.push("/datahub?tab=club");
+    } else if (section === "sports") {
+      const targetTab = sportsSubSection === "performance" ? "performance" : "maturation";
+      router.push(`/datahub?tab=${targetTab}`);
+    } else {
+      router.push("/datahub");
+    }
+  }
+
+  function handleSetSportsSubSection(subSection: DataHubSportsSubSection) {
+    setSportsSubSection(subSection);
+    const tab = subSection === "performance" ? "performance" : "maturation";
+    router.push(`/datahub?tab=${tab}`);
   }
 
   function setMaturationValue<K extends keyof AnthropometricRecordInput>(
@@ -332,46 +355,72 @@ export default function DataHubPage() {
             canEditAthletes={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAthletes}
           />
         )}
-        {section === "maturation" && (
-          <MaturationSection
-            state={state}
-            filteredRows={filteredRows}
-            assessments={assessments}
-            expandedAthleteId={expandedAthleteId}
-            setExpandedAthleteId={handleSetExpandedAthleteId}
-            teams={teams}
-            positions={positions}
-            maturationForm={maturationForm}
-            setMaturationForm={setMaturationForm}
-            setMaturationValue={setMaturationValue}
-            saveMaturation={saveMaturation}
-            saveEditPlayer={saveEditPlayer}
-            downloadMeasurementsTemplate={downloadMeasurementsTemplate}
-            importMeasurementsFile={importMeasurementsFile}
-            updateRecord={updateRecord}
-            feedback={feedback}
-            fieldErrors={fieldErrors}
-            formSummary={formSummary}
-            showAddMeasurementModal={showAddMeasurementModal}
-            setShowAddMeasurementModal={setShowAddMeasurementModal}
-            showEditPlayerModal={showEditPlayerModal}
-            setShowEditPlayerModal={setShowEditPlayerModal}
-            editingAthleteId={editingAthleteId}
-            setEditingAthleteId={setEditingAthleteId}
-            openEditForAthlete={openEditForAthlete}
-            emptyForm={emptyMaturationForm}
-            canEditAnthropometry={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAnthropometry}
-          />
-        )}
-        {section === "performance" && (
-          <PerformanceSection
-            area={performanceArea}
-            setArea={handleSetPerformanceArea}
-            performanceEntries={state.performanceEntries}
-            initialPanel={initialPanel}
-            onPanelChange={handlePanelChange}
-            canEditPerformance={state.currentUserRole === "admin" || state.currentUserPermissions.canEditPerformance}
-          />
+        {section === "sports" && (
+          <div className="space-y-6">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { id: "maturation" as const, label: t("datahubNav.maturation") },
+                { id: "performance" as const, label: t("datahubNav.performance") },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSetSportsSubSection(item.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
+                    sportsSubSection === item.id
+                      ? "bg-accent text-white"
+                      : "bg-white border border-line text-zinc-600 hover:bg-zinc-50",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {sportsSubSection === "maturation" && (
+              <MaturationSection
+                state={state}
+                filteredRows={filteredRows}
+                assessments={assessments}
+                expandedAthleteId={expandedAthleteId}
+                setExpandedAthleteId={handleSetExpandedAthleteId}
+                teams={teams}
+                positions={positions}
+                maturationForm={maturationForm}
+                setMaturationForm={setMaturationForm}
+                setMaturationValue={setMaturationValue}
+                saveMaturation={saveMaturation}
+                saveEditPlayer={saveEditPlayer}
+                downloadMeasurementsTemplate={downloadMeasurementsTemplate}
+                importMeasurementsFile={importMeasurementsFile}
+                updateRecord={updateRecord}
+                feedback={feedback}
+                fieldErrors={fieldErrors}
+                formSummary={formSummary}
+                showAddMeasurementModal={showAddMeasurementModal}
+                setShowAddMeasurementModal={setShowAddMeasurementModal}
+                showEditPlayerModal={showEditPlayerModal}
+                setShowEditPlayerModal={setShowEditPlayerModal}
+                editingAthleteId={editingAthleteId}
+                setEditingAthleteId={setEditingAthleteId}
+                openEditForAthlete={openEditForAthlete}
+                emptyForm={emptyMaturationForm}
+                canEditAnthropometry={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAnthropometry}
+              />
+            )}
+
+            {sportsSubSection === "performance" && (
+              <PerformanceSection
+                area={performanceArea}
+                setArea={handleSetPerformanceArea}
+                performanceEntries={state.performanceEntries}
+                initialPanel={initialPanel}
+                onPanelChange={handlePanelChange}
+                canEditPerformance={state.currentUserRole === "admin" || state.currentUserPermissions.canEditPerformance}
+              />
+            )}
+          </div>
         )}
       </main>
     </div>

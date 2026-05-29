@@ -1,7 +1,8 @@
 import type { PerformanceArea } from "@/lib/types";
 import { getDataHubPerformanceArea } from "@/lib/maturation/selectors";
 
-export type DataHubSection = "landing" | "club" | "maturation" | "performance";
+export type DataHubSection = "landing" | "club" | "sports";
+export type DataHubSportsSubSection = "maturation" | "performance";
 
 export function resolveDataHubRouteState(
   tab: string | null,
@@ -10,6 +11,7 @@ export function resolveDataHubRouteState(
   playerArea?: string | null,
 ): {
   section: DataHubSection;
+  sportsSubSection: DataHubSportsSubSection;
   performanceArea: PerformanceArea;
   expandedAthleteId: string | null;
   selectedPanel: { areaKey: PerformanceArea; athleteId: string } | null;
@@ -18,7 +20,8 @@ export function resolveDataHubRouteState(
 
   if (tab === "anthropometric" || tab === "maturation") {
     return {
-      section: "maturation",
+      section: "sports",
+      sportsSubSection: "maturation",
       performanceArea: "physical",
       expandedAthleteId: player ?? null,
       selectedPanel: null,
@@ -38,7 +41,8 @@ export function resolveDataHubRouteState(
         : perfArea;
 
     return {
-      section: "performance",
+      section: "sports",
+      sportsSubSection: "performance",
       performanceArea: perfArea,
       expandedAthleteId: null,
       selectedPanel:
@@ -49,8 +53,20 @@ export function resolveDataHubRouteState(
   }
 
   if (tab === "club") {
-    return { section: "club", performanceArea: "physical", expandedAthleteId: null, selectedPanel: null };
+    return {
+      section: "club",
+      sportsSubSection: "maturation",
+      performanceArea: "physical",
+      expandedAthleteId: null,
+      selectedPanel: null,
+    };
   }
 
-  return { section: "landing", performanceArea: "physical", expandedAthleteId: null, selectedPanel: null };
+  return {
+    section: "landing",
+    sportsSubSection: "maturation",
+    performanceArea: "physical",
+    expandedAthleteId: null,
+    selectedPanel: null,
+  };
 }
