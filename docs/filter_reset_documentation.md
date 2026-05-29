@@ -1,76 +1,145 @@
 # 📖 Documentación de Arquitectura de Navegación Híbrida y Políticas de Reinicio de Filtros
 
-Este documento proporciona una guía de referencia técnica exhaustiva acerca de cómo se gestiona la persistencia de navegación, los paneles del espacio de trabajo y las políticas de restablecimiento de filtros en la aplicación.
+Este documento es la referencia técnica canónica sobre cómo se gestiona la persistencia de navegación, los paneles del espacio de trabajo y las políticas de restablecimiento de filtros en la aplicación.
+
+**Última actualización:** 2026-05-29
 
 ---
 
 ## 🧭 1. El Concepto Clave: "Espacio de Trabajo Persistente, No Consultas Efímeras"
 
 La aplicación utiliza un **modelo híbrido** para gestionar el estado de la UI:
-1. **URL State (Deep Linking):** Guarda variables estructurales de primer nivel como la pestaña activa global (`tab`), el ID del atleta abierto en maturation (`player`) o el área de rendimiento (`area`). Permite compartir enlaces directos.
-2. **Session Storage UI State (`usePersistentState`):** Guarda configuraciones del espacio de trabajo y sub-pestañas activas. Evita la sobrecarga de la URL y elimina retardos en los clics.
+
+1. **URL State (Deep Linking):** Guarda variables estructurales de primer nivel como la pestaña activa global (`tab`), el ID del atleta abierto en maturation (`player`) o el área de rendimiento (`area`). Permite compartir enlaces directos y sobrevive a un F5.
+2. **Session Storage UI State (`usePersistentState`):** Guarda configuraciones del espacio de trabajo y sub-pestañas activas. Evita la sobrecarga de la URL y elimina retardos en los clics. Sobrevive a F5 pero se limpia al salir del módulo o cambiar de pestaña principal.
 3. **Transient Local State (`useState`):** Guarda filtros volátiles, inputs textuales y ordenaciones que no deben perdurar en visitas posteriores.
 
 ---
 
-## 🔄 2. Tabla de Persistencia: ¿Cuándo se Restablece y Qué?
+## 🔄 2. Tabla de Persistencia
 
-La siguiente tabla resume con precisión matemática qué variables se mantienen intactas en un refresco (**F5**) y cuáles se limpian al cambiar de pantalla.
+La siguiente tabla resume qué variables se mantienen en un refresco (**F5**) y cuáles se limpian al cambiar de pantalla.
 
-| Área / Componente | Variable de Estado | Tipo de Almacenamiento | ¿Persiste al Recargar (F5)? | ¿Se Restablece al Cambiar de Módulo (SPA)? | ¿Se Restablece al Cambiar de Sub-área / Pestaña? |
-| :--- | :--- | :--- | :---: | :---: | :---: |
-| **Global DataHub** | `section` (Pestaña principal: Club, Maturation, Performance) | URL query param (`tab`) | **SÍ** | **SÍ** (Inicia en "club") | *No aplica* |
-| **Global DataHub** | `expandedAthleteId` | URL query param (`player`) | **SÍ** | **SÍ** | **SÍ** (Al cambiar de sub-área) |
-| **Club - Structure** | `activeTab` (Pestaña interna: structure, testBattery, settings) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Vuelve al default: "structure") |
-| **Club - Rosters** | `structureSubTab` (Visualización: players, teams) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Vuelve al default: "players") |
-| **Club - Rosters** | `selectedTeamId` (Equipo seleccionado en "teams") | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Se limpia a `null`) |
-| **Club - Rosters** | `selectedAthleteId` (Perfil de atleta abierto) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Se limpia a `null`) |
-| **Club - Tests** | `testBatteryArea` (Categoría de test: physical, etc.) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Vuelve al default: "physical") |
-| **Club - Tests** | `selectedDef` (Test concreto abierto en Test Battery) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Se limpia a `null`) |
-| **Performance** | `perfTab` (Sub-subárea: tests, trainingLoad, gps) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Vuelve al default: "tests") |
-| **Performance** | `selectedPanel` (Panel de detalles del jugador) | URL query params / State | **SÍ** | **SÍ** | **SÍ** (Se limpia a `null`) |
-| **Performance - Tests**| `playerSearch` (Búsqueda textual de jugadores) | Local state (`useState`) | **NO** | **NO** | **SÍ** (Se limpia a "") |
-| **Performance - Tests**| `filterTeams` (Filtros multiselect de equipos) | Local state (`useState`) | **NO** | **NO** | **SÍ** (Se limpia a `[]`) |
-| **Performance - Tests**| `filterPositions` (Filtros multiselect de posiciones) | Local state (`useState`) | **NO** | **NO** | **SÍ** (Se limpia a `[]`) |
-| **Performance - Tests**| `groupByTeam` / `groupByPos` (Agrupación activa) | Local state (`useState`) | **NO** | **NO** | **SÍ** (Se limpia a `false`) |
-| **Performance - Tests**| `sortBy` / `sortCol` (Criterio de ordenación activo) | Local state (`useState`) | **NO** | **NO** | **SÍ** (Se limpia a "name" / `null`) |
-| **Analysis** | `activeTab` (Sub-área: individual, collective, assistant) | URL query param (`tab`) | **SÍ** | **SÍ** (Inicia limpio) | *No aplica* |
-| **Analysis - Indiv** | `compare` / `compConfig` / `compPanel` (Comparativas abiertas) | `sessionStorage` | **SÍ** | **SÍ** | **SÍ** (Se limpian a sus valores por defecto) |
+| Área / Componente | Clave de sessionStorage | ¿Persiste al F5? | ¿Se limpia al salir del módulo? | ¿Se limpia al cambiar de sección/pestaña? |
+| :--- | :--- | :---: | :---: | :---: |
+| **DataHub** — sección activa | URL param `tab` | **SÍ** | **SÍ** | *No aplica* |
+| **DataHub** — atleta expandido | URL param `player` | **SÍ** | **SÍ** | **SÍ** |
+| **Club** — pestaña interna (plantilla/admin) | `datahub_club_active_tab_v2` | **SÍ** | **SÍ** | **SÍ** |
+| **Club** — sub-pestaña (players/teams) | `datahub_club_sub_tab` | **SÍ** | **SÍ** | **SÍ** |
+| **Club** — equipo seleccionado | `datahub_club_selected_team_id` | **SÍ** | **SÍ** | **SÍ** |
+| **Club** — atleta seleccionado | `datahub_club_selected_athlete_id` | **SÍ** | **SÍ** | **SÍ** |
+| **Performance** — sub-pestaña (tests/trainingLoad/gps) | `datahub_perf_tab_v2` | **SÍ** | **SÍ** | **SÍ** |
+| **Performance** — sub-pestaña carga (training/gps) | `datahub_training_load_sub_tab` | **SÍ** | **SÍ** | **SÍ** |
+| **Performance** — área de test battery | `datahub_club_test_battery_area` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis** — pestaña activa | URL param `tab` | **SÍ** | **SÍ** | *No aplica* |
+| **Analysis Individual** — IDs de comparación | `analysis_indiv_compare` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Individual** — config de comparación | `analysis_indiv_comp_config` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Individual** — panel de comparación | `analysis_indiv_comp_panel` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Individual** — sub-pestaña activa | `analysis_indiv_subtab` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Individual** — áreas de performance | `analysis_indiv_perf_areas` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Individual** — tests seleccionados | `analysis_indiv_perf_tests` | **SÍ** | **SÍ** | **SÍ** |
+| **Analysis Colectivo** — equipo seleccionado | `analysis_collective_team` | **SÍ** | **SÍ** | **SÍ** |
+| **Performance** — filtros textuales/multiselect | `useState` local | **NO** | **NO** | **SÍ** |
 
 ---
 
-## 🛠️ 3. Mecanismos Técnicos de Prevención de Falsos Positivos
+## 🛠️ 3. Mecanismo de Limpieza: Doble Efecto con `prevRef`
 
-Para garantizar que Next.js renderice en el servidor con los valores por defecto (evitando el error de **Hydration Mismatch**) y restaure en el cliente los valores de `sessionStorage` sin interpretarlo erróneamente como un cambio de pestaña que deba limpiar el estado, hemos implementado el patrón **Delayed Mount Guard (`isMountedRef`)**:
+Cada módulo principal (DataHub, Analysis) implementa **dos efectos de limpieza** complementarios:
+
+### 3a. Cleanup al salir del módulo (unmount)
+Se ejecuta cuando el usuario navega a otra página completamente distinta. Limpia **todas** las claves de sessionStorage del módulo:
 
 ```typescript
-  // 1. Guardar una referencia mutable del estado de montaje
-  const isMountedRef = useRef(false);
-
-  // 2. Establecer la bandera en true tras un retardo seguro de 100ms
-  // Esto permite que todos los hooks usePersistentState terminen su inicialización asíncrona
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      isMountedRef.current = true;
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // 3. Condicionar las limpiezas de transición únicamente cuando isMountedRef es true
-  useEffect(() => {
-    const currentTab = activeTab;
-    const prevTab = prevActiveTabRef.current;
-    if (isMountedRef.current && prevTab !== null && prevTab !== currentTab) {
-      setSelectedAthleteId(null);
-      setSelectedTeamId(null);
-      setSelectedDef(null);
-      
-      // Restablecer sub-vistas predeterminadas
-      setStructureSubTab("players");
-      setTestBatteryArea("physical");
+useEffect(() => {
+  return () => {
+    // Solo se ejecuta al desmontar el componente (cambio de ruta a otro módulo)
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("datahub_club_active_tab_v2");
+      sessionStorage.removeItem("datahub_club_sub_tab");
+      // ... resto de claves del módulo
     }
-    prevActiveTabRef.current = currentTab;
-  }, [activeTab]);
+  };
+}, []);
 ```
 
-Este retardo de **100ms** asegura que, durante la fase inicial del cliente en la que se vuelcan los datos de `sessionStorage` hacia los estados locales de React, la bandera `isMountedRef` sea `false`, haciendo que los condicionales ignoren el cambio inicial y preservando el equipo y test activo en su totalidad al recargar con F5.
+### 3b. Cleanup al cambiar de sección dentro del módulo (top-level)
+
+Se ejecuta cuando `section` cambia (`club` ↔ `sports` ↔ `landing`). Limpia el estado de **ambas** áreas.
+
+### 3c. Cleanup al cambiar de sub-sección dentro de Sports
+
+Se ejecuta cuando `sportsSubSection` cambia (`maturation` ↔ `performance`). El guard `prevSportsSubSectionRef !== null` evita el falso positivo en F5. Limpia estado de performance y resetea `expandedAthleteId`:
+Se ejecuta cuando el usuario cambia de sección dentro del mismo módulo. El guard `prevRef !== null` es **crítico**: evita que un F5 (donde `prevRef` arranca en `null`) dispare una limpieza falsa.
+
+```typescript
+const prevSectionRef = useRef<string | null>(null);
+useEffect(() => {
+  const prevSection = prevSectionRef.current;
+  if (prevSection !== null && prevSection !== section) {
+    // Solo limpia cuando hay una transición real entre secciones
+    sessionStorage.removeItem("datahub_club_active_tab_v2");
+    // ...
+  }
+  prevSectionRef.current = section;
+}, [section]);
+```
+
+> **⚠️ Regla de mantenimiento:** Cada vez que se añada una nueva clave con `usePersistentState` en cualquier sub-componente de DataHub o Analysis, debe añadirse a **ambos** bloques de limpieza del `page.tsx` padre correspondiente.
+
+---
+
+## 🔑 4. Inventario Completo de Claves de sessionStorage
+
+### DataHub (`datahub/page.tsx` gestiona la limpieza)
+
+| Clave | Definida en | Valor por defecto |
+| :--- | :--- | :--- |
+| `datahub_club_active_tab_v2` | `club-section.tsx` | `"plantilla"` |
+| `datahub_club_sub_tab` | `club-section.tsx` | `"players"` |
+| `datahub_club_selected_team_id` | `club-section.tsx` | `null` |
+| `datahub_club_selected_athlete_id` | `club-section.tsx` | `null` |
+| `datahub_club_test_battery_area` | `performance-section.tsx` | `"physical"` |
+| `datahub_perf_tab_v2` | `performance-section.tsx` | `"tests"` |
+| `datahub_training_load_sub_tab` | `performance-section.tsx` | `"training"` |
+| `datahub_club_selected_def` | *(legacy, sin uso activo)* | `null` |
+
+> **Nota:** Las claves `datahub_club_active_tab` y `datahub_perf_tab` (sin `_v2`) son obsoletas. Fueron renombradas en refactorizaciones sucesivas. No deben usarse ni limpiarse por su nombre antiguo.
+
+### Analysis (`analysis/page.tsx` gestiona la limpieza)
+
+| Clave | Definida en | Valor por defecto |
+| :--- | :--- | :--- |
+| `analysis_indiv_compare` | `IndividualView` | `[]` |
+| `analysis_indiv_comp_config` | `IndividualView` | `{ mode: "solo", ... }` |
+| `analysis_indiv_comp_panel` | `IndividualView` | `false` |
+| `analysis_indiv_subtab` | `IndividualView` | `"maturation"` |
+| `analysis_indiv_perf_areas` | `IndividualView` | `[]` |
+| `analysis_indiv_perf_tests` | `IndividualView` | `[]` |
+| `analysis_collective_team` | `CollectiveView` | `""` (primer equipo) |
+
+---
+
+## 🔗 5. Estado en URL (Deep Linking)
+
+| Param | Módulo | Valores posibles |
+| :--- | :--- | :--- |
+| `tab` | DataHub | `club`, `maturation`, `performance` |
+| `area` | DataHub | área de performance activa |
+| `player` | DataHub | UUID del atleta expandido |
+| `playerArea` | DataHub | área del panel de jugador |
+| `tab` | Analysis | `individual`, `collective`, `assistant` |
+
+La función `resolveDataHubRouteState` en `src/lib/datahub/navigation.ts` es la fuente de verdad para interpretar estos parámetros.
+
+---
+
+## 📋 6. Checklist para añadir nueva navegación persistente
+
+Al añadir un nuevo `usePersistentState` en cualquier sub-componente:
+
+- [ ] Elegir una clave con el prefijo del módulo (`datahub_` o `analysis_`)
+- [ ] Añadir la clave al bloque de **unmount cleanup** en el `page.tsx` padre
+- [ ] Añadir la clave al bloque de **tab-switch cleanup** en el `page.tsx` padre
+- [ ] Actualizar la tabla de inventario de este documento
+- [ ] Si la clave reemplaza a otra existente, marcar la antigua como obsoleta aquí

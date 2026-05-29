@@ -206,6 +206,10 @@ export function PerformanceSection({
       setSelectedPanel(null);
       onPanelChange?.(null);
 
+      // Reset persistent sub-selections within each tab
+      setTestBatteryArea("physical");
+      setTrainingLoadSubTab("training");
+
       // Reset all local search, filters, groupings, and orderings of the Performance tab
       setPlayerSearch("");
       setFilterTeams([]);

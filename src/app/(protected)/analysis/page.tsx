@@ -2596,9 +2596,9 @@ function AnalysisSelection({
         <button
           key={opt.id}
           onClick={() => onSelect(opt.id)}
-          className="group flex flex-col items-start p-8 bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all text-left"
+          className="group flex flex-col items-start p-8 bg-white rounded-2xl border border-slate-200 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all text-left"
         >
-          <div className={`p-4 rounded-2xl mb-6 transition-transform group-hover:scale-110 ${opt.color}`}>
+          <div className={`p-4 rounded-2xl mb-6 transition-transform group-hover:scale-105 ${opt.color}`}>
             {opt.icon}
           </div>
           <h3 className="text-xl font-bold text-slate-900 mb-3">
@@ -2607,7 +2607,7 @@ function AnalysisSelection({
           <p className="text-slate-500 leading-relaxed">
             {opt.desc}
           </p>
-          <div className="mt-8 flex items-center gap-2 text-sm font-bold text-slate-900 group-hover:translate-x-2 transition-transform">
+          <div className="mt-8 flex items-center gap-2 text-sm font-bold text-slate-900 group-hover:translate-x-1 transition-transform">
             {t("common.open") || "Entrar"}
             <ArrowLeft className="h-4 w-4 rotate-180" />
           </div>
@@ -2795,6 +2795,8 @@ export default function AnalysisPage() {
         sessionStorage.removeItem("analysis_indiv_comp_config");
         sessionStorage.removeItem("analysis_indiv_comp_panel");
         sessionStorage.removeItem("analysis_indiv_subtab");
+        sessionStorage.removeItem("analysis_indiv_perf_areas");
+        sessionStorage.removeItem("analysis_indiv_perf_tests");
         sessionStorage.removeItem("analysis_collective_team");
       }
     };
@@ -2813,6 +2815,8 @@ export default function AnalysisPage() {
         sessionStorage.removeItem("analysis_indiv_comp_config");
         sessionStorage.removeItem("analysis_indiv_comp_panel");
         sessionStorage.removeItem("analysis_indiv_subtab");
+        sessionStorage.removeItem("analysis_indiv_perf_areas");
+        sessionStorage.removeItem("analysis_indiv_perf_tests");
         sessionStorage.removeItem("analysis_collective_team");
       }
     }
@@ -2843,8 +2847,12 @@ export default function AnalysisPage() {
         <div className="mx-auto max-w-7xl space-y-8">
           <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between no-print">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("analysis.title")}</h1>
-              <p className="mt-1 text-slate-500">{t("analysis.subtitle")}</p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                {activeTab ? t(`analysis.tabTitle${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`) : t("analysis.title")}
+              </h1>
+              <p className="mt-1 text-slate-500">
+                {activeTab ? t(`analysis.tabSubtitle${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`) : t("analysis.subtitle")}
+              </p>
             </div>
           </header>
 

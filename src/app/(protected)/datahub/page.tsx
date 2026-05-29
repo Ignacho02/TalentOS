@@ -131,19 +131,19 @@ export default function DataHubPage() {
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined") {
-        sessionStorage.removeItem("datahub_club_active_tab");
+        sessionStorage.removeItem("datahub_club_active_tab_v2");
         sessionStorage.removeItem("datahub_club_sub_tab");
         sessionStorage.removeItem("datahub_club_test_battery_area");
         sessionStorage.removeItem("datahub_club_selected_team_id");
         sessionStorage.removeItem("datahub_club_selected_athlete_id");
         sessionStorage.removeItem("datahub_club_selected_def");
-        sessionStorage.removeItem("datahub_perf_tab");
+        sessionStorage.removeItem("datahub_perf_tab_v2");
         sessionStorage.removeItem("datahub_training_load_sub_tab");
       }
     };
   }, []);
 
-  // Clear sub-area selections only when transitioning between sub-areas (screens) inside DataHub.
+  // Clear sub-area selections only when transitioning between top-level sections inside DataHub.
   // This does not clear on initial load/refresh because prevSection starts as null.
   const prevSectionRef = useRef<string | null>(null);
   useEffect(() => {
@@ -152,18 +152,40 @@ export default function DataHubPage() {
     
     if (prevSection !== null && prevSection !== currentSection) {
       if (typeof window !== "undefined") {
-        sessionStorage.removeItem("datahub_club_active_tab");
+        // Clear club state
+        sessionStorage.removeItem("datahub_club_active_tab_v2");
         sessionStorage.removeItem("datahub_club_sub_tab");
-        sessionStorage.removeItem("datahub_club_test_battery_area");
         sessionStorage.removeItem("datahub_club_selected_team_id");
         sessionStorage.removeItem("datahub_club_selected_athlete_id");
         sessionStorage.removeItem("datahub_club_selected_def");
-        sessionStorage.removeItem("datahub_perf_tab");
+        // Clear sports/performance state
+        sessionStorage.removeItem("datahub_club_test_battery_area");
+        sessionStorage.removeItem("datahub_perf_tab_v2");
         sessionStorage.removeItem("datahub_training_load_sub_tab");
       }
+      // Clear expanded athlete when leaving sports entirely
+      setExpandedAthleteId(null);
     }
     prevSectionRef.current = currentSection;
   }, [section]);
+
+  // Clear sports sub-area state when switching between maturation ↔ performance.
+  // This does not clear on initial load/refresh because prevSportsSubSection starts as null.
+  const prevSportsSubSectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = sportsSubSection;
+    const prev = prevSportsSubSectionRef.current;
+
+    if (prev !== null && prev !== current) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("datahub_club_test_battery_area");
+        sessionStorage.removeItem("datahub_perf_tab_v2");
+        sessionStorage.removeItem("datahub_training_load_sub_tab");
+      }
+      setExpandedAthleteId(null);
+    }
+    prevSportsSubSectionRef.current = current;
+  }, [sportsSubSection]);
 
   // ── Wrapped setters that also update the URL ───────────────────────────────
   function handleSetExpandedAthleteId(id: string | null) {
@@ -344,12 +366,38 @@ export default function DataHubPage() {
     <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
       {section !== "landing" && (
         <DataHubSidebar
-          activeSection={section as "club" | "maturation" | "performance" | "landing"}
+          activeSection={section as "club" | "sports" | "landing"}
           onSelect={setSection}
         />
       )}
-      <main className="min-w-0 flex-1 p-4 sm:p-6 overflow-x-hidden">
-        {section === "landing" && <DataHubLanding />}
+      <main className="min-w-0 flex-1 bg-[#f8fafc] p-4 sm:p-6 md:p-8 overflow-x-hidden">
+        <div className="mx-auto max-w-7xl space-y-8">
+        {section === "landing" && <DataHubLanding onSelect={(s) => handleSetSection(s)} />}
+        {section !== "landing" && (() => {
+          let titleKey = "datahub.landingTitle";
+          let subtitleKey = "datahub.landingSubtitle";
+          if (section === "club") {
+            titleKey = "datahub.sectionTitleClub";
+            subtitleKey = "datahub.sectionSubtitleClub";
+          } else if (section === "sports") {
+            if (sportsSubSection === "maturation") {
+              titleKey = "datahub.sectionTitleMaturation";
+              subtitleKey = "datahub.sectionSubtitleMaturation";
+            } else if (sportsSubSection === "performance") {
+              titleKey = "datahub.sectionTitlePerformance";
+              subtitleKey = "datahub.sectionSubtitlePerformance";
+            } else {
+              titleKey = "datahub.sectionTitleSports";
+              subtitleKey = "datahub.sectionSubtitleSports";
+            }
+          }
+          return (
+            <header>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t(titleKey)}</h1>
+              <p className="mt-1 text-slate-500">{t(subtitleKey)}</p>
+            </header>
+          );
+        })()}
         {section === "club" && (
           <ClubSection
             canEditAthletes={state.currentUserRole === "admin" || state.currentUserPermissions.canEditAthletes}
@@ -422,6 +470,7 @@ export default function DataHubPage() {
             )}
           </div>
         )}
+        </div>
       </main>
     </div>
   );
