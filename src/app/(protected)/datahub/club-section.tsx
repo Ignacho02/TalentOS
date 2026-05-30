@@ -55,6 +55,23 @@ export function ClubSection({ canEditAthletes = true }: { canEditAthletes?: bool
   const [selectedTeamId, setSelectedTeamId] = usePersistentState<string | null>("datahub_club_selected_team_id", null);
   const [selectedAthleteId, setSelectedAthleteId] = usePersistentState<string | null>("datahub_club_selected_athlete_id", null);
 
+  // URL → state: on deep-link or external navigation, sync the active tab from ?view=
+  useEffect(() => {
+    const v = searchParams.get("view");
+    if (v === "plantilla" || v === "admin") {
+      setActiveTab(v);
+    }
+  }, [searchParams, setActiveTab]);
+
+  // state → URL: when the user clicks a tab, keep the URL in sync so refresh lands on the right tab
+  function handleSetActiveTab(tab: "plantilla" | "admin") {
+    setActiveTab(tab);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", "club");
+    next.set("view", tab);
+    router.replace(`/datahub?${next.toString()}`, { scroll: false });
+  }
+
   // Keep track of the initial mount phase to prevent usePersistentState lazy-load state updates from triggering fake transitions.
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -101,9 +118,7 @@ export function ClubSection({ canEditAthletes = true }: { canEditAthletes?: bool
             <button
               key={tab.id}
               type="button"
-              onClick={() => {
-                setActiveTab(tab.id);
-              }}
+              onClick={() => handleSetActiveTab(tab.id)}
               className={cn(
                 "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
                 activeTab === tab.id

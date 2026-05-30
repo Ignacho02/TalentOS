@@ -209,7 +209,9 @@ export default function DataHubPage() {
   function handleSetSection(section: "club" | "sports" | "landing") {
     setSection(section);
     if (section === "club") {
-      router.push("/datahub?tab=club");
+      const currentView = searchParams.get("view");
+      const view = (currentView === "plantilla" || currentView === "admin") ? currentView : "plantilla";
+      router.push(`/datahub?tab=club&view=${view}`);
     } else if (section === "sports") {
       const targetTab = sportsSubSection === "performance" ? "performance" : "maturation";
       router.push(`/datahub?tab=${targetTab}`);
@@ -367,7 +369,7 @@ export default function DataHubPage() {
       {section !== "landing" && (
         <DataHubSidebar
           activeSection={section as "club" | "sports" | "landing"}
-          onSelect={setSection}
+          onSelect={handleSetSection}
         />
       )}
       <main className="min-w-0 flex-1 bg-[#f8fafc] p-4 sm:p-6 md:p-8 overflow-x-hidden">

@@ -86,15 +86,23 @@ export function PerformanceSection({
 
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
-  
+
+  // Derive initial tab from URL so deep-links always win over sessionStorage
+  function resolveInitialPerfTab(): "testBattery" | "tests" | "trainingLoad" {
+    if (viewParam === "testBattery") return "testBattery";
+    if (viewParam === "tests") return "tests";
+    if (viewParam === "trainingLoad" || viewParam === "gps") return "trainingLoad";
+    return "testBattery";
+  }
+
   // ── Tab: Batería de tests, Evaluaciones, Carga ─────────────────────────────
   const [perfTab, setPerfTab] = usePersistentState<"testBattery" | "tests" | "trainingLoad">(
     "datahub_perf_tab_v2",
-    "testBattery"
+    viewParam ? resolveInitialPerfTab() : "testBattery"
   );
   const [trainingLoadSubTab, setTrainingLoadSubTab] = usePersistentState<"training" | "gps">(
     "datahub_training_load_sub_tab",
-    "training"
+    viewParam === "gps" ? "gps" : "training"
   );
 
   // ── Test battery management states & handlers ─────────────────────────────

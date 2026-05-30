@@ -45,31 +45,35 @@ const navigation = [
 ];
 
 const datahubAreas: NavItem[] = [
-  { labelKey: "datahubNav.club", href: "/datahub?tab=club" },
-  { labelKey: "datahubNav.maturation", href: "/datahub?tab=maturation" },
   {
-    labelKey: "datahubNav.performance",
+    labelKey: "datahubNav.club",
+    href: "/datahub?tab=club",
     hasSubmenu: true,
-    href: "/datahub?tab=performance",
     sections: [
+      { labelKey: "club.structure", href: "/datahub?tab=club&view=plantilla" },
+      { labelKey: "club.settings",  href: "/datahub?tab=club&view=admin" },
+    ],
+  },
+  {
+    labelKey: "datahubNav.sports",
+    href: "/datahub?tab=maturation",
+    hasSubmenu: true,
+    sections: [
+      { labelKey: "datahubNav.maturation", href: "/datahub?tab=maturation" },
       {
-        labelKey: "perfTab.tests",
-        hasSubmenu: true,
+        labelKey: "datahubNav.performance",
         href: "/datahub?tab=performance",
+        hasSubmenu: true,
         sections: [
-          { labelKey: "datahub.performancePhysical", href: "/datahub?tab=physical" },
-          { labelKey: "datahub.performanceTechnicalTactical", href: "/datahub?tab=technicalTactical" },
-          { labelKey: "datahub.performancePsychological", href: "/datahub?tab=psychological" },
-          { labelKey: "datahub.performanceMotorSkills", href: "/datahub?tab=performance&area=motorSkills" },
+          { labelKey: "club.testBattery",      href: "/datahub?tab=performance&view=testBattery" },
+          { labelKey: "perfTab.tests",         href: "/datahub?tab=performance&view=tests" },
+          { labelKey: "perfTab.trainingLoad",  href: "/datahub?tab=performance&view=trainingLoad" },
         ],
       },
-      { labelKey: "perfTab.trainingLoad", href: "/datahub?tab=performance&view=trainingLoad" },
-      { labelKey: "perfTab.gps", href: "/datahub?tab=performance&view=gps" },
     ],
   },
 ];
 
-// Flattened structure for mobile drawer
 const mobileNav = [
   { href: "/hub", key: "nav.hub", icon: Orbit, children: null },
   {
@@ -77,9 +81,12 @@ const mobileNav = [
     key: "nav.datahub",
     icon: Database,
     children: [
-      { href: "/datahub?tab=club", key: "datahubNav.club" },
-      { href: "/datahub?tab=maturation", key: "datahubNav.maturation" },
-      { href: "/datahub?tab=performance", key: "datahubNav.performance" },
+      { href: "/datahub?tab=club&view=plantilla",           key: "club.structure" },
+      { href: "/datahub?tab=club&view=admin",               key: "club.settings" },
+      { href: "/datahub?tab=maturation",                    key: "datahubNav.maturation" },
+      { href: "/datahub?tab=performance&view=testBattery",  key: "club.testBattery" },
+      { href: "/datahub?tab=performance&view=tests",        key: "perfTab.tests" },
+      { href: "/datahub?tab=performance&view=trainingLoad", key: "perfTab.trainingLoad" },
     ],
   },
   {
@@ -89,11 +96,11 @@ const mobileNav = [
     children: [
       { href: "/analysis?tab=individual", key: "analysis.tabs.individual" },
       { href: "/analysis?tab=collective", key: "analysis.tabs.collective" },
-      { href: "/analysis?tab=assistant", key: "analysis.tabs.assistant" },
+      { href: "/analysis?tab=assistant",  key: "analysis.tabs.assistant" },
     ],
   },
-  { href: "/community", key: "nav.community", icon: Users, children: null },
-  { href: "/research", key: "nav.research", icon: FlaskConical, children: null },
+  { href: "/community", key: "nav.community", icon: Users,       children: null },
+  { href: "/research",  key: "nav.research",  icon: FlaskConical, children: null },
 ];
 
 export function Navbar() {
@@ -101,21 +108,19 @@ export function Navbar() {
   const router = useRouter();
   const { locale, setLocale: setLiveLocale, t } = useLocale();
   const { state, setLocale } = useAppState();
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const [activeSubMenu, setActiveSubMenu] = useState<string | null>(null);
+  const [activeDropdown,   setActiveDropdown]  = useState<string | null>(null);
+  const [activeSubMenu,    setActiveSubMenu]    = useState<string | null>(null);
   const [activeThirdLevel, setActiveThirdLevel] = useState<string | null>(null);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearchOpen,     setIsSearchOpen]     = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
+  const [mobileExpanded,   setMobileExpanded]   = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
 
-  // Close on route change
   useEffect(() => {
     setIsMobileMenuOpen(false);
     setMobileExpanded(null);
   }, [pathname]);
 
-  // Keyboard shortcut Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
@@ -127,7 +132,6 @@ export function Navbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Lock body scroll when mobile menu open
   useEffect(() => {
     document.body.style.overflow = isMobileMenuOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -189,9 +193,17 @@ export function Navbar() {
                     className="relative"
                     role="none"
                     onMouseEnter={() => hasSubmenu && setActiveDropdown(item.href)}
-                    onMouseLeave={() => { setActiveDropdown(null); setActiveSubMenu(null); setActiveThirdLevel(null); }}
+                    onMouseLeave={() => {
+                      setActiveDropdown(null);
+                      setActiveSubMenu(null);
+                      setActiveThirdLevel(null);
+                    }}
                     onFocus={() => hasSubmenu && setActiveDropdown(item.href)}
-                    onBlur={() => { setActiveDropdown(null); setActiveSubMenu(null); setActiveThirdLevel(null); }}
+                    onBlur={() => {
+                      setActiveDropdown(null);
+                      setActiveSubMenu(null);
+                      setActiveThirdLevel(null);
+                    }}
                   >
                     <Link
                       href={item.href}
@@ -207,55 +219,101 @@ export function Navbar() {
                       <span className="hidden lg:inline">{t(item.key)}</span>
                     </Link>
 
+                    {/* ── Nivel 1 ── */}
                     {hasSubmenu && activeDropdown === item.href && (
-                      <div className="absolute top-full left-0 mt-0 w-56 bg-white border border-line rounded-lg shadow-lg" role="menu" aria-label={t(item.key)}>
+                      <div
+                        className="absolute top-full left-0 mt-0 w-56 bg-white border border-line rounded-lg shadow-lg"
+                        role="menu"
+                        aria-label={t(item.key)}
+                      >
                         <div className="p-2">
                           {(item.href === "/datahub" ? datahubAreas : analysisAreas).map((area: NavItem) => (
                             <div
                               key={area.labelKey}
                               className="relative"
                               role="none"
-                              onMouseEnter={() => area.hasSubmenu && setActiveSubMenu(area.labelKey)}
-                              onMouseLeave={() => { setActiveSubMenu(null); setActiveThirdLevel(null); }}
-                              onFocus={() => area.hasSubmenu && setActiveSubMenu(area.labelKey)}
-                              onBlur={() => { setActiveSubMenu(null); setActiveThirdLevel(null); }}
+                              onMouseEnter={() => {
+                                setActiveSubMenu(area.hasSubmenu ? area.labelKey : null);
+                                setActiveThirdLevel(null);
+                              }}
+                              onMouseLeave={() => {
+                                setActiveSubMenu(null);
+                                setActiveThirdLevel(null);
+                              }}
                             >
                               {area.hasSubmenu ? (
-                                <button type="button" className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition mb-1 last:mb-0" role="menuitem" aria-haspopup="true" aria-expanded={activeSubMenu === area.labelKey ? "true" : undefined}>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition mb-1 last:mb-0"
+                                  role="menuitem"
+                                  aria-haspopup="true"
+                                  aria-expanded={activeSubMenu === area.labelKey ? "true" : undefined}
+                                >
                                   <span className="text-sm font-medium">{t(area.labelKey)}</span>
-                                  <span className="text-xs" aria-hidden="true">→</span>
+                                  <ChevronRight className="h-3.5 w-3.5 opacity-40 flex-shrink-0 ml-2" aria-hidden="true" />
                                 </button>
                               ) : (
-                                <Link href={area.href ?? "/datahub"} className="block px-4 py-3 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition mb-1 last:mb-0" role="menuitem">
+                                <Link
+                                  href={area.href}
+                                  className="block px-4 py-3 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition mb-1 last:mb-0"
+                                  role="menuitem"
+                                >
                                   <span className="text-sm font-medium">{t(area.labelKey)}</span>
                                 </Link>
                               )}
 
+                              {/* ── Nivel 2 ── */}
                               {area.hasSubmenu && activeSubMenu === area.labelKey && (
-                                <div className="absolute left-full top-0 w-48 bg-white border border-line rounded-lg shadow-lg" role="menu" aria-label={t(area.labelKey)}>
+                                <div
+                                  className="absolute left-full top-0 w-48 bg-white border border-line rounded-lg shadow-lg"
+                                  role="menu"
+                                  aria-label={t(area.labelKey)}
+                                >
                                   <div className="p-2">
                                     {area.sections?.map((section: NavItem) => (
-                                      <div key={section.labelKey} className="relative" role="none"
-                                        onMouseEnter={() => section.hasSubmenu && setActiveThirdLevel(section.labelKey)}
+                                      <div
+                                        key={section.labelKey}
+                                        className="relative"
+                                        role="none"
+                                        onMouseEnter={() => setActiveThirdLevel(section.hasSubmenu ? section.labelKey : null)}
                                         onMouseLeave={() => setActiveThirdLevel(null)}
-                                        onFocus={() => section.hasSubmenu && setActiveThirdLevel(section.labelKey)}
-                                        onBlur={() => setActiveThirdLevel(null)}
                                       >
                                         {section.hasSubmenu ? (
-                                          <button type="button" className="flex w-full items-center justify-between px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition" role="menuitem" aria-haspopup="true" aria-expanded={activeThirdLevel === section.labelKey ? "true" : undefined}>
+                                          <button
+                                            type="button"
+                                            className="flex w-full items-center justify-between px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition"
+                                            role="menuitem"
+                                            aria-haspopup="true"
+                                            aria-expanded={activeThirdLevel === section.labelKey ? "true" : undefined}
+                                          >
                                             <span className="text-sm font-medium">{t(section.labelKey)}</span>
-                                            <span className="text-xs" aria-hidden="true">→</span>
+                                            <ChevronRight className="h-3.5 w-3.5 opacity-40 flex-shrink-0 ml-2" aria-hidden="true" />
                                           </button>
                                         ) : (
-                                          <Link href={section.href ?? "/datahub"} className="block px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition" role="menuitem">
+                                          <Link
+                                            href={section.href}
+                                            className="block px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition"
+                                            role="menuitem"
+                                          >
                                             <span className="text-sm font-medium">{t(section.labelKey)}</span>
                                           </Link>
                                         )}
+
+                                        {/* ── Nivel 3 ── */}
                                         {section.hasSubmenu && activeThirdLevel === section.labelKey && (
-                                          <div className="absolute left-full top-0 w-48 bg-white border border-line rounded-lg shadow-lg" role="menu" aria-label={t(section.labelKey)}>
+                                          <div
+                                            className="absolute left-full top-0 w-48 bg-white border border-line rounded-lg shadow-lg"
+                                            role="menu"
+                                            aria-label={t(section.labelKey)}
+                                          >
                                             <div className="p-2">
                                               {section.sections?.map((subSection: NavItem) => (
-                                                <Link key={subSection.labelKey} href={subSection.href} className="block px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition" role="menuitem">
+                                                <Link
+                                                  key={subSection.labelKey}
+                                                  href={subSection.href}
+                                                  className="block px-4 py-2 text-sm text-zinc-700 hover:bg-accent/10 hover:text-accent rounded transition"
+                                                  role="menuitem"
+                                                >
                                                   <span className="text-sm font-medium">{t(subSection.labelKey)}</span>
                                                 </Link>
                                               ))}
@@ -292,19 +350,28 @@ export function Navbar() {
                 <div className="flex items-center gap-1 px-2 text-zinc-700">
                   <Globe2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </div>
-                {(["es", "en"] as Locale[]).map((item) => (
-                  <button key={item} className={cn("rounded-full px-2 py-1 text-xs font-medium transition", locale === item ? "bg-accent text-white" : "text-zinc-500 hover:text-zinc-900")} onClick={() => changeLocale(item)} role="radio" aria-checked={locale === item}>
-                    {item.toUpperCase()}
+                {(["es", "en"] as Locale[]).map((lang) => (
+                  <button
+                    key={lang}
+                    className={cn("rounded-full px-2 py-1 text-xs font-medium transition", locale === lang ? "bg-accent text-white" : "text-zinc-500 hover:text-zinc-900")}
+                    onClick={() => changeLocale(lang)}
+                    role="radio"
+                    aria-checked={locale === lang}
+                  >
+                    {lang.toUpperCase()}
                   </button>
                 ))}
               </div>
 
-              <button onClick={logout} className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-line bg-white/70 px-3 py-2 text-sm text-zinc-700 transition hover:bg-white" aria-label={t("common.logout")}>
+              <button
+                onClick={logout}
+                className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-line bg-white/70 px-3 py-2 text-sm text-zinc-700 transition hover:bg-white"
+                aria-label={t("common.logout")}
+              >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden lg:inline">{t("common.logout")}</span>
               </button>
 
-              {/* Mobile hamburger */}
               <button
                 className="md:hidden p-2 rounded-lg border border-line bg-white/70 text-zinc-700 hover:bg-white transition"
                 onClick={() => setIsMobileMenuOpen((v) => !v)}
@@ -377,16 +444,16 @@ export function Navbar() {
                   <Globe2 className="h-4 w-4 text-zinc-500 flex-shrink-0" />
                   <span className="text-sm text-zinc-500">{t("common.language") || "Idioma"}</span>
                   <div className="flex gap-1 ml-auto">
-                    {(["es", "en"] as Locale[]).map((item) => (
+                    {(["es", "en"] as Locale[]).map((lang) => (
                       <button
-                        key={item}
+                        key={lang}
                         className={cn(
                           "rounded-full px-3 py-1 text-xs font-medium transition",
-                          locale === item ? "bg-accent text-white" : "border border-line text-zinc-600",
+                          locale === lang ? "bg-accent text-white" : "border border-line text-zinc-600",
                         )}
-                        onClick={() => changeLocale(item)}
+                        onClick={() => changeLocale(lang)}
                       >
-                        {item.toUpperCase()}
+                        {lang.toUpperCase()}
                       </button>
                     ))}
                   </div>
@@ -404,7 +471,6 @@ export function Navbar() {
         )}
       </nav>
 
-      {/* Backdrop for mobile menu */}
       {isMobileMenuOpen && (
         <div
           className="md:hidden fixed inset-0 bg-black/20 z-40"
