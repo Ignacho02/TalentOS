@@ -137,6 +137,23 @@ export function AppStateProvider({
     persistAppState(state);
   }, [initialState, state]);
 
+  // Apply the club's accent color as CSS variables on load and whenever it changes
+  useEffect(() => {
+    const color = state.club?.accentColor;
+    if (!color || typeof window === "undefined") return;
+    function adjustHex(hex: string, amount: number): string {
+      const num = parseInt(hex.replace("#", ""), 16);
+      const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+      const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
+      const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
+      return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+    }
+    const root = document.documentElement;
+    root.style.setProperty("--accent", color);
+    root.style.setProperty("--accent-strong", adjustHex(color, -20));
+    root.style.setProperty("--accent-soft", `${color}1a`);
+  }, [state.club?.accentColor]);
+
   const assessments = useMemo(
     () => state.records.map(calculateMaturation),
     [state.records],

@@ -140,6 +140,16 @@ function IndividualView({
   };
 
   const initialPlayer = searchParams.get("player") || null;
+  const initialSubTab = ((): IndividualSubTab => {
+    const s = searchParams.get("subtab");
+    if (s === "performance" || s === "load") return s;
+    return "maturation";
+  })();
+  // When the URL explicitly specifies a subtab, clear the sessionStorage key so
+  // usePersistentState's mount effect doesn't override the URL value.
+  if (typeof window !== "undefined" && searchParams.get("subtab")) {
+    sessionStorage.removeItem("analysis_indiv_subtab");
+  }
 
   const [search, setSearch] = useState("");
   const [filterTeam, setFilterTeam] = useState("");
@@ -155,7 +165,7 @@ function IndividualView({
   const [compTeam, setCompTeam] = useState("");
   const [compPos, setCompPos] = useState("");
   const [showComparisonPanel, setShowComparisonPanel] = usePersistentState<boolean>("analysis_indiv_comp_panel", false);
-  const [activeSubTab, setActiveSubTab] = usePersistentState<IndividualSubTab>("analysis_indiv_subtab", "maturation");
+  const [activeSubTab, setActiveSubTab] = usePersistentState<IndividualSubTab>("analysis_indiv_subtab", initialSubTab);
   const [expandedTeams, setExpandedTeams] = useState<Record<string, boolean>>({});
   const [isSelectorExpanded, setIsSelectorExpanded] = useState(!initialPlayer);
   const [performanceTestAreas, setPerformanceTestAreas] = usePersistentState<string[]>("analysis_indiv_perf_areas", []);
@@ -170,6 +180,10 @@ function IndividualView({
   useEffect(() => {
     const player = searchParams.get("player") || null;
     setSelectedAthleteId(player);
+    const subtab = searchParams.get("subtab");
+    if (subtab === "maturation" || subtab === "performance" || subtab === "load") {
+      setActiveSubTab(subtab);
+    }
   }, [searchParams]);
 
   // Auto-collapse selector when a primary player is picked

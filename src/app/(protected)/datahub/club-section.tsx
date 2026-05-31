@@ -63,6 +63,16 @@ export function ClubSection({ canEditAthletes = true }: { canEditAthletes?: bool
     }
   }, [searchParams, setActiveTab]);
 
+  // URL → state: when ?player= is present, select that athlete and switch to players sub-tab
+  useEffect(() => {
+    const playerId = searchParams.get("player");
+    if (playerId) {
+      setActiveTab("plantilla");
+      setStructureSubTab("players");
+      setSelectedAthleteId(playerId);
+    }
+  }, [searchParams, setActiveTab, setStructureSubTab, setSelectedAthleteId]);
+
   // state → URL: when the user clicks a tab, keep the URL in sync so refresh lands on the right tab
   function handleSetActiveTab(tab: "plantilla" | "admin") {
     setActiveTab(tab);
@@ -691,6 +701,7 @@ function PlayersTab({
 }) {
   const { t } = useLocale();
   const { state } = useAppState();
+  const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -1240,7 +1251,10 @@ function PlayersTab({
 
             <div className="space-y-3">
               <h4 className="text-sm font-semibold text-zinc-900">Análisis y Rendimiento</h4>
-              <button className="w-full flex items-center justify-between p-3 rounded-lg border border-line hover:border-accent hover:bg-accent/5 transition group">
+              <button
+                className="w-full flex items-center justify-between p-3 rounded-lg border border-line hover:border-accent hover:bg-accent/5 transition group"
+                onClick={() => selectedAthleteId && router.push(`/analysis?tab=individual&player=${selectedAthleteId}&subtab=performance`)}
+              >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-md bg-accent/10 text-accent">
                     <BarChart2 className="h-4 w-4" />
@@ -1249,7 +1263,10 @@ function PlayersTab({
                 </div>
                 <ChevronRight className="h-4 w-4 text-zinc-400 group-hover:text-accent" />
               </button>
-              <button className="w-full flex items-center justify-between p-3 rounded-lg border border-line hover:border-accent hover:bg-accent/5 transition group">
+              <button
+                className="w-full flex items-center justify-between p-3 rounded-lg border border-line hover:border-accent hover:bg-accent/5 transition group"
+                onClick={() => selectedAthleteId && router.push(`/analysis?tab=individual&player=${selectedAthleteId}&subtab=maturation`)}
+              >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-md bg-accent/10 text-accent">
                     <Activity className="h-4 w-4" />
@@ -1611,6 +1628,19 @@ function Modal({
   );
 }
 
+const ACCENT_COLORS = [
+  { value: "#0d9488", labelKey: "club.colorTeal" },
+  { value: "#2563eb", labelKey: "club.colorBlue" },
+  { value: "#7c3aed", labelKey: "club.colorViolet" },
+  { value: "#dc2626", labelKey: "club.colorRed" },
+  { value: "#ea580c", labelKey: "club.colorOrange" },
+  { value: "#16a34a", labelKey: "club.colorGreen" },
+  { value: "#0891b2", labelKey: "club.colorCyan" },
+  { value: "#db2777", labelKey: "club.colorPink" },
+  { value: "#854d0e", labelKey: "club.colorAmber" },
+  { value: "#1d4ed8", labelKey: "club.colorIndigo" },
+];
+
 function AdminTab({
   club,
   updateClub,
@@ -1808,10 +1838,25 @@ function AdminTab({
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-zinc-700">{t("club.accentColor")}</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="h-10 w-10 rounded border border-line" />
-                  <input type="text" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="flex-1 rounded-lg border border-line px-3 py-2 text-sm" />
+                <label className="block text-sm font-medium text-zinc-700 mb-2">{t("club.accentColor")}</label>
+                <div className="flex flex-wrap gap-2">
+                  {ACCENT_COLORS.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      title={t(c.labelKey)}
+                      onClick={() => setAccentColor(c.value)}
+                      className={cn(
+                        "h-8 w-8 rounded-full border-2 transition-transform hover:scale-110",
+                        accentColor === c.value ? "border-zinc-900 scale-110" : "border-transparent"
+                      )}
+                      style={{ backgroundColor: c.value }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="inline-block h-5 w-5 rounded-full border border-line flex-shrink-0" style={{ backgroundColor: accentColor }} />
+                  <span className="text-xs text-zinc-500">{ACCENT_COLORS.find(c => c.value === accentColor) ? t(ACCENT_COLORS.find(c => c.value === accentColor)!.labelKey) : accentColor}</span>
                 </div>
               </div>
               <div>
@@ -1856,10 +1901,10 @@ function AdminTab({
                         : "bg-accent hover:bg-accent/90"
                 )}
               >
-                {clubFeedback === "saving" ? t("common.saving") || "Guardando..." : t("common.save")}
+                {clubFeedback === "saving" ? t("common.saving") : t("common.save")}
               </button>
               {clubFeedback === "saved" && (
-                <span className="text-sm text-emerald-600 font-medium">✓ {t("common.saved") || "Guardado"}</span>
+                <span className="text-sm text-emerald-600 font-medium">✓ {t("common.saved")}</span>
               )}
               {clubFeedback === "error" && (
                 <span className="text-sm text-red-600 font-medium">{clubError || "Error al guardar"}</span>
