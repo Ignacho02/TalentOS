@@ -8,7 +8,7 @@ import ExcelJS from "exceljs";
 import {
   ClipboardList, Calendar, ChevronDown, ChevronRight,
   ChevronsUpDown, Download, Dumbbell, Edit2, FileSpreadsheet, MapPin, Plus, Search,
-  Trash2, Trophy, UploadCloud, User, X,
+  Trash2, Trophy, UploadCloud, User, X, Beaker,
 } from "lucide-react";
 import { LabeledField } from "@/components/labeled-field";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -16,6 +16,7 @@ import { invalidInputClass } from "@/components/field-error";
 import {
   clearFieldError,
   validatePerformanceEntry,
+  validateTestDefinition,
   type FieldErrors,
 } from "@/lib/form-errors";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -26,11 +27,12 @@ import type {
 } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { usePersistentState } from "@/lib/hooks/use-persistent-state";
-import { performanceAreaLabels, emptyPerformanceForm } from "./performance-constants";
+import { performanceAreaLabels, emptyPerformanceForm, performancePresets } from "./performance-constants";
 import {
   MultiSelectPill,
   PlayerAreaModal,
   SessionList,
+  TestBatteryTab,
 } from "./performance-section.parts";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -72,27 +74,102 @@ export function PerformanceSection({
   onPanelChange?: (panel: { areaKey: PerformanceArea; athleteId: string } | null) => void;
   canEditPerformance?: boolean;
 }) {
-  const { addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry, addTrainingLoadEntry, importPerformanceEntries, state } = useAppState();
+  const {
+    addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry,
+    addTrainingLoadEntry, importPerformanceEntries,
+    addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition,
+    state
+  } = useAppState();
   const { t, locale } = useLocale();
   const canEditTrainingLoad =
     state.currentUserRole === "admin" || state.currentUserPermissions.canEditTrainingLoad;
 
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
-  
-  // ── Tab: only 3 main tabs now ──────────────────────────────────────────────
-  const [perfTab, setPerfTab] = usePersistentState<"tests" | "trainingLoad" | "gps">(
-    "datahub_perf_tab",
-    "tests"
+
+  // Derive initial tab from URL so deep-links always win over sessionStorage
+  function resolveInitialPerfTab(): "testBattery" | "tests" | "trainingLoad" {
+    if (viewParam === "testBattery") return "testBattery";
+    if (viewParam === "tests") return "tests";
+    if (viewParam === "trainingLoad" || viewParam === "gps") return "trainingLoad";
+    return "testBattery";
+  }
+
+  // ── Tab: Batería de tests, Evaluaciones, Carga ─────────────────────────────
+  const [perfTab, setPerfTab] = usePersistentState<"testBattery" | "tests" | "trainingLoad">(
+    "datahub_perf_tab_v2",
+    viewParam ? resolveInitialPerfTab() : "testBattery"
   );
+  const [trainingLoadSubTab, setTrainingLoadSubTab] = usePersistentState<"training" | "gps">(
+    "datahub_training_load_sub_tab",
+    viewParam === "gps" ? "gps" : "training"
+  );
+
+  // ── Test battery management states & handlers ─────────────────────────────
+  const [testBatteryArea, setTestBatteryArea] = usePersistentState<PerformanceArea>("datahub_club_test_battery_area", "physical");
+  const [showAddTestForm, setShowAddTestForm] = useState(false);
+  const [testDefErrors, setTestDefErrors] = useState<FieldErrors>({});
+  const [testDefSummary, setTestDefSummary] = useState("");
+  const [newDef, setNewDef] = useState({ name: "", nameKey: undefined as string | undefined, descriptionKey: undefined as string | undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best" as "best" | "average", interpretation: "higher_better" as "higher_better" | "lower_better", description: "", mediaUrl: "", mediaType: undefined as "image" | "video" | undefined, subCategory: undefined as string | undefined });
+
+  function addDef(e: React.FormEvent) {
+    e.preventDefault();
+    const displayName = newDef.nameKey ? t(newDef.nameKey) : newDef.name;
+    const result = validateTestDefinition(t, { name: displayName, unit: newDef.unit });
+    if (!result.success) {
+      setTestDefErrors(result.fieldErrors);
+      setTestDefSummary(result.summary);
+      return;
+    }
+    setTestDefErrors({});
+    setTestDefSummary("");
+    addPerformanceDefinition({
+      name: result.data.name,
+      nameKey: newDef.nameKey,
+      area: testBatteryArea,
+      unit: result.data.unit,
+      attempts: newDef.attempts,
+      isRating: newDef.isRating,
+      scoringStrategy: newDef.scoringStrategy,
+      interpretation: newDef.interpretation,
+      description: newDef.description || undefined,
+      descriptionKey: newDef.descriptionKey,
+      mediaUrl: newDef.mediaUrl || undefined,
+      mediaType: newDef.mediaType,
+    });
+    setNewDef({ name: "", nameKey: undefined, descriptionKey: undefined, unit: "", attempts: 1, isRating: false, scoringStrategy: "best", interpretation: "higher_better", description: "", mediaUrl: "", mediaType: undefined, subCategory: undefined });
+    setShowAddTestForm(false);
+  }
+
+  function delDef(id: string) {
+    deletePerformanceDefinition(id);
+  }
+
+  function handleMedia(e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => { setNewDef(c => ({ ...c, mediaUrl: ev.target?.result as string, mediaType: type })); };
+    r.readAsDataURL(f);
+  }
+
+  const areaTestDefs = state.performanceDefinitions.filter(d => d.area === testBatteryArea);
 
   // Sync tab with URL parameter (only if explicitly set in deep link, otherwise keep persisted tab!)
   useEffect(() => {
     const v = searchParams.get("view");
-    if (v === "trainingLoad" || v === "gps" || v === "tests") {
-      setPerfTab(v as "tests" | "trainingLoad" | "gps");
+    if (v === "testBattery") {
+      setPerfTab("testBattery");
+    } else if (v === "tests") {
+      setPerfTab("tests");
+    } else if (v === "trainingLoad") {
+      setPerfTab("trainingLoad");
+      setTrainingLoadSubTab("training");
+    } else if (v === "gps") {
+      setPerfTab("trainingLoad");
+      setTrainingLoadSubTab("gps");
     }
-  }, [searchParams, setPerfTab]);
+  }, [searchParams, setPerfTab, setTrainingLoadSubTab]);
 
   // ── Add-result modal ───────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false);
@@ -136,6 +213,10 @@ export function PerformanceSection({
     if (isMountedRef.current && prevTab !== null && prevTab !== currentTab) {
       setSelectedPanel(null);
       onPanelChange?.(null);
+
+      // Reset persistent sub-selections within each tab
+      setTestBatteryArea("physical");
+      setTrainingLoadSubTab("training");
 
       // Reset all local search, filters, groupings, and orderings of the Performance tab
       setPlayerSearch("");
@@ -321,6 +402,11 @@ export function PerformanceSection({
     load < 600 ? "bg-orange-100 border-orange-300" :
                  "bg-red-100 border-red-300";
   const tlLoad     = tlAttended ? tlMinutes * tlRpe : 0;
+  const isMatch     = tlType === "match";
+  const selectedTeam = state.teams.find(tm => tm.id === tlTeamId);
+  const teamAthletes = tlTeamId
+    ? state.athletes.filter(a => a.teamId === tlTeamId || a.teamName === selectedTeam?.name)
+    : [];
   const monthNames = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const dayNames   = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 
@@ -730,9 +816,9 @@ export function PerformanceSection({
       {/* ── Tab bar: 3 main tabs ─────────────────────────────────────────── */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { id: "tests",        icon: <ClipboardList className="h-4 w-4" />, label: t("perfTab.tests") || "Evaluaciones / Tests" },
+          { id: "testBattery",  icon: <Beaker className="h-4 w-4" />,      label: t("club.testBattery") || "Batería de Tests" },
+          { id: "tests",        icon: <ClipboardList className="h-4 w-4" />, label: t("perfTab.tests") || "Evaluaciones" },
           { id: "trainingLoad", icon: <Calendar className="h-4 w-4" />,    label: t("perfTab.trainingLoad") },
-          { id: "gps",          icon: <MapPin className="h-4 w-4" />,      label: "GPS" },
         ].map(tab => (
           <button
             key={tab.id}
@@ -749,6 +835,28 @@ export function PerformanceSection({
           </button>
         ))}
       </div>
+
+      {/* ════════════════════ TEST BATTERY TAB ═════════════════════ */}
+      {perfTab === "testBattery" && (
+        <TestBatteryTab
+          testBatteryArea={testBatteryArea}
+          setTestBatteryArea={setTestBatteryArea}
+          showAddTestForm={showAddTestForm}
+          setShowAddTestForm={setShowAddTestForm}
+          newDef={newDef}
+          setNewDef={setNewDef}
+          areaTestDefs={areaTestDefs}
+          addDef={addDef}
+          delDef={delDef}
+          handleMedia={handleMedia}
+          testDefErrors={testDefErrors}
+          testDefSummary={testDefSummary}
+          clearTestDefErrors={() => { setTestDefErrors({}); setTestDefSummary(""); }}
+          setTestDefErrors={setTestDefErrors}
+          updatePerformanceDefinition={updatePerformanceDefinition}
+          t={t}
+        />
+      )}
 
       {/* ════════════════════ TESTS / EVALUACIONES TAB ═════════════════════ */}
       {perfTab === "tests" && (
@@ -1047,18 +1155,41 @@ export function PerformanceSection({
       {/* ══════════════════════ TRAINING LOAD TAB ══════════════════════ */}
       {perfTab === "trainingLoad" && (
         <section className="panel rounded-[1.75rem] p-6 space-y-4">
-          {/* ── Month nav ── */}
-          <div className="flex items-center justify-between">
-            <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
-              className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
-              ←
-            </button>
-            <h2 className="text-lg font-semibold text-zinc-900">{monthNames[calMonth]} {calYear}</h2>
-            <button onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
-              className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
-              →
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { id: "training" as const, label: t("trainingLoad.training") },
+              { id: "gps" as const, label: t("gps.title") },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setTrainingLoadSubTab(tab.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
+                  trainingLoadSubTab === tab.id
+                    ? "bg-accent text-white"
+                    : "bg-white border border-line text-zinc-600 hover:bg-zinc-50"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
+
+          {trainingLoadSubTab === "training" ? (
+            <div className="space-y-6">
+              {/* ── Month nav ── */}
+              <div className="flex items-center justify-between">
+                <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
+                  className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
+                  ←
+                </button>
+                <h2 className="text-lg font-semibold text-zinc-900">{monthNames[calMonth]} {calYear}</h2>
+                <button onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
+                  className="rounded-xl border border-line bg-white/70 px-4 py-2 text-sm text-zinc-700 hover:bg-white transition">
+                  →
+                </button>
+              </div>
 
           {/* ── Calendar grid ── */}
           <div className="rounded-2xl border border-line bg-white/50 overflow-hidden">
@@ -1078,9 +1209,6 @@ export function PerformanceSection({
                 const tl  = totalLoadForDate(ds);
                 const isSel   = selectedDate === ds;
                 const isToday = ds === new Date().toISOString().split("T")[0];
-                // Aggregate: unique sessions by type
-                const hasTraining = ens.some(e => e.sessionType === "training");
-                const hasMatch    = ens.some(e => e.sessionType === "match");
                 return (
                   <div
                     key={ds}
@@ -1165,16 +1293,8 @@ export function PerformanceSection({
               )}
 
               {/* Add session inline panel */}
-              {tlShowPanel && (() => {
-                const isMatch = tlType === "match";
-                // Sessions are always per team — require a team to be selected
-                const selectedTeam  = state.teams.find(tm => tm.id === tlTeamId);
-                const teamAthletes  = tlTeamId
-                  ? state.athletes.filter(a => a.teamId === tlTeamId || a.teamName === selectedTeam?.name)
-                  : [];
-
-                return (
-                  <div className="rounded-2xl border-2 border-accent/30 bg-accent/5 p-4 space-y-4">
+              {tlShowPanel && (
+                <div className="rounded-2xl border-2 border-accent/30 bg-accent/5 p-4 space-y-4">
 
                     {/* ── Config row ── */}
                     <div className="flex flex-wrap gap-3 items-end">
@@ -1187,7 +1307,7 @@ export function PerformanceSection({
                               onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
                               className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
                                 tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
-                              {st === "training" ? (locale === "en" ? "Training" : "Entrenamiento") : (locale === "en" ? "Match" : "Partido")}
+                              {st === "training" ? (locale === "en" ? "Training" : "Manual") : (locale === "en" ? "Match" : "Partido")}
                             </button>
                           ))}
                         </div>
@@ -1384,22 +1504,20 @@ export function PerformanceSection({
                       </>
                     )}
                   </div>
-                );
-              })()}
+                )}
             </div>
           )}
-        </section>
-      )}
-
-      {/* ══════════════════════ GPS TAB ══════════════════════ */}
-      {perfTab === "gps" && (
-        <section className="panel rounded-[1.75rem] p-6">
-          <div className="flex items-center gap-3 mb-4"><MapPin className="h-6 w-6 text-zinc-400" /><h2 className="text-xl font-semibold">GPS</h2></div>
-          <div className="rounded-xl border border-line bg-white/50 p-12 text-center">
-            <MapPin className="h-16 w-16 mx-auto text-zinc-300 mb-4" />
-            <p className="text-lg font-medium text-zinc-700 mb-2">{t("gps.comingSoon")}</p>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto">{t("gps.body")}</p>
-          </div>
+        </div>
+      ) : (
+            <section className="rounded-2xl border border-line bg-white/50 p-8 text-center">
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <MapPin className="h-6 w-6 text-zinc-400" />
+                <h2 className="text-xl font-semibold">{t("gps.title")}</h2>
+              </div>
+              <p className="text-lg font-medium text-zinc-700 mb-2">{t("gps.comingSoon")}</p>
+              <p className="text-sm text-zinc-500 max-w-md mx-auto">{t("gps.body")}</p>
+            </section>
+          )}
         </section>
       )}
 

@@ -1,26 +1,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/i18n/locale-context";
-import { Building2, Brain, Dumbbell, Menu, X } from "lucide-react";
+import { Building2, Dumbbell, Menu, X } from "lucide-react";
 
 const sections = [
-  { id: "club" as const, icon: Building2, key: "datahubNav.club", tab: "club" },
-  { id: "maturation" as const, icon: Brain, key: "datahubNav.maturation", tab: "maturation" },
-  { id: "performance" as const, icon: Dumbbell, key: "datahubNav.performance", tab: "performance" },
+  { id: "club" as const, icon: Building2, key: "datahubNav.club" },
+  { id: "sports" as const, icon: Dumbbell, key: "datahubNav.sports" },
 ];
 
 export function DataHubSidebar({
   activeSection,
   onSelect,
 }: {
-  activeSection: "club" | "maturation" | "performance" | "landing";
-  onSelect: (section: "club" | "maturation" | "performance" | "landing") => void;
+  activeSection: "club" | "sports" | "landing";
+  onSelect: (section: "club" | "sports" | "landing") => void;
 }) {
   const { t } = useLocale();
-  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -33,15 +30,9 @@ export function DataHubSidebar({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  function handleSelect(section: "club" | "maturation" | "performance" | "landing") {
+  function handleSelect(section: "club" | "sports" | "landing") {
     onSelect(section);
     setMobileOpen(false);
-    if (section === "landing") {
-      router.push("/datahub");
-    } else {
-      const area = sections.find((s) => s.id === section);
-      if (area) router.push(`/datahub?tab=${area.tab}`);
-    }
   }
 
   const navItems = (

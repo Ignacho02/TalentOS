@@ -61,7 +61,7 @@ export function GlobalSearch({ isOpen, onClose }: GlobalSearchProps) {
           title: a.name,
           subtitle: a.teamName || t("datahub.noTeam"),
           type: "athlete",
-          href: `/datahub?tab=club&view=players&id=${a.id}`,
+          href: `/datahub?tab=club&view=plantilla&player=${a.id}`,
         });
       }
     });

@@ -1232,7 +1232,7 @@ function IndividualView({
                       </span>
                     )}
                   </div>
-                  {/* For girls: PAH% shown first and larger — more reliable than offset (Koziel & Malina 2018) */}
+                  {/* For girls: PAH% shown first and larger - more reliable than offset (Koziel & Malina 2018) */}
                   {selectedLatest.inputs.sex === 'female' && (
                     <div className="mb-4 p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
                       <div className="text-4xl font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.percentageAdultHeight, 1)}<span className="text-2xl">%</span></div>
