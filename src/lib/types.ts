@@ -56,6 +56,9 @@ export interface AnthropometricRecordInput {
   sittingHeightCm: number;
   motherHeightCm?: number | null;
   fatherHeightCm?: number | null;
+  /** Whether parental heights are self-reported (true) or directly measured (false).
+   *  Defaults to true if omitted (applies overreporting correction — conservative). */
+  parentalHeightsReported?: boolean;
 }
 
 export interface AnthropometricRecord extends AnthropometricRecordInput {
@@ -72,12 +75,14 @@ export interface MethodOutputs {
   mirwaldAphv: number;
   mooreOffset: number;
   mooreAphv: number;
+  mooreMethod?: "moore-1" | "moore-2";
   fransenRatio: number | null;
   fransenAphv: number | null;
   fransenOffset: number | null;
   kozielMalinaPahCm: number | null;
   kozielMalinaPercentageAdultHeight: number | null;
   sherarOffset: number | null;
+  mirwaldFemaleOffset?: number | null;
 }
 
 export interface DerivedMetrics {
@@ -116,7 +121,7 @@ export interface MaturationResult {
  */
 export interface UnifiedMaturityProfile {
   // Engine selection (never mix multiple methods simultaneously)
-  selectedEngine: "auto" | "fransen" | "sherar" | "moore" | "mirwald" | "consensus";
+  selectedEngine: "auto" | "fransen" | "sherar" | "moore" | "mirwald" | "sitar" | "consensus";
   
   // Primary biological metrics (derived from selected engine)
   aphv: number | null;           // Age at peak height velocity
@@ -137,7 +142,7 @@ export interface UnifiedMaturityProfile {
   
   // Advanced: alternative methods (only shown if user enables)
   alternativeMethods?: Array<{
-    engine: "fransen" | "sherar" | "moore" | "mirwald" | "consensus";
+    engine: "fransen" | "sherar" | "moore" | "mirwald" | "sitar" | "consensus";
     aphv: number | null;
     offset: number | null;
     methodLabel: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink, FileDown } from "lucide-react";
 import { useLocale } from "@/lib/i18n/locale-context";
 
 interface MethodInfo {
@@ -29,75 +29,74 @@ interface Reference {
 const methods: MethodInfo[] = [
   {
     id: "fransen",
-    name: "Fransen (2011)",
-    year: 2011,
-    formula: "APHV = 11.576 + 0.1644(DXA lean mass) − 0.0002(DXA lean mass)² − 0.0931(height)",
+    name: "Fransen (2018)",
+    year: 2018,
+    formula: "MR = 6.987 + 0.1158·AGE + 0.001451·AGE² + 0.004518·BM − 0.000034·BM² − 0.15195·H + 0.000933·H² − 0.00000166·H³ + 0.03220·LL − 0.000269·LL² − 0.000761·(H·AGE)  →  APHV = AGE / MR  →  Offset = AGE − APHV",
     description:
-      "Regression equation developed using dual-energy X-ray absorptiometry (DXA) data and anthropometric measurements. Designed specifically for adolescent males aged 8-18 years with high precision in the critical pubertal growth period.",
-    accuracy: "±0.5 to 1.0 years at 95% confidence interval",
-    applicableTo: ["Boys 8-18 years"],
+      "Introduces the Maturity Ratio (MR = CA / APHV) concept. A polynomial of 11 terms using age, body mass, total stature and leg length. Developed and validated in 1,330 male football academy players in Belgium. The model corrects the systematic bias Mirwald shows in extreme maturers (very early/late). Motor primario AUTO para chicos.",
+    accuracy: "SEE ≈ 0.55–0.65 years; corrects Mirwald bias in early/late maturers",
+    applicableTo: ["Boys 8-18 years — football/sport academy population"],
     advantages: [
-      "Very high accuracy for males in pubertal range",
-      "Uses objective DXA body composition data",
-      "Optimized for sport contexts",
-      "Excellent discrimination at critical growth phases",
+      "Highest accuracy for males in sport academy context",
+      "Corrects Mirwald bias in early/late maturers",
+      "No DXA required — pure anthropometry (age, mass, height, leg length)",
+      "Developed specifically for football population",
     ],
     limitations: [
-      "Males only - not applicable to females",
-      "Requires DXA measurement (body composition data)",
-      "Based on specific population sample",
-      "Less accurate at extremes of maturation range",
+      "Males only — paper is explicit: 'only refer to a male population'",
+      "Validated in Belgian football academies; generalizability to other populations pending",
+      "Less accurate at extremes of maturation (offset < −3 or > +3 years)",
     ],
     references: [
       {
         title:
-          "Peak Height Velocity in the Adolescent Male: A Longitudinal Body Composition Study",
-        authors: "Fransen J, Van Poucke S, Pattyn N, et al.",
-        year: 2011,
-        doi: "10.1249/MSS.0b013e31821c9628",
+          "Improving the Prediction of Maturity From Anthropometric Variables Using a Maturity Ratio",
+        authors: "Fransen J, Bush S, Woodcock S, Novak A, Deprez D, Baxter-Jones ADG, Vaeyens R, Lenoir M",
+        year: 2018,
+        doi: "10.1123/pes.2017-0009",
       },
     ],
-    notes: "Recommended first choice for sport maturation assessment in boys",
+    notes: "Recommended first choice (AUTO) for sport maturation assessment in boys. Coeficientes verificados contra Table 2 del paper original. ✅",
   },
 
   {
     id: "sherar",
-    name: "Sherar (2005)",
-    year: 2005,
+    name: "Mirwald (♀) — 2002",
+    year: 2002,
     formula:
-      "Uses cumulative height velocity curves and age of peak height velocity tables (lookup method, not direct regression)",
+      "MO = −9.376 + 0.0001882·(LL·SH) + 0.0022·(AGE·LL) + 0.005841·(AGE·SH) − 0.002658·(AGE·BM) + 0.07693·((BM/H)·100)  →  APHV = AGE − MO",
     description:
-      "Longitudinal method based on cumulative height velocity analysis from serial measurements. Implements reference curves developed from large cohort studies. Identifies PHV by finding the inflection point where growth rate (height velocity) peaks.",
-    accuracy: "±0.5 to 1.2 years at 95% confidence interval",
-    applicableTo: ["Girls 8-18 years"],
+      "Ecuación Eq. 4 de Mirwald et al. (2002) para chicas. Calcula el maturity offset (años hasta/desde el PHV) a partir de medidas antropométricas. El engine en código era llamado 'Sherar' por error bibliográfico: Sherar et al. (2005) describe un método de predicción de talla adulta que usa internamente esta ecuación de Mirwald, pero no publica una ecuación de offset propia. La atribución correcta es Mirwald (2002). Motor primario AUTO para chicas.",
+    accuracy: "R² = 0.890, SEE = 0.569 años (Mirwald 2002); error se multiplica ×2–6 para offset < −3 o > +3 (Koziel & Malina 2018)",
+    applicableTo: ["Girls 8-16 years (rango validado original)"],
     advantages: [
-      "High accuracy for females in pubertal range",
-      "Based on longitudinal measurement patterns",
-      "More physiologically realistic than cross-sectional methods",
-      "Can be applied with minimal equipment",
+      "Único método de offset específico para chicas con amplia validación",
+      "Solo requiere medidas antropométricas básicas",
+      "Buena precisión en rango central (offset −2 a +2)",
     ],
     limitations: [
-      "Females only - applicability to males requires verification",
-      "Requires minimum 3-4 measurements over time (longitudinal data)",
-      "Less accurate with irregular measurement intervals",
-      "Sensitive to measurement timing",
+      "Chicas únicamente",
+      "Precisión reducida en maduradores extremos (offset < −3 o > +3)",
+      "Validado principalmente en población caucásica norteamericana",
+      "Para chicas, el PAH% (Khamis-Roche) es más fiable que el offset como indicador",
     ],
     references: [
       {
         title:
-          "Growth and maturation during adolescence: The teenage years are a time of marked physical changes",
-        authors: "Sherar LB, Baxter-Jones AD, Faulkner RA, Russell KW",
-        year: 2005,
-        doi: "10.1136/bjsm.2004.014449",
+          "An assessment of maturity from anthropometric measurements",
+        authors: "Mirwald RL, Baxter-Jones ADG, Bailey DA, Beunen G",
+        year: 2002,
+        doi: "10.1097/00005768-200204000-00020",
       },
       {
-        title: "Prediction of Adult Height and Prevalence of Idiopathic Short Stature",
-        authors: "Sherar LB, Baxter-Jones AD, Faulkner RA",
-        year: 2007,
+        title: "Prediction of adult height using maturity-based cumulative height velocity curves (uses Mirwald Eq. 4 internally)",
+        authors: "Sherar LB, Mirwald RL, Baxter-Jones ADG, Thomis M",
+        year: 2005,
+        doi: "10.1016/j.jpeds.2005.04.065",
       },
     ],
     notes:
-      "Requires cumulative height velocity analysis. Best used when 3+ measurements available over 6-12 month period.",
+      "Atribución corregida de 'Sherar' a 'Mirwald (♀)' — la ecuación es Mirwald et al. (2002) Eq. 4, p. 692. Para chicas, priorizar PAH% sobre offset (mayor fiabilidad según Koziel & Malina 2018).",
   },
 
   {
@@ -105,32 +104,32 @@ const methods: MethodInfo[] = [
     name: "Moore (2015)",
     year: 2015,
     formula:
-      "APHV = 11.26 + 0.07219(age × leg length ratio) − 0.00097(age²) + ... [multiple terms with maturation offset]",
+      "♂ Moore-1: MO = −8.128741 + 0.0070346·(AGE·SH)  |  ♂ Moore-2 (fallback, sin SH): MO = −7.999994 + 0.0036124·(AGE·H)  |  ♀: MO = −7.709133 + 0.0042232·(AGE·H)  →  APHV = AGE − MO",
     description:
-      "Multi-variable regression model using age, sitting height/stature ratio, leg length, and maturation status. Developed from large mixed-sex cohort. Provides intermediate accuracy suitable for both sexes when specific methods unavailable.",
-    accuracy: "±1.2 to 1.5 years at 95% confidence interval (mixed precision by sex)",
+      "Simplifica el modelo de Mirwald reduciendo la multicolinealidad a un único término de interacción. Aplica a ambos sexos con ecuaciones separadas. Para chicos ofrece dos variantes: Moore-1 (con altura sentado, más precisa) y Moore-2 (fallback automático cuando no hay altura sentado, usa estatura total). La app activa Moore-2 automáticamente si falta el dato de altura sentado.",
+    accuracy: "MAD ~0.4–0.7 años; Moore-2 tiene ~0.1 años MAD adicional respecto a Moore-1 (Koziel & Malina 2018)",
     applicableTo: ["Boys and girls 8-18 years"],
     advantages: [
       "Applicable to both sexes",
-      "Uses only anthropometric measurements (widely available)",
+      "Moore-2 funciona sin altura sentado (fallback robusto)",
+      "Baja multicolinealidad — ecuación simple y estable",
       "Good performance across broader age ranges",
-      "Practical for field assessment",
     ],
     limitations: [
-      "Lower accuracy than sex-specific methods for same age/sex",
-      "Intermediate precision requires larger confidence intervals",
-      "Equation coefficients complex to implement manually",
+      "Lower accuracy than sex-specific methods",
+      "Moore-1 para chicas presenta sesgo sistemático positivo desde los 10 años",
+      "Para chicas, ninguna ecuación de offset tiene ventana clara de precisión equivalente a chicos",
     ],
     references: [
       {
         title:
-          "A Longitudinal Study of Growth and Maturation in Adolescents: Validation of a Noninvasive Maturity Offset Technique",
-        authors: "Moore SA, McKay HA, Macdonald H, et al.",
+          "Enhancing a somatic maturity prediction model",
+        authors: "Moore SA, McKay HA, Macdonald H, Nettlefold L, Baxter-Jones ADG, Cameron N, Brasher PMA",
         year: 2015,
-        doi: "10.1249/MSS.0000000000000751",
+        doi: "10.1249/MSS.0000000000000588",
       },
     ],
-    notes: "Good fallback when Fransen or Sherar data unavailable",
+    notes: "Fallback de Fransen (♂) y motor principal (♀). Moore-2 activado automáticamente cuando falta altura sentado.",
   },
 
   {
@@ -138,34 +137,32 @@ const methods: MethodInfo[] = [
     name: "Mirwald (2002)",
     year: 2002,
     formula:
-      "Maturity Offset = −8.70130 + 0.0020202(age × sitting height ratio) + 0.01033(chest depth)",
+      "♂: MO = −9.236 + 0.0002708·(LL·SH) − 0.001663·(AGE·LL) + 0.007216·(AGE·SH) + 0.02292·((BM/H)·100)  |  ♀: ver 'Mirwald (♀)' arriba  →  APHV = AGE − MO",
     description:
-      "Produces 'maturity offset' (years from/to PHV) rather than absolute APHV. Classic method from large Longitudinal study. Predicts distance from PHV using anthropometric indices. Published widely and used as baseline in many studies.",
-    accuracy: "±1.0 to 1.3 years for maturity offset prediction",
-    applicableTo: ["Boys and girls 8-18 years"],
+      "Primer método en estimar el maturity offset (años hasta/desde el PHV) a partir exclusivamente de medidas antropométricas, sin edad ósea. Desarrollado sobre datos longitudinales de tres estudios canadienses (SGDS, BMAS, LLTS). La app implementa las ecuaciones combinadas (Eq. 3 para chicos, Eq. 4 para chicas), recomendadas por el paper como más robustas. Motor de respaldo para ambos sexos.",
+    accuracy: "R² = 0.891 (♂), 0.890 (♀); SEE = 0.592 años (♂), 0.569 años (♀)",
+    applicableTo: ["Boys and girls 8-16 years (rango validado original)"],
     advantages: [
-      "Maturity offset concept intuitive (negative = before PHV, positive = after)",
-      "Extensive validation across populations",
-      "Relatively simple equation",
-      "Good performance in mature adolescents (Post-PHV)",
+      "Aplicable a ambos sexos con ecuaciones separadas",
+      "Extensamente validado y citado en literatura científica",
+      "Requiere solo medidas básicas (edad, estatura, altura sentado, masa)",
+      "Concepto de offset intuitivo (negativo = antes del PHV, positivo = después)",
     ],
     limitations: [
-      "Lower accuracy in Pre-PHV and early Mid-PHV stages",
-      "Maturity offset ≠ absolute APHV (requires separate PHV value)",
-      "Performance varies considerably by population",
-      "Less precise than sex-specific methods",
+      "Error se multiplica ×2–6 para offset < −3 o > +3 años (Koziel & Malina 2018)",
+      "Alta correlación offset-edad cronológica (r ≈ 0.92–0.97)",
+      "Validado principalmente en población caucásica norteamericana",
     ],
     references: [
       {
         title:
           "An assessment of maturity from anthropometric measurements",
-        authors: "Mirwald RL, Baxter-Jones AD, Bailey DA, Beunen GP",
+        authors: "Mirwald RL, Baxter-Jones ADG, Bailey DA, Beunen G",
         year: 2002,
-        doi: "10.1249/MSS.0000000000000751",
+        doi: "10.1097/00005768-200204000-00020",
       },
     ],
-    notes:
-      "Useful for estimating years away from PHV. Often used as reference when comparing other methods.",
+    notes: "Motor de respaldo. Coeficientes verificados contra el paper original. ✅",
   },
 
   {
@@ -242,38 +239,42 @@ const methods: MethodInfo[] = [
     name: "SITAR (2010)",
     year: 2010,
     formula:
-      "Flexible semi-parametric model: h(t) = α + β·t + f(γ + δ·t) + ε, where parameters represent size (α), timing (γ), and velocity (δ) deviations from growth curve template.",
+      "APHV_SITAR = 13.5 + b  |  PHV_SITAR = 10.1 × exp(−c)  |  PAH_SITAR = 179.5 + a  (parámetros de referencia: Monasterio et al. 2026, fútbol élite español)",
     description:
-      "Super Imposition by Translation And Rotation (SITAR) is a longitudinal method that models individual growth curves by decomposing them into size, timing, and velocity components. Requires minimum 3 measurements over time to estimate parameters. Provides individual-level growth trajectory fitting rather than population comparison.",
-    accuracy: "Depends on measurement frequency and quality; typically ±0.5-1.0 years for timing estimates",
+      "SuperImposition by Translation And Rotation. Modelo longitudinal individual que descompone la curva de crecimiento en tres parámetros: a (tamaño), b (timing), c (velocidad). Requiere mínimo 3 mediciones en el tiempo. Los parámetros de referencia han sido actualizados a valores de fútbol de élite español (Monasterio 2026): meanAphv=13.5, meanPhv=10.1, meanAdultHeight=179.5 — corrigiendo el sesgo de −1.08 cm/año del dataset Berkeley.",
+    accuracy: "Clasifica correctamente ~80% pre/circa/post-PHV vs ~50–70% métodos de offset (Monasterio 2026)",
     applicableTo: [
-      "Boys and girls",
-      "Requires longitudinal data (3+ measurements over 6-12 months minimum)",
+      "Boys (parámetros de referencia validados en población masculina)",
+      "Requiere ≥3 mediciones longitudinales en ≥6 meses",
     ],
     advantages: [
-      "Accounts for individual growth patterns (not population-average based)",
-      "Separates size, timing, and velocity components",
-      "Can model growth curve shape individually",
-      "Better captures individual growth deviations",
-      "Excellent for longitudinal athlete monitoring",
+      "~80% de clasificación correcta pre/circa/post-PHV con datos desde U11",
+      "Estima APHV, PHV y talla adulta (PAH) simultáneamente",
+      "Modelado individual — no comparación con media poblacional",
+      "Superior a métodos de offset cuando hay datos longitudinales",
     ],
     limitations: [
-      "Requires longitudinal measurements (minimum 3 over extended period)",
-      "Complex statistical model (requires optimization)",
-      "Sensitive to measurement errors and irregular intervals",
-      "More computational overhead than other methods",
+      "Requiere ≥3 mediciones distribuidas alrededor del PHV",
+      "Con solo datos U13-U15: error típico ±0.6 años en APHV",
+      "Optimización grid search + hill climbing (menos precisa que REML del paquete R sitar)",
+      "No disponible en modo single-measurement",
     ],
     references: [
       {
         title:
-          "A Structural Equation Model of the Development of Strength and Lean Mass in Adolescent Females",
+          "SITAR — a useful instrument for growth curve analysis",
         authors: "Cole TJ, Donaldson MDC, Ben-Shlomo Y",
         year: 2010,
-        doi: "10.1136/bmj.c142",
+        doi: "10.1093/ije/dyq115",
+      },
+      {
+        title: "Application of the SITAR model for estimating APHV, PHV, and adult height in elite male football players",
+        authors: "Monasterio X et al.",
+        year: 2026,
       },
     ],
     notes:
-      "Best used for athletes with regular measurement protocols (e.g., monthly or quarterly assessments). Particularly valuable for understanding individual growth trajectories and deviations from expected patterns.",
+      "Parámetros actualizados a fútbol élite español (Monasterio 2026). Se activa automáticamente cuando hay ≥3 mediciones longitudinales. ✅",
   },
 ];
 
@@ -415,47 +416,63 @@ export default function CommunityPage() {
           <h2 className="font-semibold text-slate-900 mb-2 text-blue-900">Quick Selection Guide</h2>
           <ul className="space-y-1.5 text-sm text-slate-700">
             <li>
-              <strong>Boys (8-18):</strong> Start with <span className="font-medium">Fransen</span> (highest accuracy)
+              <strong>Chicos (8-18):</strong> AUTO usa <span className="font-medium">Fransen</span> como motor primario (mayor precisión en fútbol masculino)
             </li>
             <li>
-              <strong>Girls (8-18):</strong> Start with <span className="font-medium">Sherar</span> (requires longitudinal data)
+              <strong>Chicas (8-18):</strong> AUTO usa <span className="font-medium">Mirwald (♀)</span> como motor primario; priorizar <span className="font-medium">PAH%</span> sobre offset (más fiable en chicas)
             </li>
             <li>
-              <strong>No sex-specific data?</strong> Use{" "}
-              <span className="font-medium">Moore</span> (intermediate accuracy, both sexes)
+              <strong>Sin altura sentado (chicos):</strong> <span className="font-medium">Moore</span> activa automáticamente el fallback Moore-2 (usa estatura total)
             </li>
             <li>
-              <strong>3+ measurements over time?</strong> Consider{" "}
-              <span className="font-medium">SITAR</span> (individual trajectory analysis)
+              <strong>≥3 mediciones longitudinales:</strong> Considerar <span className="font-medium">SITAR</span> (~80% clasificación correcta vs ~50–70% con offset)
             </li>
             <li>
-              <strong>Adult height prediction:</strong> Use <span className="font-medium">Khamis-Roche</span> with
-              parental heights
+              <strong>Predicción de talla adulta:</strong> <span className="font-medium">Khamis-Roche</span> con tallas parentales (indicar si son autoreportadas)
             </li>
           </ul>
         </div>
 
         {/* Consensus Explanation */}
         <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-          <h2 className="font-semibold text-slate-900 mb-2 text-purple-900">Consensus (Dynamic Weighting)</h2>
+          <h2 className="font-semibold text-slate-900 mb-2 text-purple-900">Consenso (Ponderación Dinámica)</h2>
           <p className="text-sm text-slate-700 mb-3">
-            When multiple methods are available, the Consensus approach combines them using dynamic weighting:
+            Cuando hay múltiples métodos disponibles, el Consenso los combina con pesos científicamente fundamentados:
           </p>
           <div className="space-y-2 text-xs text-slate-700 font-mono bg-white p-2 rounded border border-purple-200">
             <p>
-              <strong>Base weights:</strong> Fransen/Sherar (50%), Moore (30%), Mirwald (20%)
+              <strong>Pesos base:</strong> Fransen / Mirwald(♀) (50%), Moore (30%), Mirwald (20%)
             </p>
             <p>
-              <strong>For boys:</strong> Uses Fransen (50%) + Moore (30%) + Mirwald (20%)
+              <strong>Para chicos:</strong> Fransen (50%) + Moore (30%) + Mirwald (20%)
             </p>
             <p>
-              <strong>For girls:</strong> Fransen excluded (not applicable) → Sherar/Moore/Mirwald weights
-              reweighted: Sherar (50% → 62.5%), Moore (30% → 37.5%), Mirwald excluded
+              <strong>Para chicas:</strong> Fransen excluido (no aplica) → Mirwald(♀) (50% → 62.5%), Moore (30% → 37.5%), Mirwald excluido
             </p>
             <p className="text-purple-900 font-semibold">
-              Result: More robust APHV estimate by reducing single-method bias
+              Resultado: estimación de APHV más robusta al reducir el sesgo de cada método individual
             </p>
           </div>
+        </div>
+
+        {/* Scientific Documentation Download */}
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+          <h2 className="font-semibold text-slate-900 mb-1 text-emerald-900">📄 Documentación Científica Completa</h2>
+          <p className="text-sm text-slate-700 mb-3">
+            Guía técnica completa con fórmulas verificadas fórmula a fórmula contra los artículos originales,
+            coeficientes exactos, precisión de cada método, limitaciones clínicas y referencias bibliográficas.
+            Versión 2.0 — Mayo 2026.
+          </p>
+          <a
+            href="/community/maturation-methods.md"
+            download="maturation-methods.md"
+            className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-700 text-white text-sm rounded hover:bg-emerald-800 transition-colors"
+          >
+            <FileDown size={15} /> Descargar maturation-methods.md
+          </a>
+          <p className="text-xs text-slate-500 mt-2">
+            Incluye: Fransen, Mirwald(♂/♀), Moore (Moore-1 y Moore-2), Khamis-Roche, WHO BMI Z-Score, SITAR, Consenso, Bio-banding, Avisos clínicos, Glosario y Referencias.
+          </p>
         </div>
 
         {/* Methods */}

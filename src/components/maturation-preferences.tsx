@@ -32,8 +32,8 @@ export function MaturationPreferences({
 
   // Engine options based on sex
   const availableEngines: MaturationEngine[] = sex === "male"
-    ? ["auto", "fransen", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar"] : [])]
-    : ["auto", "sherar", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar"] : [])];
+    ? ["auto", "fransen", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])]
+    : ["auto", "sherar", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])];
 
   const getEngineDescription = (engine: MaturationEngine): string => {
     const descriptions: Record<MaturationEngine, string> = {
@@ -88,7 +88,19 @@ export function MaturationPreferences({
                       className="cursor-pointer mt-1"
                     />
                     <label htmlFor={`engine-${engine}`} className="flex-1 cursor-pointer">
-                      <span className="font-medium text-slate-700">{getEngineLabel(engine)}</span>
+                      <span className="font-medium text-slate-700">
+                        {getEngineLabel(engine)}
+                        {engine === "sitar" && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
+                            AUTO ≥3
+                          </span>
+                        )}
+                        {engine === "auto" && measurementCount >= 3 && sex === "male" && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
+                            SITAR activo
+                          </span>
+                        )}
+                      </span>
                       <span className="text-xs text-slate-500 block leading-relaxed">
                         {getEngineDescription(engine)}
                       </span>

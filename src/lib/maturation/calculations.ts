@@ -22,17 +22,27 @@ function getRegressionEntry(age: number, sex: Sex) {
   return entry;
 }
 
-function adjustMotherHeight(cm: number) {
-  // Khamis-Roche method: Adjust parental heights to target child height units
-  // Formula: ((cm * 0.3937 * 0.953) + 2.803) * 2.54
-  // Source: Khamis & Roche (1994) - Predicting adult stature
+/**
+ * Adjust parental height for overreporting bias (Epstein et al., 1995).
+ * Only applied when parentalHeightsReported = true (self-reported heights).
+ * If heights are measured directly, only unit conversion is applied.
+ */
+function adjustMotherHeight(cm: number, isReported: boolean) {
+  if (!isReported) {
+    // Measured: only unit conversion cm → in → cm (identity, but kept for clarity)
+    return cm;
+  }
+  // Self-reported correction (Epstein et al., 1995 via Monasterio 2026):
+  // ((cm * 0.3937 * 0.953) + 2.803) * 2.54
   return ((cm * 0.3937 * 0.953) + 2.803) * 2.54;
 }
 
-function adjustFatherHeight(cm: number) {
-  // Khamis-Roche method: Adjust parental heights to target child height units
-  // Formula: ((cm * 0.3937 * 0.955) + 2.316) * 2.54
-  // Source: Khamis & Roche (1994) - Predicting adult stature
+function adjustFatherHeight(cm: number, isReported: boolean) {
+  if (!isReported) {
+    return cm;
+  }
+  // Self-reported correction:
+  // ((cm * 0.3937 * 0.955) + 2.316) * 2.54
   return ((cm * 0.3937 * 0.955) + 2.316) * 2.54;
 }
 
@@ -53,9 +63,14 @@ function classifyPahBand(percentage: number | null): "≤ 85%" | "85-90%" | "90-
 /**
  * Calculate maturation status using multiple scientific methods
  * @param record Anthropometric measurement record
+ * @param parentalHeightsReported Whether parental heights are self-reported (true) or directly measured (false).
+ *   Defaults to true (conservative: applies overreporting correction). Set to false when heights are measured.
  * @returns MaturationResult with calculated offsets, classifications, and warnings
  */
-export function calculateMaturation(record: AnthropometricRecord): MaturationResult {
+export function calculateMaturation(
+  record: AnthropometricRecord,
+  parentalHeightsReported: boolean = true
+): MaturationResult {
   const chronologicalAge = calculateAge(record.dob, record.dataCollectionDate);
   const legLengthCm = record.statureCm - record.sittingHeightCm;
   const sittingHeightRatio = (record.sittingHeightCm / record.statureCm) * 100;
@@ -93,8 +108,8 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
   let maturityZScore: number | null = null;
 
   if (parentHeightsPresent && record.motherHeightCm && record.fatherHeightCm) {
-    const adjustedMother = adjustMotherHeight(record.motherHeightCm);
-    const adjustedFather = adjustFatherHeight(record.fatherHeightCm);
+    const adjustedMother = adjustMotherHeight(record.motherHeightCm, parentalHeightsReported);
+    const adjustedFather = adjustFatherHeight(record.fatherHeightCm, parentalHeightsReported);
     const adjustedMidParent = (adjustedMother + adjustedFather) / 2;
 
     pahCm =
@@ -128,11 +143,13 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
     }
   }
 
-  // Sherar et al. (2005) - Specific offset for girls
-  // Approximation based on age and sitting height ratio
-  let sherarOffset: number | null = null;
+  // Mirwald (♀) — female offset equation
+  // This is the Mirwald et al. (2002) Eq. 4 equation for girls.
+  // Note: formerly labelled "Sherar" in the codebase. Sherar (2005) uses this
+  // equation internally but does not publish a new offset equation.
+  let mirwaldFemaleOffset: number | null = null;
   if (record.sex === "female") {
-     sherarOffset = -9.376 + 0.0001882 * (legLengthCm * record.sittingHeightCm) + 0.0022 * (chronologicalAge * legLengthCm) + 0.005841 * (chronologicalAge * record.sittingHeightCm) - 0.002658 * (chronologicalAge * record.bodyMassKg) + 0.07693 * ((record.bodyMassKg / record.statureCm) * 100);
+    mirwaldFemaleOffset = -9.376 + 0.0001882 * (legLengthCm * record.sittingHeightCm) + 0.0022 * (chronologicalAge * legLengthCm) + 0.005841 * (chronologicalAge * record.sittingHeightCm) - 0.002658 * (chronologicalAge * record.bodyMassKg) + 0.07693 * ((record.bodyMassKg / record.statureCm) * 100);
   }
 
   // WHO BMI Z-Score
@@ -164,15 +181,28 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
   // Female: offset = -9.376 + 0.0001882*LL*SH + 0.0022*AGE*LL + 0.005841*AGE*SH - 0.002658*AGE*BM + 0.07693*BMI
   // Where LL = leg length, SH = sitting height, BM = body mass, BMI = body mass/stature
 
-  const mooreOffset =
-    record.sex === "male"
-      ? -8.128741 + 0.0070346 * (chronologicalAge * record.sittingHeightCm)
-      : -7.709133 + 0.0042232 * (chronologicalAge * record.statureCm);
+  // Moore et al. (2015) - Moore-1: requires sitting height
+  // Moore-2 (male only): fallback when sitting height is unavailable — uses total stature instead
+  // Male Moore-1:   offset = -8.128741 + 0.0070346 * (AGE × SH)
+  // Male Moore-2:   offset = -7.999994 + 0.0036124 * (AGE × H)   [Moore et al. 2015, p.1761]
+  // Female Moore:   offset = -7.709133 + 0.0042232 * (AGE × H)
+  const hasSittingHeight = record.sittingHeightCm > 0;
+  let mooreOffset: number;
+  let mooreMethod: "moore-1" | "moore-2";
+  if (record.sex === "male") {
+    if (hasSittingHeight) {
+      mooreOffset = -8.128741 + 0.0070346 * (chronologicalAge * record.sittingHeightCm);
+      mooreMethod = "moore-1";
+    } else {
+      // Moore-2 fallback: no sitting height required
+      mooreOffset = -7.999994 + 0.0036124 * (chronologicalAge * record.statureCm);
+      mooreMethod = "moore-2";
+    }
+  } else {
+    mooreOffset = -7.709133 + 0.0042232 * (chronologicalAge * record.statureCm);
+    mooreMethod = "moore-1";
+  }
   const mooreAphv = chronologicalAge - mooreOffset;
-  // Moore et al. (2015) - Predicting the age of peak height velocity
-  // Male: offset = -8.128741 + 0.0070346 * (AGE * SH)
-  // Female: offset = -7.709133 + 0.0042232 * (AGE * STATURE)
-  // Source: Moore et al. (2015) - Journal of Sports Sciences
 
   const fransenRatio =
     record.sex === "male"
@@ -195,6 +225,14 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
     fransenAphv !== null ? chronologicalAge - fransenAphv : null;
   const primaryOffset = fransenOffset ?? mooreOffset;
 
+  // Extreme maturation warning (Koziel & Malina, 2018)
+  // Error multiplies ×2–6 when offset < −3 or > +3 years
+  if (primaryOffset < -3) {
+    warnings.push("offset-extreme-early");
+  } else if (primaryOffset > 3) {
+    warnings.push("offset-extreme-late");
+  }
+
   return {
     inputs: record,
     derivedMetrics: { 
@@ -211,12 +249,14 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
       mirwaldAphv,
       mooreOffset,
       mooreAphv,
+      mooreMethod,
       fransenRatio,
       fransenAphv,
       fransenOffset,
       kozielMalinaPahCm,
       kozielMalinaPercentageAdultHeight,
-      sherarOffset,
+      sherarOffset: mirwaldFemaleOffset, // kept for backward compat; represents Mirwald(♀)
+      mirwaldFemaleOffset,
     },
     classification: {
       maturityBand: classifyBand(primaryOffset),
@@ -225,6 +265,6 @@ export function calculateMaturation(record: AnthropometricRecord): MaturationRes
       whoBmiZScore,
     },
     warnings,
-    algorithmVersion: "2026.04-excel-aligned-v1",
+    algorithmVersion: "2026.05-plan-accion-v2",
   };
 }

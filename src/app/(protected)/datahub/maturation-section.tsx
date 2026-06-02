@@ -22,7 +22,7 @@ import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput, UnifiedMaturityProfile } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { MaturationPreferences } from "@/components/maturation-preferences";
-import { createUnifiedProfile } from "@/lib/maturation/unified-maturation";
+import { createUnifiedProfile, MaturationEngine } from "@/lib/maturation/unified-maturation";
 
 /** Filter range bounds — kept in one place to avoid drift between state and UI. */
 const FILTER_RANGES = {
@@ -252,7 +252,7 @@ export function MaturationSection({
   const [downloadTeams, setDownloadTeams] = useState<string[]>([]);
   
   // Concept-centric: user preferences for maturation calculation
-  const [selectedEngine, setSelectedEngine] = useState<"auto" | "fransen" | "sherar" | "moore" | "mirwald" | "consensus">("auto");
+  const [selectedEngine, setSelectedEngine] = useState<MaturationEngine>("auto");
   const [bioBandingStrategy, setBioBandingStrategy] = useState<"offset" | "pah">("offset");
   const [showScientificBasis, setShowScientificBasis] = useState(false);
 
@@ -414,7 +414,7 @@ export function MaturationSection({
                   </th>
                 )}
 {viewMode.maturation && (
-                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={7}>
+                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={8}>
 {t("maturation")}
                   </th>
                 )}
@@ -883,6 +883,9 @@ export function MaturationSection({
                         </div>
                       )}
                     </th>
+                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 text-sm text-violet-700 font-semibold whitespace-nowrap">
+                      cm/año
+                    </th>
                   </>
                 )}
               </tr>
@@ -972,6 +975,11 @@ export function MaturationSection({
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.derivedMetrics.sittingHeightRatio, 1)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{row.classification.whoBmiZScore !== null ? formatNumber(row.classification.whoBmiZScore, 2) : "—"}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center text-violet-700 font-medium">
+                              {row.derivedMetrics.growthVelocityCmPerYear != null
+                                ? formatNumber(row.derivedMetrics.growthVelocityCmPerYear, 1)
+                                : <span className="text-slate-300">—</span>}
+                            </td>
                           </>
                         )}
                       </tr>
@@ -979,7 +987,7 @@ export function MaturationSection({
                   );
                 };
 
-                const totalCols = 1 + (viewMode.anthropometric ? 7 : 0) + (viewMode.maturation ? 6 : 0);
+                const totalCols = 1 + (viewMode.anthropometric ? 7 : 0) + (viewMode.maturation ? 7 : 0);
 
                 // No grouping at all
                 if (!groupByTeam && !groupByPHV) {
@@ -1178,6 +1186,19 @@ export function MaturationSection({
                           <div>
                             <label className="block text-xs font-medium text-zinc-500 mb-1">{t("datahub.fatherHeightCm")}</label>
                             <input type="number" step="0.1" value={editingRecord.fatherHeightCm ?? ""} onChange={(e) => setEditingRecord((r) => r ? { ...r, fatherHeightCm: e.target.value ? parseFloat(e.target.value) : null } : r)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-accent/50 font-sans" />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={editingRecord.parentalHeightsReported !== false}
+                                onChange={(e) => setEditingRecord((r) => r ? { ...r, parentalHeightsReported: e.target.checked } : r)}
+                                className="h-4 w-4 rounded border-zinc-300 accent-accent"
+                              />
+                              <span className="text-xs text-zinc-500">
+                                Tallas parentales autoreportadas <span className="text-zinc-400">(si no están medidas directamente, se aplica corrección K-R)</span>
+                              </span>
+                            </label>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-1">
@@ -1776,6 +1797,19 @@ function AddPlayerFormBody({
         <LabeledField label={t("datahub.fatherHeightCm")}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm || ""} onChange={(e) => setMaturationValue("fatherHeightCm", parseFloat(e.target.value) || null)} className="rounded-2xl border border-line bg-white/70 px-4 py-3 text-zinc-700" />
         </LabeledField>
+        <div className="col-span-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none mt-1">
+            <input
+              type="checkbox"
+              checked={maturationForm.parentalHeightsReported !== false}
+              onChange={(e) => setMaturationValue("parentalHeightsReported", e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 accent-accent"
+            />
+            <span className="text-xs text-zinc-500">
+              Tallas parentales autoreportadas <span className="text-zinc-400">(sin marcar = medidas directamente, no se aplica corrección de sobreestimación)</span>
+            </span>
+          </label>
+        </div>
       </div>
       <div className="flex justify-end gap-3">
         <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-zinc-700 hover:bg-gray-50">{t("datahub.cancel")}</button>
@@ -1909,6 +1943,19 @@ function AddMeasurementFormBody({
         <LabeledField label={t("datahub.fatherHeightCm")} error={fieldErrors.fatherHeightCm}>
           <input type="number" step="0.1" placeholder={t("datahub.exampleParentHeight")} value={maturationForm.fatherHeightCm ?? ""} onChange={(e) => setMaturationValue("fatherHeightCm", e.target.value ? parseFloat(e.target.value) : null)} className={maturationInputClass(Boolean(fieldErrors.fatherHeightCm))} />
         </LabeledField>
+        <div className="col-span-2 flex items-center">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={maturationForm.parentalHeightsReported !== false}
+              onChange={(e) => setMaturationValue("parentalHeightsReported", e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 accent-accent"
+            />
+            <span className="text-xs text-zinc-500">
+              Tallas parentales autoreportadas <span className="text-zinc-400">(sin marcar = medidas directamente)</span>
+            </span>
+          </label>
+        </div>
       </div>
       <div className="flex justify-end gap-3">
         <button type="button" onClick={onCancel} className="rounded-lg border border-line px-4 py-2 text-zinc-700 hover:bg-gray-50">{t("datahub.cancel")}</button>

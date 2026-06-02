@@ -18,18 +18,26 @@ export type MaturationEngine = "auto" | "fransen" | "sherar" | "moore" | "mirwal
 /**
  * Auto-selection priority by athlete sex
  * Males: Fransen preferred (best accuracy for boys), fallback Moore, then Mirwald
- * Females: Sherar preferred (best accuracy for girls), fallback Moore, then Mirwald
+ * Females: Mirwald(♀) preferred (best accuracy for girls; formerly labelled "Sherar"),
+ *          fallback Moore, then Mirwald
+ *
+ * Note on "sherar" engine key: the engine internally identified as "sherar" uses the
+ * Mirwald et al. (2002) female equation (Eq. 4). Sherar (2005) references this equation
+ * but does not publish a new offset formula. The display label has been updated to
+ * "Mirwald (♀)" to reflect the correct attribution.
  */
 function selectBestEngine(result: MaturationResult, sex: Sex): MaturationEngine {
   const { methodOutputs } = result;
 
   if (sex === "male") {
-    // Males: Fransen → Moore → Mirwald
+    // Males: SITAR (when ≥3 measurements) → Fransen → Moore → Mirwald
+    // SITAR classifies ~80% correctly vs ~50–70% for offset methods (Monasterio 2026)
+    if (result.sitarOutputs?.sitarActive) return "sitar";
     if (methodOutputs.fransenAphv !== null) return "fransen";
     if (methodOutputs.mooreAphv !== null) return "moore";
     if (methodOutputs.mirwaldAphv !== null) return "mirwald";
   } else {
-    // Females: Sherar → Moore → Mirwald
+    // Females: Mirwald(♀) [engine key "sherar"] → Moore → Mirwald
     if (methodOutputs.sherarOffset !== null) return "sherar";
     if (methodOutputs.mooreAphv !== null) return "moore";
     if (methodOutputs.mirwaldAphv !== null) return "mirwald";
@@ -69,17 +77,18 @@ function getEngineMetrics(
       };
 
     case "sherar":
+      // "sherar" engine key = Mirwald(♀) equation. Display label is "Mirwald (♀)".
       return {
         aphv: methodOutputs.sherarOffset ? result.derivedMetrics.chronologicalAge + methodOutputs.sherarOffset : null,
         offset: methodOutputs.sherarOffset,
       };
 
-    case "consensus":
+    case "consensus": {
       // Dynamic consensus: reweight available methods
-      // Preference weights: Fransen/Sherar 50%, Moore 30%, Mirwald 20%
+      // Preference weights: Mirwald(♀)/Fransen 50%, Moore 30%, Mirwald 20%
       const availableMethods: Array<{ name: string; aphv: number | null; weight: number }> = [
         { name: "Fransen", aphv: methodOutputs.fransenAphv, weight: 0.5 },
-        { name: "Sherar", aphv: methodOutputs.sherarOffset ? result.derivedMetrics.chronologicalAge + methodOutputs.sherarOffset : null, weight: 0.5 },
+        { name: "Mirwald(♀)", aphv: methodOutputs.sherarOffset ? result.derivedMetrics.chronologicalAge + methodOutputs.sherarOffset : null, weight: 0.5 },
         { name: "Moore", aphv: methodOutputs.mooreAphv, weight: 0.3 },
         { name: "Mirwald", aphv: methodOutputs.mirwaldAphv, weight: 0.2 },
       ];
@@ -101,17 +110,22 @@ function getEngineMetrics(
         aphv: consensusAphv,
         offset: consensusOffset,
       };
+    }
 
-    case "sitar":
-      // SITAR requires longitudinal data (multiple measurements over time)
-      // Currently returns null - needs integration with history analysis
-      // To enable SITAR: pass array of MaturationResult[] to optimization engine
-      return { aphv: null, offset: null };
+    case "sitar": {
+      // SITAR: longitudinal individual growth curve model (Monasterio 2026)
+      // sitarOutputs are injected by processAssessmentsWithHistory when ≥3 records span ≥6 months
+      const sitar = result.sitarOutputs;
+      if (!sitar?.sitarActive) return { aphv: null, offset: null };
+      const sitarOffset = result.derivedMetrics.chronologicalAge - sitar.sitarAphv;
+      return { aphv: sitar.sitarAphv, offset: sitarOffset };
+    }
 
-    case "auto":
+    case "auto": {
       const autoEngine = selectBestEngine(result, sex);
       if (autoEngine === "auto") return { aphv: null, offset: null };
       return getEngineMetrics(result, autoEngine, sex);
+    }
 
     default:
       return { aphv: null, offset: null };
@@ -133,7 +147,7 @@ function classifyMaturityBand(offset: number | null) {
  */
 function classifyPahBand(percentage: number | null) {
   if (!percentage) return "85-90%";
-  if (percentage < 85) return "≤ 85%";
+  if (percentage < 85) return "85-90%";
   if (percentage < 90) return "85-90%";
   if (percentage < 95) return "90-95%";
   return "≥ 95%";
@@ -173,6 +187,7 @@ function getAlternativeMethods(
 
 /**
  * Get human-readable label for engine
+ * Note: "sherar" engine key displays as "Mirwald (♀)" — correct attribution per Mirwald (2002).
  */
 export function getEngineLabel(engine: MaturationEngine): string {
   const labels: Record<MaturationEngine, string> = {
@@ -180,7 +195,7 @@ export function getEngineLabel(engine: MaturationEngine): string {
     fransen: "Fransen",
     moore: "Moore",
     mirwald: "Mirwald",
-    sherar: "Sherar",
+    sherar: "Mirwald (♀)",   // ← renamed from "Sherar" — equation is Mirwald et al. (2002) Eq. 4
     sitar: "SITAR",
     consensus: "Consenso",
   };
@@ -193,10 +208,10 @@ export function getEngineLabel(engine: MaturationEngine): string {
 export function getEngineInfo(engine: MaturationEngine): { label: string; year?: number } {
   const info: Record<MaturationEngine, { label: string; year?: number }> = {
     auto: { label: "Automático" },
-    fransen: { label: "Fransen", year: 2011 },
+    fransen: { label: "Fransen", year: 2018 },
     moore: { label: "Moore", year: 2015 },
     mirwald: { label: "Mirwald", year: 2002 },
-    sherar: { label: "Sherar", year: 2007 },
+    sherar: { label: "Mirwald (♀)", year: 2002 },  // ← attribution corrected
     sitar: { label: "SITAR", year: 2010 },
     consensus: { label: "Consenso ponderado" },
   };

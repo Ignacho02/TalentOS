@@ -19,7 +19,7 @@ export function processAssessmentsWithHistory(records: AnthropometricRecord[]): 
     athleteRecords.sort((a, b) => a.dataCollectionDate.localeCompare(b.dataCollectionDate));
 
     // Basic calculation for each record
-    const baseResults = athleteRecords.map(calculateMaturation);
+    const baseResults = athleteRecords.map(r => calculateMaturation(r, r.parentalHeightsReported ?? true));
 
     // 2. Calculate Growth Velocity (cm/year)
     for (let i = 1; i < baseResults.length; i++) {
