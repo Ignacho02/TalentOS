@@ -9,7 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { calculateMaturation } from "@/lib/maturation/calculations";
+import { processAssessmentsWithHistory } from "@/lib/maturation/history";
 import { refreshAppStateAction } from "@/lib/actions/app-state";
 import {
   addAthleteAction,
@@ -155,7 +155,7 @@ export function AppStateProvider({
   }, [state.club?.accentColor]);
 
   const assessments = useMemo(
-    () => state.records.map(r => calculateMaturation(r, r.parentalHeightsReported ?? true)),
+    () => processAssessmentsWithHistory(state.records),
     [state.records],
   );
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { demoRecords } from "../demo-data";
 import { calculateMaturation } from "./calculations";
+import { processAssessmentsWithHistory } from "./history";
 
 // Test basic functionality
 const boyResult = calculateMaturation(demoRecords[0]);
@@ -76,5 +77,37 @@ assert.equal(typeof boyResult.derivedMetrics.chronologicalAge, "number");
 assert.equal(boyResult.derivedMetrics.chronologicalAge > 0, true);
 assert.equal(typeof boyResult.derivedMetrics.legLengthCm, "number");
 assert.equal(boyResult.derivedMetrics.legLengthCm > 0, true);
+
+const quarterlyHistory = [
+  { date: "2026-04-29", statureCm: 163.4, bodyMassKg: 58, sittingHeightCm: 84.4 },
+  { date: "2026-01-29", statureCm: 162.3, bodyMassKg: 56.5, sittingHeightCm: 84.6 },
+  { date: "2025-10-29", statureCm: 161.4, bodyMassKg: 55, sittingHeightCm: 84.1 },
+  { date: "2025-07-29", statureCm: 160.8, bodyMassKg: 53.5, sittingHeightCm: 83.7 },
+  { date: "2025-04-29", statureCm: 160.1, bodyMassKg: 52, sittingHeightCm: 82.8 },
+].map((entry, index) => ({
+  ...demoRecords[0],
+  id: `quarterly-${index}`,
+  athleteId: "quarterly-athlete",
+  athleteName: "Quarterly Athlete",
+  dataCollectionDate: entry.date,
+  statureCm: entry.statureCm,
+  bodyMassKg: entry.bodyMassKg,
+  sittingHeightCm: entry.sittingHeightCm,
+}));
+
+const quarterlyResults = processAssessmentsWithHistory(quarterlyHistory);
+const latestQuarterly = quarterlyResults.find(
+  (result) => result.inputs.dataCollectionDate === "2026-04-29",
+);
+assert.equal(
+  latestQuarterly?.derivedMetrics.growthVelocityCmPerYear !== null,
+  true,
+  "Latest quarterly assessment should have growth velocity",
+);
+assert.ok(
+  latestQuarterly!.derivedMetrics.growthVelocityCmPerYear! > 4.4 &&
+    latestQuarterly!.derivedMetrics.growthVelocityCmPerYear! < 4.5,
+  "Latest quarterly assessment should annualize to about 4.5 cm/year",
+);
 
 console.log("All maturation calculation tests passed!");

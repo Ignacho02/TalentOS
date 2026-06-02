@@ -37,6 +37,7 @@ const FILTER_RANGES = {
   mirwald: { min: -20, max: 20 },
   shr: { min: 40, max: 70 },
   whoBmi: { min: -4, max: 4 },
+  velocity: { min: -10, max: 30 },
 };
 
 /** Default initial values for the column filter state. */
@@ -56,6 +57,7 @@ const DEFAULT_COLUMN_FILTERS = {
   mirwald: { min: FILTER_RANGES.mirwald.min, max: FILTER_RANGES.mirwald.max },
   shr: { min: FILTER_RANGES.shr.min, max: FILTER_RANGES.shr.max },
   whoBmi: { min: FILTER_RANGES.whoBmi.min, max: FILTER_RANGES.whoBmi.max },
+  velocity: { min: FILTER_RANGES.velocity.min, max: FILTER_RANGES.velocity.max },
 };
 
 export function MaturationSection({
@@ -206,6 +208,15 @@ export function MaturationSection({
         return false;
       }
       if (row.classification.whoBmiZScore !== null && (row.classification.whoBmiZScore < columnFilters.whoBmi.min || row.classification.whoBmiZScore > columnFilters.whoBmi.max)) {
+        return false;
+      }
+      const velocity = row.derivedMetrics.growthVelocityCmPerYear;
+      const velocityFilterActive =
+        columnFilters.velocity.min !== FILTER_RANGES.velocity.min ||
+        columnFilters.velocity.max !== FILTER_RANGES.velocity.max;
+      if (velocity === null) {
+        if (velocityFilterActive) return false;
+      } else if (velocity < columnFilters.velocity.min || velocity > columnFilters.velocity.max) {
         return false;
       }
 
@@ -404,7 +415,7 @@ export function MaturationSection({
         </div>
 
         <div className="table-scroll overflow-x-auto">
-          <table className="w-full min-w-max text-left text-sm">
+          <table className="w-full min-w-max text-center text-sm [&_thead_button]:mx-auto [&_thead_button]:justify-center">
             <thead>
               <tr>
                 <th className="border-b border-line px-3 py-3"></th>
@@ -414,7 +425,7 @@ export function MaturationSection({
                   </th>
                 )}
 {viewMode.maturation && (
-                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={8}>
+                  <th className="border-b border-line bg-white/70 px-3 py-3 text-xs uppercase tracking-[0.18em] text-zinc-600" colSpan={7}>
 {t("maturation")}
                   </th>
                 )}
@@ -883,8 +894,46 @@ export function MaturationSection({
                         </div>
                       )}
                     </th>
-                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 text-sm text-violet-700 font-semibold whitespace-nowrap">
-                      cm/año
+                    <th className="border-b border-line bg-[#eaf4f2] px-3 py-3 text-sm whitespace-nowrap relative group">
+                      <button
+                        onClick={() => setShowColumnFilter(showColumnFilter === "velocity" ? null : "velocity")}
+                        className="flex items-center gap-1 hover:text-accent text-sm"
+                      >
+                        cm/year
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                      {showColumnFilter === "velocity" && (
+                        <div className="absolute right-0 left-auto z-10 mt-1 w-72 rounded-lg border border-line bg-white p-3 shadow-lg">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between text-sm text-zinc-600">
+                              <span>cm/year</span>
+                              <span>{columnFilters.velocity.min} - {columnFilters.velocity.max}</span>
+                            </div>
+                            <Range
+                              step={0.5}
+                              min={FILTER_RANGES.velocity.min}
+                              max={FILTER_RANGES.velocity.max}
+                              values={[columnFilters.velocity.min, columnFilters.velocity.max]}
+                              onChange={(values) => setColumnFilters((prev) => ({ ...prev, velocity: { min: values[0], max: values[1] } }))}
+                              renderTrack={({ props, children }) => {
+                                const range = FILTER_RANGES.velocity.max - FILTER_RANGES.velocity.min;
+                                const leftPct = ((columnFilters.velocity.min - FILTER_RANGES.velocity.min) / range) * 100;
+                                const rightPct = 100 - ((columnFilters.velocity.max - FILTER_RANGES.velocity.min) / range) * 100;
+                                return (
+                                  <div {...props} className="relative h-2 bg-slate-200 rounded-full">
+                                    <div className="absolute inset-0 rounded-full" style={{ left: `${leftPct}%`, right: `${rightPct}%`, background: "hsl(174 60% 40% / 0.35)" }} />
+                                    {children}
+                                  </div>
+                                );
+                              }}
+                              renderThumb={({ props, isDragged }) => {
+                                const { key, ...rest } = props;
+                                return <div key={key} {...rest} className={cn("h-4 w-4 bg-accent rounded-full border-2 border-white shadow", isDragged && "shadow-lg")} />;
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </th>
                   </>
                 )}
@@ -975,7 +1024,7 @@ export function MaturationSection({
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.derivedMetrics.sittingHeightRatio, 1)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{row.classification.whoBmiZScore !== null ? formatNumber(row.classification.whoBmiZScore, 2) : "—"}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3 text-center text-violet-700 font-medium">
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">
                               {row.derivedMetrics.growthVelocityCmPerYear != null
                                 ? formatNumber(row.derivedMetrics.growthVelocityCmPerYear, 1)
                                 : <span className="text-slate-300">—</span>}
@@ -1002,7 +1051,7 @@ export function MaturationSection({
                     return (
                       <Fragment key={band}>
                         <tr>
-                          <td colSpan={totalCols} className={`px-3 py-1.5 border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
+                          <td colSpan={totalCols} className={`px-3 py-1.5 text-left border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
                             <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
                             <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
                           </td>
@@ -1023,7 +1072,7 @@ export function MaturationSection({
                     return (
                       <Fragment key={team || "__no_team__"}>
                         <tr>
-                          <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2">
+                          <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2 text-left">
                             <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
                               {team || t("datahub.noTeam")}
                             </span>
@@ -1043,7 +1092,7 @@ export function MaturationSection({
                   return (
                     <Fragment key={team || "__no_team__"}>
                       <tr>
-                        <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2">
+                        <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2 text-left">
                           <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
                             {team || t("datahub.noTeam")}
                           </span>
@@ -1056,7 +1105,7 @@ export function MaturationSection({
                         return (
                           <Fragment key={band}>
                             <tr>
-                              <td colSpan={totalCols} className={`px-3 py-1.5 border-t border-zinc-200 ${BAND_COLORS[band]}`}>
+                              <td colSpan={totalCols} className={`px-3 py-1.5 text-left border-t border-zinc-200 ${BAND_COLORS[band]}`}>
                                 <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
                                 <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
                               </td>
