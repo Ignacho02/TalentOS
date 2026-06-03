@@ -433,6 +433,27 @@ export default function CommunityPage() {
           </ul>
         </div>
 
+        {/* Maturation Table Variables */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+          <h2 className="font-semibold text-slate-900 mb-3">Variable Definitions</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {[
+              { label: "Grupo", description: t("maturationMethods.groupDesc") },
+              { label: "Offset", description: t("maturationMethods.offsetDesc") },
+              { label: "APHV", description: t("maturationMethods.aphvDesc") },
+              { label: "% PAH", description: t("maturationMethods.pahDesc") },
+              { label: "SHR", description: t("maturationMethods.shrDesc") },
+              { label: "WHO BMI Z", description: t("maturationMethods.whoBmiDesc") },
+              { label: `${t("maturationMethods.growthVelocityLabel")} (${t("maturationMethods.growthVelocityUnit")})`, description: t("maturationMethods.growthVelocityDesc") },
+            ].map((variable) => (
+              <div key={variable.label} className="rounded-lg bg-white p-3 border border-slate-200">
+                <p className="text-sm font-semibold text-slate-900">{variable.label}</p>
+                <p className="text-sm text-slate-700 mt-1 leading-relaxed">{variable.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Consensus Explanation */}
         <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
           <h2 className="font-semibold text-slate-900 mb-2 text-purple-900">Consenso (Ponderación Dinámica)</h2>

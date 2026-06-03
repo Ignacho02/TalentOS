@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { demoRecords } from "../demo-data";
 import { calculateMaturation } from "./calculations";
 import { processAssessmentsWithHistory } from "./history";
+import { createUnifiedProfile } from "./unified-maturation";
 
 // Test basic functionality
 const boyResult = calculateMaturation(demoRecords[0]);
@@ -13,6 +14,16 @@ const girlResult = calculateMaturation(demoRecords[2]);
 assert.equal(girlResult.inputs.sex, "female");
 assert.equal(girlResult.methodOutputs.fransenOffset, null); // Fransen not available for girls
 assert.equal(girlResult.methodOutputs.mirwaldAphv > 0, true);
+
+const boyAutoProfile = createUnifiedProfile(boyResult, "auto", "offset", "male");
+assert.equal(boyAutoProfile.selectedEngine, "fransen", "AUTO should prefer Fransen over SITAR when Fransen is available");
+
+const femaleSherarProfile = createUnifiedProfile(girlResult, "sherar", "offset", "female");
+const expectedFemaleSherarAphv =
+  girlResult.methodOutputs.sherarOffset !== null
+    ? girlResult.derivedMetrics.chronologicalAge - girlResult.methodOutputs.sherarOffset
+    : null;
+assert.equal(femaleSherarProfile.aphv, expectedFemaleSherarAphv, "Mirwald (♀) APHV should be derived from chronological age minus the offset");
 
 // Test edge cases
 console.log("Testing edge cases...");

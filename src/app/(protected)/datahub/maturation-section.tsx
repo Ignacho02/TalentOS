@@ -997,7 +997,7 @@ export function MaturationSection({
                         className={cn("cursor-pointer border-t border-line/70 hover:bg-white/50 transition", isSelected && "bg-accent/5")}
                         onClick={() => rowAthleteId && setSelectedAthleteId(isSelected ? null : rowAthleteId)}
                       >
-                        <td className="px-3 py-3 font-medium text-zinc-900">
+                        <td className="pl-5 pr-3 py-3 font-medium text-zinc-900 text-left">
                           <span className={cn(isSelected && "text-accent")}>{row.inputs.athleteName}</span>
                         </td>
                         {viewMode.anthropometric && (
@@ -1064,10 +1064,11 @@ export function MaturationSection({
                     return (
                       <Fragment key={band}>
                         <tr>
-                          <td colSpan={totalCols} className={`px-3 py-1.5 text-left border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
+                          <td className={`pl-5 pr-3 py-1.5 text-left border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
                             <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
                             <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
                           </td>
+                          {totalCols > 1 && <td colSpan={totalCols - 1} className={`border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}></td>}
                         </tr>
                         {bandRows.map(renderRow)}
                       </Fragment>
@@ -1085,12 +1086,13 @@ export function MaturationSection({
                     return (
                       <Fragment key={team || "__no_team__"}>
                         <tr>
-                          <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2 text-left">
+                          <td className="bg-zinc-100 border-t-2 border-zinc-300 pl-5 pr-3 py-2 text-left">
                             <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
                               {team || t("datahub.noTeam")}
                             </span>
                             <span className="ml-2 text-xs text-zinc-400">({teamRows.length})</span>
                           </td>
+                          {totalCols > 1 && <td colSpan={totalCols - 1} className="bg-zinc-100 border-t-2 border-zinc-300"></td>}
                         </tr>
                         {teamRows.map(renderRow)}
                       </Fragment>
@@ -1105,12 +1107,13 @@ export function MaturationSection({
                   return (
                     <Fragment key={team || "__no_team__"}>
                       <tr>
-                        <td colSpan={totalCols} className="bg-zinc-100 border-t-2 border-zinc-300 px-3 py-2 text-left">
+                        <td className="bg-zinc-100 border-t-2 border-zinc-300 pl-5 pr-3 py-2 text-left">
                           <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
                             {team || t("datahub.noTeam")}
                           </span>
                           <span className="ml-2 text-xs text-zinc-400">({teamRows.length})</span>
                         </td>
+                        {totalCols > 1 && <td colSpan={totalCols - 1} className="bg-zinc-100 border-t-2 border-zinc-300"></td>}
                       </tr>
                       {BAND_ORDER.map((band) => {
                         const bandRows = sortRows(teamRows.filter((r) => r.classification.maturityBand === band));
@@ -1118,10 +1121,11 @@ export function MaturationSection({
                         return (
                           <Fragment key={band}>
                             <tr>
-                              <td colSpan={totalCols} className={`px-3 py-1.5 text-left border-t border-zinc-200 ${BAND_COLORS[band]}`}>
+                              <td className={`pl-5 pr-3 py-1.5 text-left border-t border-zinc-200 ${BAND_COLORS[band]}`}>
                                 <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
                                 <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
                               </td>
+                              {totalCols > 1 && <td colSpan={totalCols - 1} className={`border-t border-zinc-200 ${BAND_COLORS[band]}`}></td>}
                             </tr>
                             {bandRows.map(renderRow)}
                           </Fragment>

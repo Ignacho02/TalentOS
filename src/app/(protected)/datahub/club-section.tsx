@@ -1017,12 +1017,16 @@ function PlayersTab({
 
   const renderGroupHeader = (label: string, nested = false) => (
     <tr>
-      <td colSpan={6} className={cn("px-4 pb-1", nested ? "pt-2 pl-8" : "pt-4")}>
-        <div className="flex items-center gap-2">
-          <div className={cn("rounded-full bg-accent", nested ? "h-1 w-1 opacity-60" : "h-1.5 w-1.5")} />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{label}</span>
-          <div className="h-px flex-1 bg-zinc-100" />
-        </div>
+      <td
+        colSpan={6}
+        className={cn(
+          "pl-5 pr-3 text-left border-t-2",
+          nested
+            ? "py-1.5 border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-500"
+            : "py-2 border-zinc-300 bg-zinc-100 text-xs font-bold uppercase tracking-widest text-zinc-500"
+        )}
+      >
+        {label}
       </td>
     </tr>
   );

@@ -50,7 +50,7 @@ export function selectBestAphvMethod(
     if (method === "fransen" && result.methodOutputs.fransenOffset !== null) {
       return "fransen";
     }
-    if (method === "sherar" && result.methodOutputs.shearOffset !== null) {
+    if (method === "sherar" && result.methodOutputs.sherarOffset !== null) {
       return "sherar";
     }
     if (method === "moore" && result.methodOutputs.mooreOffset !== null) {
@@ -97,7 +97,7 @@ export function getSelectedAphv(
   } else if (strategy.aphvMethod === "auto") {
     method = selectBestAphvMethod(result, sex);
     if (method === "fransen") value = result.methodOutputs.fransenOffset;
-    else if (method === "sherar") value = result.methodOutputs.shearOffset;
+    else if (method === "sherar") value = result.methodOutputs.sherarOffset;
     else if (method === "moore") value = result.methodOutputs.mooreOffset;
     else if (method === "mirwald") value = result.methodOutputs.mirwaldOffset;
   } else if (strategy.aphvMethod === "fransen") {
@@ -105,7 +105,7 @@ export function getSelectedAphv(
     value = result.methodOutputs.fransenOffset;
   } else if (strategy.aphvMethod === "sherar") {
     method = "sherar";
-    value = result.methodOutputs.shearOffset;
+    value = result.methodOutputs.sherarOffset;
   } else if (strategy.aphvMethod === "moore") {
     method = "moore";
     value = result.methodOutputs.mooreOffset;
@@ -165,8 +165,8 @@ export function getSecondaryAphvMethods(
   if (result.methodOutputs.fransenOffset !== null) {
     methods.push({ method: "Fransen", value: result.methodOutputs.fransenOffset });
   }
-  if (result.methodOutputs.shearOffset !== null) {
-    methods.push({ method: "Sherar", value: result.methodOutputs.shearOffset });
+  if (result.methodOutputs.sherarOffset !== null) {
+    methods.push({ method: "Sherar", value: result.methodOutputs.sherarOffset });
   }
   if (result.methodOutputs.mooreOffset !== null) {
     methods.push({ method: "Moore", value: result.methodOutputs.mooreOffset });

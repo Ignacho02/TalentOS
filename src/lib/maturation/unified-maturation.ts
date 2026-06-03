@@ -30,12 +30,13 @@ function selectBestEngine(result: MaturationResult, sex: Sex): MaturationEngine 
   const { methodOutputs } = result;
 
   if (sex === "male") {
-    // Males: SITAR (when ≥3 measurements) → Fransen → Moore → Mirwald
-    // SITAR classifies ~80% correctly vs ~50–70% for offset methods (Monasterio 2026)
-    if (result.sitarOutputs?.sitarActive) return "sitar";
+    // Males: Fransen preferred, fallback Moore, then Mirwald.
+    // SITAR is available as a longitudinal reference when ≥3 measurements exist,
+    // but AUTO should not choose it ahead of the classical offset methods.
     if (methodOutputs.fransenAphv !== null) return "fransen";
     if (methodOutputs.mooreAphv !== null) return "moore";
     if (methodOutputs.mirwaldAphv !== null) return "mirwald";
+    if (result.sitarOutputs?.sitarActive) return "sitar";
   } else {
     // Females: Mirwald(♀) [engine key "sherar"] → Moore → Mirwald
     if (methodOutputs.sherarOffset !== null) return "sherar";
@@ -79,7 +80,10 @@ function getEngineMetrics(
     case "sherar":
       // "sherar" engine key = Mirwald(♀) equation. Display label is "Mirwald (♀)".
       return {
-        aphv: methodOutputs.sherarOffset ? result.derivedMetrics.chronologicalAge + methodOutputs.sherarOffset : null,
+        aphv:
+          methodOutputs.sherarOffset !== null
+            ? result.derivedMetrics.chronologicalAge - methodOutputs.sherarOffset
+            : null,
         offset: methodOutputs.sherarOffset,
       };
 
@@ -88,7 +92,14 @@ function getEngineMetrics(
       // Preference weights: Mirwald(♀)/Fransen 50%, Moore 30%, Mirwald 20%
       const availableMethods: Array<{ name: string; aphv: number | null; weight: number }> = [
         { name: "Fransen", aphv: methodOutputs.fransenAphv, weight: 0.5 },
-        { name: "Mirwald(♀)", aphv: methodOutputs.sherarOffset ? result.derivedMetrics.chronologicalAge + methodOutputs.sherarOffset : null, weight: 0.5 },
+        {
+          name: "Mirwald(♀)",
+          aphv:
+            methodOutputs.sherarOffset !== null
+              ? result.derivedMetrics.chronologicalAge - methodOutputs.sherarOffset
+              : null,
+          weight: 0.5,
+        },
         { name: "Moore", aphv: methodOutputs.mooreAphv, weight: 0.3 },
         { name: "Mirwald", aphv: methodOutputs.mirwaldAphv, weight: 0.2 },
       ];
