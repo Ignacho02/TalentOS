@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Settings } from "lucide-react";
 import type { MaturationEngine } from "@/lib/maturation/unified-maturation";
-import { getEngineLabel } from "@/lib/maturation/unified-maturation";
 
 interface MaturationPreferencesProps {
   selectedEngine: MaturationEngine;
@@ -34,6 +33,19 @@ export function MaturationPreferences({
   const availableEngines: MaturationEngine[] = sex === "male"
     ? ["auto", "fransen", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])]
     : ["auto", "sherar", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])];
+
+  const getEngineTranslatedLabel = (engine: MaturationEngine): string => {
+    const labels: Record<MaturationEngine, string> = {
+      auto: t("maturationMethods.auto"),
+      fransen: t("maturationMethods.fransen"),
+      moore: t("maturationMethods.moore"),
+      mirwald: t("maturationMethods.mirwald"),
+      sherar: t("maturationMethods.sherar"),
+      sitar: t("maturationMethods.sitar"),
+      consensus: t("maturationMethods.consensus"),
+    };
+    return labels[engine];
+  };
 
   const getEngineDescription = (engine: MaturationEngine): string => {
     const descriptions: Record<MaturationEngine, string> = {
@@ -89,7 +101,7 @@ export function MaturationPreferences({
                     />
                     <label htmlFor={`engine-${engine}`} className="flex-1 cursor-pointer">
                       <span className="font-medium text-slate-700">
-                        {getEngineLabel(engine)}
+                        {getEngineTranslatedLabel(engine)}
                         {engine === "sitar" && (
                           <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
                             AUTO ≥3
@@ -97,7 +109,7 @@ export function MaturationPreferences({
                         )}
                         {engine === "auto" && measurementCount >= 3 && sex === "male" && (
                           <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
-                            SITAR activo
+                            {t("maturationMethods.sitarActive")}
                           </span>
                         )}
                       </span>
@@ -176,6 +188,7 @@ export function MaturationPreferences({
                   { title: "% PAH", desc: t("maturationMethods.pahDesc") },
                   { title: "SHR", desc: t("maturationMethods.shrDesc") },
                   { title: "WHO BMI Z", desc: t("maturationMethods.whoBmiDesc") },
+                  { title: `${t("maturationMethods.growthVelocityLabel")} (${t("maturationMethods.growthVelocityUnit")})`, desc: t("maturationMethods.growthVelocityDesc") },
                 ].map(({ title, desc }) => (
                   <div key={title} className="p-2.5 bg-slate-50 rounded border border-slate-200">
                     <p className="font-medium text-slate-900">{title}</p>

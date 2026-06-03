@@ -121,6 +121,19 @@ export function MaturationSection({
   canEditAnthropometry?: boolean;
 }) {
   const { t, locale } = useLocale();
+
+  const translateEngineLabel = (engine: MaturationEngine): string => {
+    const map: Record<MaturationEngine, string> = {
+      auto: t("maturationMethods.auto"),
+      fransen: t("maturationMethods.fransen"),
+      moore: t("maturationMethods.moore"),
+      mirwald: t("maturationMethods.mirwald"),
+      sherar: t("maturationMethods.sherar"),
+      sitar: t("maturationMethods.sitar"),
+      consensus: t("maturationMethods.consensus"),
+    };
+    return map[engine] ?? engine;
+  };
   const [viewMode, setViewMode] = useState({
     anthropometric: true,
     maturation: true,
@@ -899,14 +912,14 @@ export function MaturationSection({
                         onClick={() => setShowColumnFilter(showColumnFilter === "velocity" ? null : "velocity")}
                         className="flex items-center gap-1 hover:text-accent text-sm"
                       >
-                        cm/year
+                        {t("maturationMethods.growthVelocityLabel")}
                         <ChevronDown className="h-3 w-3" />
                       </button>
                       {showColumnFilter === "velocity" && (
                         <div className="absolute right-0 left-auto z-10 mt-1 w-72 rounded-lg border border-line bg-white p-3 shadow-lg">
                           <div className="space-y-3">
                             <div className="flex items-center justify-between text-sm text-zinc-600">
-                              <span>cm/year</span>
+                              <span>{t("maturationMethods.growthVelocityLabel")} ({t("maturationMethods.growthVelocityUnit")})</span>
                               <span>{columnFilters.velocity.min} - {columnFilters.velocity.max}</span>
                             </div>
                             <Range
@@ -1015,7 +1028,7 @@ export function MaturationSection({
                                         : "—"}
                                     </div>
                                     <div className="text-xs text-slate-500">
-                                      {profile.methodLabel}
+                                      {translateEngineLabel(profile.selectedEngine)}
                                     </div>
                                   </div>
                                 );
@@ -1245,7 +1258,7 @@ export function MaturationSection({
                                 className="h-4 w-4 rounded border-zinc-300 accent-accent"
                               />
                               <span className="text-xs text-zinc-500">
-                                Tallas parentales autoreportadas <span className="text-zinc-400">(si no están medidas directamente, se aplica corrección K-R)</span>
+                                {t("maturationMethods.parentalHeightsReported")} <span className="text-zinc-400">{t("maturationMethods.parentalHeightsReportedHintInline")}</span>
                               </span>
                             </label>
                           </div>
@@ -1855,7 +1868,7 @@ function AddPlayerFormBody({
               className="h-4 w-4 rounded border-zinc-300 accent-accent"
             />
             <span className="text-xs text-zinc-500">
-              Tallas parentales autoreportadas <span className="text-zinc-400">(sin marcar = medidas directamente, no se aplica corrección de sobreestimación)</span>
+              {t("maturationMethods.parentalHeightsReported")} <span className="text-zinc-400">{t("maturationMethods.parentalHeightsReportedHintForm")}</span>
             </span>
           </label>
         </div>
@@ -2001,7 +2014,7 @@ function AddMeasurementFormBody({
               className="h-4 w-4 rounded border-zinc-300 accent-accent"
             />
             <span className="text-xs text-zinc-500">
-              Tallas parentales autoreportadas <span className="text-zinc-400">(sin marcar = medidas directamente)</span>
+              {t("maturationMethods.parentalHeightsReported")} <span className="text-zinc-400">{t("maturationMethods.parentalHeightsReportedHintBulk")}</span>
             </span>
           </label>
         </div>

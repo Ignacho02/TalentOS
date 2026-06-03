@@ -1284,25 +1284,25 @@ function IndividualView({
                   <div className="flex items-center gap-2 mb-4">
                     <TrendingUp className="h-5 w-5 text-violet-600" />
                     <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                      {locale === 'es' ? 'Velocidad de crecimiento' : 'Growth velocity'}
+                      {t("maturationMethods.growthVelocityLabel")}
                     </h3>
                   </div>
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div className="text-center p-3 bg-violet-50 rounded-xl">
-                      <div className="text-xs text-slate-500 mb-1">{locale === 'es' ? 'Última medida' : 'Latest'}</div>
+                      <div className="text-xs text-slate-500 mb-1">{t("analysis.individual.latestMeasurement")}</div>
                       <div className="text-3xl font-bold text-violet-600">
                         {selectedLatest.derivedMetrics.growthVelocityCmPerYear != null
                           ? formatNumber(selectedLatest.derivedMetrics.growthVelocityCmPerYear, 1)
                           : '—'}
                       </div>
-                      <div className="text-xs text-slate-400">cm/año</div>
+                      <div className="text-xs text-slate-400">{t("maturationMethods.growthVelocityUnit")}</div>
                     </div>
                     <div className="text-center p-3 bg-slate-50 rounded-xl">
-                      <div className="text-xs text-slate-500 mb-1">{locale === 'es' ? 'PHV referencia' : 'PHV reference'}</div>
+                      <div className="text-xs text-slate-500 mb-1">{t("analysis.individual.phvReference")}</div>
                       <div className="text-3xl font-bold text-slate-400">
                         {selectedLatest.inputs.sex === 'male' ? '10.1' : '~8.3'}
                       </div>
-                      <div className="text-xs text-slate-400">cm/año</div>
+                      <div className="text-xs text-slate-400">{t("maturationMethods.growthVelocityUnit")}</div>
                     </div>
                   </div>
                   <div className="h-36 w-full">
@@ -1313,7 +1313,7 @@ function IndividualView({
                         <YAxis fontSize={10} axisLine={false} tickLine={false} unit=" cm/a" width={52} />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                          formatter={(val: any) => [`${val} cm/año`, locale === 'es' ? 'Velocidad' : 'Velocity']}
+                          formatter={(val: any) => [`${val} ${t("maturationMethods.growthVelocityUnit")}`, t("maturationMethods.growthVelocityLabel")]}
                         />
                         <Line
                           type="monotone"
@@ -1322,15 +1322,13 @@ function IndividualView({
                           strokeWidth={3}
                           dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
                           connectNulls={false}
-                          name={locale === 'es' ? 'Velocidad (cm/año)' : 'Velocity (cm/yr)'}
+                          name={`${t("maturationMethods.growthVelocityLabel")} (${t("maturationMethods.growthVelocityUnit")})`}
                         />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                   <p className="mt-2 text-[11px] text-slate-400">
-                    {locale === 'es'
-                      ? 'Velocidad calculada entre mediciones consecutivas. Requiere ≥2 registros del mismo deportista.'
-                      : 'Velocity calculated between consecutive measurements. Requires ≥2 records for the same athlete.'}
+                    {t("maturationMethods.growthVelocityDesc")}
                   </p>
                 </div>
               )}
