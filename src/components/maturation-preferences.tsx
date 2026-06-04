@@ -1,15 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { MaturationEngine } from "@/lib/maturation/unified-maturation";
 
 interface MaturationPreferencesProps {
   selectedEngine: MaturationEngine;
-  onEngineChange: (engine: MaturationEngine) => void;
   bioBandingStrategy: "offset" | "pah";
-  onBioStrategyChange: (strategy: "offset" | "pah") => void;
+  onSave?: (engine: MaturationEngine, strategy: "offset" | "pah") => void;
   t: (key: string) => string;
   sex?: "male" | "female";
   measurementCount?: number;
@@ -17,15 +15,22 @@ interface MaturationPreferencesProps {
 
 export function MaturationPreferences({
   selectedEngine,
-  onEngineChange,
   bioBandingStrategy,
-  onBioStrategyChange,
+  onSave,
   t,
   sex = "male",
   measurementCount = 0,
 }: MaturationPreferencesProps) {
-  const [showAdjustments, setShowAdjustments] = useState(false);
+  const [draftEngine, setDraftEngine] = useState<MaturationEngine>(selectedEngine);
+  const [draftBioStrategy, setDraftBioStrategy] = useState<"offset" | "pah">(bioBandingStrategy);
+
+  useEffect(() => {
+    setDraftEngine(selectedEngine);
+    setDraftBioStrategy(bioBandingStrategy);
+  }, [selectedEngine, bioBandingStrategy]);
+
   const showSitar = measurementCount >= 3;
+  const hasUnsavedChanges = draftEngine !== selectedEngine || draftBioStrategy !== bioBandingStrategy;
 
   // Engine options based on sex
   const availableEngines: MaturationEngine[] = sex === "male"
@@ -60,32 +65,25 @@ export function MaturationPreferences({
 
   return (
     <div className="space-y-3">
-      {/* ACCORDION 1: ADJUSTMENTS (Settings) */}
+      {/* ADJUSTMENTS (Settings) - always visible */}
       <div className="rounded-lg border border-slate-200 bg-white/50 backdrop-blur-sm">
-        <button
-          onClick={() => setShowAdjustments(true)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition"
-        >
+        <div className="px-4 py-3 border-b border-slate-200">
           <span className="font-medium text-slate-900 text-sm">
             ⚙️ {t("maturationMethods.adjustmentsTitle")}
           </span>
-          <ChevronDown
-            className={`h-4 w-4 transition-transform ${showAdjustments ? "rotate-180" : ""}`}
-          />
-        </button>
+        </div>
 
-        {showAdjustments && (
-          <div className="border-t border-slate-200 px-4 py-4 space-y-4">
+        <div className="px-4 py-4 space-y-4">
             {/* Method Selection */}
             <div className="space-y-3">
-              <h4 className="font-semibold text-slate-900 text-xs uppercase tracking-wide">
+              <h4 className="font-semibold text-slate-900 text-sm uppercase tracking-wide">
                 {t("maturationMethods.selectMethod")}
               </h4>
-              <p className="text-xs text-slate-500 leading-relaxed">
+              <p className="text-sm text-slate-500 leading-relaxed">
                 {t("maturationMethods.methodForAphvDesc")}
               </p>
-              <Link href="/community" className="text-xs text-violet-700 font-medium hover:underline">
-                {t("maturationMethods.communityLink")}
+              <Link href="/community" className="inline-flex items-center gap-1 text-xs text-blue-600 font-semibold hover:text-blue-800 underline underline-offset-2">
+                🔗 {t("maturationMethods.communityLink")}
               </Link>
 
               <div className="space-y-2">
@@ -96,12 +94,12 @@ export function MaturationPreferences({
                       id={`engine-${engine}`}
                       name="engine"
                       value={engine}
-                      checked={selectedEngine === engine}
-                      onChange={() => onEngineChange(engine)}
+                      checked={draftEngine === engine}
+                      onChange={() => setDraftEngine(engine)}
                       className="cursor-pointer mt-1"
                     />
                     <label htmlFor={`engine-${engine}`} className="flex-1 cursor-pointer">
-                      <span className="font-medium text-slate-700">
+                      <span className="font-medium text-slate-700 text-sm">
                         {getEngineTranslatedLabel(engine)}
                         {engine === "sitar" && (
                           <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
@@ -114,7 +112,7 @@ export function MaturationPreferences({
                           </span>
                         )}
                       </span>
-                      <span className="text-xs text-slate-500 block leading-relaxed">
+                      <span className="text-sm text-slate-500 block leading-relaxed">
                         {getEngineDescription(engine)}
                       </span>
                     </label>
@@ -125,10 +123,10 @@ export function MaturationPreferences({
 
             {/* Bio-banding Strategy */}
             <div className="space-y-3 pt-3 border-t border-slate-200">
-              <h4 className="font-semibold text-slate-900 text-xs uppercase tracking-wide">
+              <h4 className="font-semibold text-slate-900 text-sm uppercase tracking-wide">
                 {t("maturationMethods.bioBandingStrategy")}
               </h4>
-              <p className="text-xs text-slate-500 leading-relaxed">
+              <p className="text-sm text-slate-500 leading-relaxed">
                 {t("maturationMethods.bioBandingDesc")}
               </p>
 
@@ -143,20 +141,32 @@ export function MaturationPreferences({
                   >
                     <input
                       type="radio"
-                      checked={bioBandingStrategy === value}
-                      onChange={() => onBioStrategyChange(value as "offset" | "pah")}
+                      checked={draftBioStrategy === value}
+                      onChange={() => setDraftBioStrategy(value as "offset" | "pah")}
                       className="mt-1"
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium text-slate-700 block">{label}</span>
-                      <span className="text-xs text-slate-500 block">{desc}</span>
+                      <span className="text-sm text-slate-500 block">{desc}</span>
                     </div>
                   </label>
                 ))}
               </div>
             </div>
-          </div>
-        )}
+            <div className="pt-4 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                disabled={!hasUnsavedChanges}
+                onClick={() => {
+                  if (!hasUnsavedChanges) return;
+                  onSave?.(draftEngine, draftBioStrategy);
+                }}
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("save")}
+              </button>
+            </div>
+        </div>
       </div>
 
     </div>

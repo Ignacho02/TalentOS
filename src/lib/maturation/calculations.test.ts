@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { demoRecords } from "../demo-data";
 import { calculateMaturation } from "./calculations";
 import { processAssessmentsWithHistory } from "./history";
-import { createUnifiedProfile } from "./unified-maturation";
+import { createUnifiedProfile, getGroupingBand } from "./unified-maturation";
 
 // Test basic functionality
 const boyResult = calculateMaturation(demoRecords[0]);
@@ -24,6 +24,26 @@ const expectedFemaleSherarAphv =
     ? girlResult.derivedMetrics.chronologicalAge - girlResult.methodOutputs.sherarOffset
     : null;
 assert.equal(femaleSherarProfile.aphv, expectedFemaleSherarAphv, "Mirwald (♀) APHV should be derived from chronological age minus the offset");
+
+const consensusProfile = createUnifiedProfile(boyResult, "consensus", "offset", "male");
+assert.equal(
+  consensusProfile.offset,
+  boyResult.derivedMetrics.chronologicalAge - consensusProfile.aphv!,
+  "Consensus offset should use chronologicalAge - APHV",
+);
+assert.equal(
+  getGroupingBand(consensusProfile),
+  "Mid-PHV",
+  "Consensus should be classified as Mid-PHV for offsets below +1 year",
+);
+
+const syntheticMidPreResult = {
+  ...boyResult,
+  derivedMetrics: { ...boyResult.derivedMetrics, chronologicalAge: 15.0 },
+  methodOutputs: { ...boyResult.methodOutputs, mooreAphv: 14.05, mooreOffset: 0.95 },
+};
+const syntheticMidPreProfile = createUnifiedProfile(syntheticMidPreResult as any, "moore", "offset", "male");
+assert.equal(getGroupingBand(syntheticMidPreProfile), "Mid-PHV", "Offset of 0.95 should be classified as Mid-PHV");
 
 // Test edge cases
 console.log("Testing edge cases...");
@@ -111,14 +131,38 @@ const latestQuarterly = quarterlyResults.find(
   (result) => result.inputs.dataCollectionDate === "2026-04-29",
 );
 assert.equal(
-  latestQuarterly?.derivedMetrics.growthVelocityCmPerYear !== null,
+  latestQuarterly?.derivedMetrics.growthVelocityCmPerYear,
+  null,
+  "Latest quarterly assessment should not estimate growth velocity when measurements are less than 6 months apart",
+);
+
+const halfYearHistory = [
+  { date: "2026-04-29", statureCm: 163.4, bodyMassKg: 58, sittingHeightCm: 84.4 },
+  { date: "2025-10-29", statureCm: 161.4, bodyMassKg: 55, sittingHeightCm: 84.1 },
+].map((entry, index) => ({
+  ...demoRecords[0],
+  id: `halfyear-${index}`,
+  athleteId: "halfyear-athlete",
+  athleteName: "Halfyear Athlete",
+  dataCollectionDate: entry.date,
+  statureCm: entry.statureCm,
+  bodyMassKg: entry.bodyMassKg,
+  sittingHeightCm: entry.sittingHeightCm,
+}));
+
+const halfYearResults = processAssessmentsWithHistory(halfYearHistory);
+const latestHalfYear = halfYearResults.find(
+  (result) => result.inputs.dataCollectionDate === "2026-04-29",
+);
+assert.equal(
+  latestHalfYear?.derivedMetrics.growthVelocityCmPerYear !== null,
   true,
-  "Latest quarterly assessment should have growth velocity",
+  "Latest 6-month assessment should have growth velocity",
 );
 assert.ok(
-  latestQuarterly!.derivedMetrics.growthVelocityCmPerYear! > 4.4 &&
-    latestQuarterly!.derivedMetrics.growthVelocityCmPerYear! < 4.5,
-  "Latest quarterly assessment should annualize to about 4.5 cm/year",
+  latestHalfYear!.derivedMetrics.growthVelocityCmPerYear! > 3.9 &&
+    latestHalfYear!.derivedMetrics.growthVelocityCmPerYear! < 4.2,
+  "Latest 6-month assessment should annualize to about 4.0 cm/year",
 );
 
 console.log("All maturation calculation tests passed!");

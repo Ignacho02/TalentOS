@@ -233,6 +233,17 @@ export function calculateMaturation(
     warnings.push("offset-extreme-late");
   }
 
+  // Determine canonical maturity band using both offset and %PAH thresholds
+  const pahPercentUsed = percentageAdultHeight ?? kozielMalinaPercentageAdultHeight;
+  let combinedBand: MaturityBand;
+  if ((primaryOffset <= -1) || (pahPercentUsed !== null && pahPercentUsed < 85)) {
+    combinedBand = "Pre-PHV";
+  } else if ((primaryOffset >= 1) || (pahPercentUsed !== null && pahPercentUsed > 95)) {
+    combinedBand = "Post-PHV";
+  } else {
+    combinedBand = "Mid-PHV";
+  }
+
   return {
     inputs: record,
     derivedMetrics: { 
@@ -259,7 +270,7 @@ export function calculateMaturation(
       mirwaldFemaleOffset,
     },
     classification: {
-      maturityBand: classifyBand(primaryOffset),
+      maturityBand: combinedBand,
       pahBand: classifyPahBand(percentageAdultHeight ?? kozielMalinaPercentageAdultHeight),
       primaryOffset,
       whoBmiZScore,

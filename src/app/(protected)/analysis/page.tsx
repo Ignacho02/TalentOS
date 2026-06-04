@@ -17,6 +17,7 @@ import { useAppState } from "@/lib/store/app-state";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { usePersistentState } from "@/lib/hooks/use-persistent-state";
+import { useMaturationPreferences } from "@/lib/hooks/use-maturation-preferences";
 import { MaturationInsights } from "@/components/maturation-insights";
 import {
   buildTeamStats, computeAthleteZScore, buildBioBandingGroups,
@@ -28,7 +29,8 @@ import {
   getLatestAssessmentsByAthlete,
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
-import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult } from "@/lib/types";
+import { createUnifiedProfile } from "@/lib/maturation/unified-maturation";
+import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
 import type { TeamStats, AlertItem, RapidGrowthAlert } from "@/lib/maturation/analysis-helpers";
 
 const bandColors: Record<string, string> = {
@@ -155,6 +157,10 @@ function IndividualView({
   const [filterTeam, setFilterTeam] = useState("");
   const [filterBand, setFilterBand] = useState("");
   const [comparisonMode, setComparisonMode] = useState(false);
+  const {
+    selectedEngine,
+    bioBandingStrategy,
+  } = useMaturationPreferences();
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(initialPlayer);
   const [comparisonIds, setComparisonIds] = usePersistentState<string[]>("analysis_indiv_compare", []);
   const [comparisonConfig, setComparisonConfig] = usePersistentState<{
@@ -212,9 +218,32 @@ function IndividualView({
     return () => clearTimeout(timer);
   }, [selectedAthleteId, activeSubTab]);
 
+  const getAssessmentSex = (assessment: MaturationResult): Sex => {
+    const athlete = state.athletes.find(
+      (candidate) =>
+        candidate.id === assessment.inputs.athleteId ||
+        (
+          candidate.name.toLowerCase() === assessment.inputs.athleteName.toLowerCase() &&
+          candidate.dob === assessment.inputs.dob
+        ),
+    );
+    return athlete?.sex === "female" ? "female" : "male";
+  };
+
   const latestByAthlete = useMemo(
-    () => getLatestAssessmentsByAthlete(assessments),
-    [assessments],
+    () => getLatestAssessmentsByAthlete(assessments).map((assessment) => {
+      const athleteSex = getAssessmentSex(assessment);
+      const profile = createUnifiedProfile(assessment, selectedEngine, bioBandingStrategy, athleteSex);
+      return {
+        ...assessment,
+        classification: {
+          ...assessment.classification,
+          maturityBand: profile.maturityBand,
+          primaryOffset: profile.offset ?? assessment.classification.primaryOffset,
+        },
+      };
+    }),
+    [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
   const filtered = useMemo(() => {
@@ -230,6 +259,12 @@ function IndividualView({
     () => latestByAthlete.find((a) => a.inputs.athleteId === selectedAthleteId),
     [latestByAthlete, selectedAthleteId]
   );
+
+  const selectedLatestProfile = useMemo(() => {
+    if (!selectedLatest) return null;
+    const athleteSex = getAssessmentSex(selectedLatest);
+    return createUnifiedProfile(selectedLatest, selectedEngine, bioBandingStrategy, athleteSex);
+  }, [selectedLatest, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const activeComparisonAthletes = useMemo(() => {
     if (!selectedLatest) return [];
@@ -1175,7 +1210,34 @@ function IndividualView({
 
               {/* APHV PREDICTION METHODS SECTION */}
               {selectedLatest && (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3">
+                  {selectedLatestProfile && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Zap className="h-5 w-5 text-slate-900" />
+                        <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                          {locale === 'es' ? 'Método seleccionado' : 'Selected method'}
+                        </h3>
+                      </div>
+                      <div className="space-y-3 text-center">
+                        <div className="text-sm text-slate-500">{selectedLatestProfile.methodLabel}</div>
+                        <div className="text-4xl font-bold text-slate-900">
+                          {selectedLatestProfile.aphv !== null ? formatNumber(selectedLatestProfile.aphv, 2) : "N/A"}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
+                        <div className="text-sm text-slate-600">
+                          {selectedLatestProfile.bioBandingStrategy === "offset"
+                            ? locale === 'es' ? 'Agrupación por offset' : 'Grouping by offset'
+                            : locale === 'es' ? '% PAH' : '% PAH'}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {selectedLatestProfile.offset !== null
+                            ? `${locale === 'es' ? 'Offset:' : 'Offset:'} ${formatNumber(selectedLatestProfile.offset, 2)}`
+                            : locale === 'es' ? 'Offset no disponible' : 'Offset unavailable'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-center gap-2 mb-4">
                       <Zap className="h-5 w-5 text-amber-600" />
@@ -1217,7 +1279,7 @@ function IndividualView({
               )}
 
               {/* PAH (PROJECTED ADULT HEIGHT) SECTION */}
-              {selectedLatest && selectedLatest.methodOutputs.pahCm && (
+              {selectedLatest && (selectedLatestProfile?.pah !== null || selectedLatest.methodOutputs.pahCm) && (
                 <div className={`rounded-2xl border bg-white p-5 shadow-sm ${selectedLatest.inputs.sex === 'female' ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
                   <div className="flex items-center justify-between gap-2 mb-4">
                     <div className="flex items-center gap-2">
@@ -1235,10 +1297,10 @@ function IndividualView({
                   {/* For girls: PAH% shown first and larger - more reliable than offset (Koziel & Malina 2018) */}
                   {selectedLatest.inputs.sex === 'female' && (
                     <div className="mb-4 p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
-                      <div className="text-4xl font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.percentageAdultHeight, 1)}<span className="text-2xl">%</span></div>
+                      <div className="text-4xl font-bold text-emerald-600">{formatNumber(selectedLatestProfile?.pahPercentage ?? selectedLatest.methodOutputs.percentageAdultHeight, 1)}<span className="text-2xl">%</span></div>
                       <div className="text-xs text-emerald-700 font-medium mt-1">{locale === 'es' ? 'de la talla adulta estimada' : 'of predicted adult height'}</div>
                       <div className="mt-2 h-2.5 rounded-full bg-emerald-100 overflow-hidden">
-                        <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, selectedLatest.methodOutputs.percentageAdultHeight ?? 0)}%` }} />
+                        <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, selectedLatestProfile?.pahPercentage ?? selectedLatest.methodOutputs.percentageAdultHeight ?? 0)}%` }} />
                       </div>
                     </div>
                   )}
@@ -1253,7 +1315,7 @@ function IndividualView({
                     </div>
                     <div className="text-center">
                       <div className="text-sm text-slate-500 mb-1">{locale === 'es' ? 'Talla adulta estimada' : 'Predicted adult height'}</div>
-                      <div className="text-3xl font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.pahCm, 1)}</div>
+                      <div className="text-3xl font-bold text-emerald-600">{formatNumber(selectedLatestProfile?.pah ?? selectedLatest.methodOutputs.pahCm ?? 0, 1)}</div>
                       <div className="text-xs text-slate-400">cm  <span className="text-slate-300">± 2.2 cm (50%)</span></div>
                     </div>
                   </div>
@@ -1261,10 +1323,10 @@ function IndividualView({
                     <div className="mt-4 pt-4 border-t border-slate-100">
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-600">{locale === 'es' ? 'Porcentaje de talla adulta' : 'Percentage of adult height'}</span>
-                        <span className="font-bold text-emerald-600">{formatNumber(selectedLatest.methodOutputs.percentageAdultHeight, 1)}%</span>
+                        <span className="font-bold text-emerald-600">{formatNumber(selectedLatestProfile?.pahPercentage ?? selectedLatest.methodOutputs.percentageAdultHeight, 1)}%</span>
                       </div>
                       <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, selectedLatest.methodOutputs.percentageAdultHeight ?? 0)}%` }} />
+                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, selectedLatestProfile?.pahPercentage ?? selectedLatest.methodOutputs.percentageAdultHeight ?? 0)}%` }} />
                       </div>
                     </div>
                   )}

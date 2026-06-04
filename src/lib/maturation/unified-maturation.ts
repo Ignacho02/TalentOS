@@ -115,7 +115,7 @@ function getEngineMetrics(
       }));
 
       const consensusAphv = reweightedMethods.reduce((sum, m) => sum + (m.aphv! * m.weight), 0);
-      const consensusOffset = consensusAphv - result.derivedMetrics.chronologicalAge;
+      const consensusOffset = result.derivedMetrics.chronologicalAge - consensusAphv;
 
       return {
         aphv: consensusAphv,
@@ -247,10 +247,11 @@ export function createUnifiedProfile(
   // Get APHV and Offset for selected engine
   const { aphv, offset } = getEngineMetrics(result, resolvedEngine, sex);
 
-  // Derive all other metrics from the single engine
+  // Derive the profile band from the selected engine and keep PAH metrics fixed by record.
   const maturityBand = classifyMaturityBand(offset);
   const pah = result.methodOutputs.pahCm;
-  const pahPercentage = result.methodOutputs.percentageAdultHeight;
+  const pahPercentage =
+    result.methodOutputs.percentageAdultHeight ?? result.methodOutputs.kozielMalinaPercentageAdultHeight ?? null;
   const pahBand = classifyPahBand(pahPercentage);
 
   // Get alternative methods for advanced mode
@@ -302,6 +303,20 @@ export function getGroupingMetric(profile: UnifiedMaturityProfile): number | nul
   } else {
     return profile.pahPercentage;
   }
+}
+
+export function getGroupingBand(profile: UnifiedMaturityProfile): MaturityBand {
+  if (profile.bioBandingStrategy === "offset") {
+    if (profile.offset === null) return "Mid-PHV";
+    if (profile.offset <= -1) return "Pre-PHV";
+    if (profile.offset >= 1) return "Post-PHV";
+    return "Mid-PHV";
+  }
+
+  if (profile.pahPercentage === null) return "Mid-PHV";
+  if (profile.pahPercentage < 85) return "Pre-PHV";
+  if (profile.pahPercentage < 95) return "Mid-PHV";
+  return "Post-PHV";
 }
 
 /**

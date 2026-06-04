@@ -22,7 +22,12 @@ import { useAppState } from "@/lib/store/app-state";
 import type { AnthropometricRecordInput, UnifiedMaturityProfile } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { MaturationPreferences } from "@/components/maturation-preferences";
-import { createUnifiedProfile, MaturationEngine } from "@/lib/maturation/unified-maturation";
+import { useMaturationPreferences } from "@/lib/hooks/use-maturation-preferences";
+import {
+  createUnifiedProfile,
+  getGroupingBand,
+  MaturationEngine,
+} from "@/lib/maturation/unified-maturation";
 
 /** Filter range bounds — kept in one place to avoid drift between state and UI. */
 const FILTER_RANGES = {
@@ -157,6 +162,39 @@ export function MaturationSection({
     }));
   };
 
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+  const [groupByTeam, setGroupByTeam] = useState(true);
+  const [groupByPHV, setGroupByPHV] = useState(true);
+  const [sortWithinGroup, setSortWithinGroup] = useState<"name" | "age" | "offset">("name");
+  const [downloadTeams, setDownloadTeams] = useState<string[]>([]);
+  
+  // Concept-centric: user preferences for maturation calculation
+  const {
+    selectedEngine,
+    setSelectedEngine,
+    bioBandingStrategy,
+    setBioBandingStrategy,
+  } = useMaturationPreferences();
+  const [showScientificBasis, setShowScientificBasis] = useState(false);
+
+  const getAthleteSexForRecord = (row: typeof filteredRows[number]) => {
+    const athlete = state.athletes.find(
+      (candidate) =>
+        candidate.id === row.inputs.athleteId ||
+        (
+          candidate.name.toLowerCase() === row.inputs.athleteName.toLowerCase() &&
+          candidate.dob === row.inputs.dob
+        ),
+    );
+    return athlete?.sex === "female" ? "female" : "male";
+  };
+
+  const getRecordGroupingBand = (row: typeof filteredRows[number]) => {
+    const athleteSex = getAthleteSexForRecord(row);
+    const profile = createUnifiedProfile(row, selectedEngine, bioBandingStrategy, athleteSex);
+    return getGroupingBand(profile);
+  };
+
   const filteredData = useMemo(() => {
     return filteredRows.filter((row) => {
       const athlete = state.athletes.find(
@@ -198,7 +236,7 @@ export function MaturationSection({
       }
 
       // Filtros de maduracion
-      if (columnFilters.band.length > 0 && !columnFilters.band.includes(row.classification.maturityBand)) {
+      if (columnFilters.band.length > 0 && !columnFilters.band.includes(getRecordGroupingBand(row))) {
         return false;
       }
       if (row.classification.primaryOffset < columnFilters.offset.min || row.classification.primaryOffset > columnFilters.offset.max) {
@@ -237,6 +275,7 @@ export function MaturationSection({
     });
   }, [filteredRows, state.athletes, columnFilters]);
 
+
   const toggleTeamFilter = (team: string) => {
     setColumnFilters(prev => ({
       ...prev,
@@ -265,20 +304,26 @@ export function MaturationSection({
   };
 
   const maturityBands = useMemo(() => {
-    const bands = new Set(filteredRows.map((r) => r.classification.maturityBand));
+    const bands = new Set(filteredRows.map((r) => getRecordGroupingBand(r)));
     return Array.from(bands).sort();
-  }, [filteredRows]);
+  }, [filteredRows, selectedEngine, bioBandingStrategy, state.athletes]);
 
-  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
-  const [groupByTeam, setGroupByTeam] = useState(true);
-  const [groupByPHV, setGroupByPHV] = useState(true);
-  const [sortWithinGroup, setSortWithinGroup] = useState<"name" | "age" | "offset">("name");
-  const [downloadTeams, setDownloadTeams] = useState<string[]>([]);
-  
-  // Concept-centric: user preferences for maturation calculation
-  const [selectedEngine, setSelectedEngine] = useState<MaturationEngine>("auto");
-  const [bioBandingStrategy, setBioBandingStrategy] = useState<"offset" | "pah">("offset");
-  const [showScientificBasis, setShowScientificBasis] = useState(false);
+  const rowProfiles = useMemo(() => {
+    const profiles = new Map<string, UnifiedMaturityProfile>();
+    for (const row of filteredData) {
+      const athlete = state.athletes.find(
+        (candidate) =>
+          candidate.id === row.inputs.athleteId ||
+          (
+            candidate.name.toLowerCase() === row.inputs.athleteName.toLowerCase() &&
+            candidate.dob === row.inputs.dob
+          ),
+      );
+      const athleteSex = athlete && athlete.sex === "female" ? "female" : "male";
+      profiles.set(row.inputs.id, createUnifiedProfile(row, selectedEngine, bioBandingStrategy, athleteSex));
+    }
+    return profiles;
+  }, [filteredData, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const handleTeamClick = (team: string | null) => {
     setSelectedTeam(team);
@@ -327,9 +372,11 @@ export function MaturationSection({
         return (
           <MaturationPreferences
             selectedEngine={selectedEngine}
-            onEngineChange={setSelectedEngine}
             bioBandingStrategy={bioBandingStrategy}
-            onBioStrategyChange={setBioBandingStrategy}
+            onSave={(engine, strategy) => {
+              setSelectedEngine(engine);
+              setBioBandingStrategy(strategy);
+            }}
             t={t}
             sex={athleteSex}
             measurementCount={athleteMeasurementCount}
@@ -954,7 +1001,7 @@ export function MaturationSection({
             </thead>
             <tbody suppressHydrationWarning>
               {(() => {
-                // Band order: Pre → Mid → Post
+                // Always show Pre/Mid/Post-PHV labels in the table.
                 const BAND_ORDER = ["Pre-PHV", "Mid-PHV", "Post-PHV"] as const;
                 const BAND_COLORS: Record<string, string> = {
                   "Pre-PHV": "bg-sky-50",
@@ -972,11 +1019,21 @@ export function MaturationSection({
                   "Post-PHV": "border-emerald-200",
                 };
 
+                // Grouping uses the canonical `maturityBand` from the unified profile.
+                // The profile's maturityBand is derived from combined PAH% and offset rules,
+                // so it remains consistent across views and filters.
+
                 // Sort helper
                 const sortRows = (rows: typeof filteredData) =>
                   [...rows].sort((a, b) => {
                     if (sortWithinGroup === "age") return a.derivedMetrics.chronologicalAge - b.derivedMetrics.chronologicalAge;
-                    if (sortWithinGroup === "offset") return a.classification.primaryOffset - b.classification.primaryOffset;
+                    if (sortWithinGroup === "offset") {
+                      const aProfile = rowProfiles.get(a.inputs.id);
+                      const bProfile = rowProfiles.get(b.inputs.id);
+                      const aOffset = aProfile?.offset ?? a.classification.primaryOffset;
+                      const bOffset = bProfile?.offset ?? b.classification.primaryOffset;
+                      return (aOffset ?? 0) - (bOffset ?? 0);
+                    }
                     return a.inputs.athleteName.localeCompare(b.inputs.athleteName);
                   });
 
@@ -1013,8 +1070,15 @@ export function MaturationSection({
                         )}
                         {viewMode.maturation && (
                           <>
-                            <td className="bg-[#eaf4f2] px-3 py-3 text-center font-medium">{row.classification.maturityBand}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.classification.primaryOffset, 2)}</td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center font-medium">
+                              {(() => {
+                                const profile = rowProfiles.get(row.inputs.id);
+                                return profile ? getGroupingBand(profile) : row.classification.maturityBand;
+                              })()}
+                            </td>
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">
+                              {formatNumber(rowProfiles.get(row.inputs.id)?.offset ?? row.classification.primaryOffset, 2)}
+                            </td>
                             {/* APHV (single column with method indicator) */}
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">
                               {(() => {
@@ -1059,7 +1123,10 @@ export function MaturationSection({
                 // PHV only (no team grouping)
                 if (!groupByTeam && groupByPHV) {
                   return BAND_ORDER.map((band) => {
-                    const bandRows = sortRows(filteredData.filter((r) => r.classification.maturityBand === band));
+                    const bandRows = sortRows(filteredData.filter((r) => {
+                      const profile = rowProfiles.get(r.inputs.id);
+                      return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === band;
+                    }));
                     if (bandRows.length === 0) return null;
                     return (
                       <Fragment key={band}>
@@ -1081,7 +1148,7 @@ export function MaturationSection({
 
                 if (groupByTeam && !groupByPHV) {
                   return teamNames.map((team) => {
-                    const teamRows = sortRows(filteredData.filter((r) => (r.inputs.teamName ?? "") === team));
+                        const teamRows = sortRows(filteredData.filter((r) => (r.inputs.teamName ?? "") === team));
                     if (teamRows.length === 0) return null;
                     return (
                       <Fragment key={team || "__no_team__"}>
@@ -1101,8 +1168,8 @@ export function MaturationSection({
                 }
 
                 // Both: team → PHV band
-                return teamNames.map((team) => {
-                  const teamRows = filteredData.filter((r) => (r.inputs.teamName ?? "") === team);
+                  return teamNames.map((team) => {
+                    const teamRows = filteredData.filter((r) => (r.inputs.teamName ?? "") === team);
                   if (teamRows.length === 0) return null;
                   return (
                     <Fragment key={team || "__no_team__"}>
@@ -1116,7 +1183,10 @@ export function MaturationSection({
                         {totalCols > 1 && <td colSpan={totalCols - 1} className="bg-zinc-100 border-t-2 border-zinc-300"></td>}
                       </tr>
                       {BAND_ORDER.map((band) => {
-                        const bandRows = sortRows(teamRows.filter((r) => r.classification.maturityBand === band));
+                        const bandRows = sortRows(teamRows.filter((r) => {
+                          const profile = rowProfiles.get(r.inputs.id);
+                          return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === band;
+                        }));
                         if (bandRows.length === 0) return null;
                         return (
                           <Fragment key={band}>
