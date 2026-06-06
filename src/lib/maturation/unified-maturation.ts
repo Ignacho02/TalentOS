@@ -11,7 +11,7 @@
  * - Poor UX from duplicated biological representations
  */
 
-import { MaturationResult, UnifiedMaturityProfile, Sex } from "@/lib/types";
+import { MaturationResult, UnifiedMaturityProfile, Sex, MaturityBand } from "@/lib/types";
 
 export type MaturationEngine = "auto" | "fransen" | "sherar" | "moore" | "mirwald" | "sitar" | "consensus";
 
@@ -158,7 +158,7 @@ function classifyMaturityBand(offset: number | null) {
  */
 function classifyPahBand(percentage: number | null) {
   if (!percentage) return "85-90%";
-  if (percentage < 85) return "85-90%";
+  if (percentage < 85) return "≤ 85%";
   if (percentage < 90) return "85-90%";
   if (percentage < 95) return "90-95%";
   return "≥ 95%";

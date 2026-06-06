@@ -1085,15 +1085,10 @@ export function MaturationSection({
                                 const athleteSex = athlete && athlete.sex === "female" ? "female" : "male";
                                 const profile = createUnifiedProfile(row, selectedEngine, bioBandingStrategy, athleteSex);
                                 return (
-                                  <div className="space-y-0.5">
-                                    <div className="font-medium">
-                                      {profile.aphv !== null
-                                        ? formatNumber(profile.aphv, 2)
-                                        : "—"}
-                                    </div>
-                                    <div className="text-xs text-slate-500">
-                                      {translateEngineLabel(profile.selectedEngine)}
-                                    </div>
+                                  <div className="font-medium">
+                                    {profile.aphv !== null
+                                      ? formatNumber(profile.aphv, 2)
+                                      : "—"}
                                   </div>
                                 );
                               })()}
@@ -1101,7 +1096,7 @@ export function MaturationSection({
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.methodOutputs.percentageAdultHeight, 2)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{formatNumber(row.derivedMetrics.sittingHeightRatio, 1)}</td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">{row.classification.whoBmiZScore !== null ? formatNumber(row.classification.whoBmiZScore, 2) : "—"}</td>
-                            <td className="bg-[#eaf4f2] px-3 py-3 text-center">
+                            <td className="bg-[#eaf4f2] px-3 py-3 text-center" suppressHydrationWarning>
                               {row.derivedMetrics.growthVelocityCmPerYear != null
                                 ? formatNumber(row.derivedMetrics.growthVelocityCmPerYear, 1)
                                 : <span className="text-slate-300">—</span>}
@@ -1224,12 +1219,23 @@ export function MaturationSection({
           )
           .sort((a, b) => a.inputs.dataCollectionDate.localeCompare(b.inputs.dataCollectionDate));
         const latest = history.length > 0 ? history[history.length - 1] : null;
+        const athleteSex = athlete.sex === "female" ? "female" : "male";
+        const latestProfile = latest
+          ? createUnifiedProfile(latest, selectedEngine, bioBandingStrategy, athleteSex)
+          : null;
+        const latestAthleteName = latest?.inputs.athleteName ?? athlete.name;
+        const latestTeamName = latest?.inputs.teamName ?? athlete.teamName;
+        const latestPosition = latest?.inputs.position ?? athlete.position;
         const chartData = history.map((r) => ({
           date: r.inputs.dataCollectionDate.slice(0, 7),
           stature: r.inputs.statureCm,
+          bodyMass: r.inputs.bodyMassKg,
           offset: parseFloat(r.classification.primaryOffset.toFixed(2)),
+          growthVelocity: r.derivedMetrics.growthVelocityCmPerYear,
           pah: r.methodOutputs.percentageAdultHeight,
         }));
+        const visibleHistory = [...history].reverse().slice(0, 5);
+        const hasHistoryOverflow = history.length > 5;
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
@@ -1243,15 +1249,15 @@ export function MaturationSection({
               <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-line shrink-0">
                 <div className="flex items-center gap-4">
                   {athlete.photoUrl ? (
-                    <img src={athlete.photoUrl} alt={athlete.name} className="h-14 w-14 rounded-full object-cover border border-line flex-shrink-0" />
+                    <img src={athlete.photoUrl} alt={latestAthleteName} className="h-14 w-14 rounded-full object-cover border border-line flex-shrink-0" />
                   ) : (
                     <div className="h-14 w-14 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xl font-bold text-zinc-400">{athlete.name.charAt(0)}</span>
+                      <span className="text-xl font-bold text-zinc-400">{latestAthleteName.charAt(0)}</span>
                     </div>
                   )}
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">{athlete.name}</h3>
-                    <p className="text-sm text-zinc-500 mt-0.5">{athlete.teamName ?? "—"} · {athlete.position ?? "—"} · {athlete.sex === "male" ? t("datahub.male") : t("datahub.female")}</p>
+                    <h3 className="text-xl font-bold text-zinc-900">{latestAthleteName}</h3>
+                    <p className="text-sm text-zinc-500 mt-0.5">{latestTeamName ?? "—"} · {latestPosition ?? "—"} · {athlete.sex === "male" ? t("datahub.male") : t("datahub.female")}</p>
                   </div>
                 </div>
                 <button
@@ -1268,23 +1274,66 @@ export function MaturationSection({
                 {/* Latest measurements */}
                 {latest ? (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.measurement")} — {formatDate(latest.inputs.dataCollectionDate)}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {[
-                        { label: t("datahub.stature"), value: `${formatNumber(latest.inputs.statureCm, 1)} cm` },
-                        { label: t("datahub.bodyMassKg"), value: `${formatNumber(latest.inputs.bodyMassKg, 1)} kg` },
-                        { label: t("datahub.sittingHeightCm"), value: `${formatNumber(latest.inputs.sittingHeightCm, 1)} cm` },
-                        { label: t("datahub.group"), value: latest.classification.maturityBand, accent: true },
-                        { label: t("datahub.offset"), value: formatNumber(latest.classification.primaryOffset, 2) ?? "—" },
-                        { label: "% PAH", value: latest.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(latest.methodOutputs.percentageAdultHeight, 1)}%` : "—" },
-                        { label: t("datahub.age"), value: `${formatNumber(latest.derivedMetrics.chronologicalAge, 2)} ${t("datahub.years")}` },
-                        { label: "Mirwald", value: formatNumber(latest.methodOutputs.mirwaldOffset, 2) ?? "—" },
-                      ].map(({ label, value, accent }) => (
-                        <div key={label} className="rounded-xl bg-zinc-50 px-3 py-2.5">
-                          <p className="text-xs text-zinc-500 mb-0.5">{label}</p>
-                          <p className={cn("text-sm font-semibold", accent ? "text-accent" : "text-zinc-900")}>{value}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">Última medición — {formatDate(latest.inputs.dataCollectionDate)}</p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-4">{t("datahub.anthropometrics")}</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.stature")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.statureCm, 1)} cm</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.bodyMassKg")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.bodyMassKg, 1)} kg</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.sittingHeightCm")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.sittingHeightCm, 1)} cm</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.age")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.derivedMetrics.chronologicalAge, 2)} {t("datahub.years")}</p>
+                          </div>
                         </div>
-                      ))}
+                      </section>
+                      <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-4">{t("datahub.maturation")}</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.group")}</p>
+                            <p className="text-sm font-semibold text-accent">{latestProfile ? getGroupingBand(latestProfile) : latest.classification.maturityBand}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.offset")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latestProfile?.offset != null ? formatNumber(latestProfile.offset, 2) : latest.classification.primaryOffset != null ? formatNumber(latest.classification.primaryOffset, 2) : "—"}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">% PAH</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latest.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(latest.methodOutputs.percentageAdultHeight, 1)}%` : "—"}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("maturationMethods.methodLabel")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{translateEngineLabel(latestProfile?.selectedEngine ?? selectedEngine)}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">APHV</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latestProfile?.aphv != null ? formatNumber(latestProfile.aphv, 2) : "—"}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.sittingHeightCm")} ratio</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.derivedMetrics.sittingHeightRatio, 1)}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">WHO BMI Z</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latest.classification.whoBmiZScore !== null ? formatNumber(latest.classification.whoBmiZScore, 2) : "—"}</p>
+                          </div>
+                          <div className="rounded-xl bg-white border border-line px-3 py-2.5">
+                            <p className="text-xs text-zinc-500 mb-0.5">Velocidad</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latest.derivedMetrics.growthVelocityCmPerYear != null ? `${formatNumber(latest.derivedMetrics.growthVelocityCmPerYear, 1)} cm/año` : "—"}</p>
+                          </div>
+                        </div>
+                      </section>
                     </div>
                   </div>
                 ) : (
@@ -1382,8 +1431,8 @@ export function MaturationSection({
                 {/* Evolutionary charts */}
                 {chartData.length >= 2 && (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.historyMeasurements")}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.evolution")}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                       <div>
                         <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.stature")} (cm)</p>
                         <ResponsiveContainer width="100%" height={120}>
@@ -1393,6 +1442,18 @@ export function MaturationSection({
                             <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
                             <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
                             <Line type="monotone" dataKey="stature" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.bodyMassKg")}</p>
+                        <ResponsiveContainer width="100%" height={120}>
+                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                            <Line type="monotone" dataKey="bodyMass" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
@@ -1408,6 +1469,20 @@ export function MaturationSection({
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
+                      {chartData.some((d) => d.growthVelocity != null) && (
+                        <div>
+                          <p className="text-xs text-zinc-500 mb-1 text-center">Velocidad (cm/año)</p>
+                          <ResponsiveContainer width="100%" height={120}>
+                            <LineChart data={chartData.filter((d) => d.growthVelocity != null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                              <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                              <Line type="monotone" dataKey="growthVelocity" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
                       {chartData.some((d) => d.pah !== null) && (
                         <div>
                           <p className="text-xs text-zinc-500 mb-1 text-center">% PAH</p>
@@ -1430,9 +1505,9 @@ export function MaturationSection({
                 {history.length > 1 && (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-2">{t("datahub.historyMeasurements")} ({history.length})</p>
-                    <div className="overflow-x-auto">
+                    <div className={cn("overflow-x-auto rounded-3xl border border-line/80", hasHistoryOverflow ? "max-h-[22rem] overflow-y-auto" : "")}> 
                       <table className="w-full min-w-max text-xs text-left">
-                        <thead>
+                        <thead className="bg-zinc-50 sticky top-0">
                           <tr className="text-zinc-400 border-b border-line">
                             <th className="py-1.5 pr-4 font-medium">{t("datahub.date")}</th>
                             <th className="py-1.5 pr-4 font-medium">{t("datahub.stature")}</th>
@@ -1444,7 +1519,7 @@ export function MaturationSection({
                           </tr>
                         </thead>
                         <tbody>
-                          {[...history].reverse().map((r) => (
+                          {visibleHistory.map((r) => (
                             <tr key={r.inputs.id} className="border-t border-line/40">
                               <td className="py-1.5 pr-4 text-zinc-600">{formatDate(r.inputs.dataCollectionDate)}</td>
                               <td className="py-1.5 pr-4">{formatNumber(r.inputs.statureCm, 1)} cm</td>
@@ -1458,6 +1533,9 @@ export function MaturationSection({
                         </tbody>
                       </table>
                     </div>
+                    {hasHistoryOverflow && (
+                      <p className="text-xs text-zinc-500 mt-2">Mostrando las 5 mediciones más recientes. Desplaza para ver entradas anteriores.</p>
+                    )}
                   </div>
                 )}
               </div>

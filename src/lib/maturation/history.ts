@@ -61,17 +61,38 @@ export function processAssessmentsWithHistory(records: AnthropometricRecord[]): 
     const baseResults = athleteRecords.map(r => calculateMaturation(r, r.parentalHeightsReported ?? true));
 
     // 2. Calculate Growth Velocity (cm/year)
-    // Only estimate velocity when the pair spans at least 6 months.
-    for (let i = 1; i < baseResults.length; i++) {
-      const prev = baseResults[i - 1];
-      const curr = baseResults[i];
-      
-      const prevDate = new Date(prev.inputs.dataCollectionDate).getTime();
-      const currDate = new Date(curr.inputs.dataCollectionDate).getTime();
-      const diffYears = (currDate - prevDate) / (1000 * 60 * 60 * 24 * 365.25);
+    // Strategy: for each record, find the prior record whose interval is closest to
+    // 12 months (one year). Minimum 6 months required; no upper cap.
+    // If multiple candidates exist, the one whose gap is nearest to 365 days wins.
+    // Ties broken in favour of the longer interval (more data = more stable estimate).
+    const MS_PER_YEAR = 1000 * 60 * 60 * 24 * 365.25;
+    const TARGET_MS = MS_PER_YEAR; // ideal = 1 year
 
-      if (isCalendarMonthsApart(prevDate, currDate, 6)) {
-        const diffCm = curr.inputs.statureCm - prev.inputs.statureCm;
+    for (let i = 1; i < baseResults.length; i++) {
+      const curr = baseResults[i];
+      const currDate = new Date(curr.inputs.dataCollectionDate).getTime();
+
+      let bestPrevIndex = -1;
+      let bestDelta = Infinity; // distance from TARGET_MS
+
+      for (let j = 0; j < i; j++) {
+        const prevDate = new Date(baseResults[j].inputs.dataCollectionDate).getTime();
+        const gap = currDate - prevDate;
+
+        if (!isCalendarMonthsApart(prevDate, currDate, 6)) continue; // minimum 6 months
+
+        const delta = Math.abs(gap - TARGET_MS);
+        // Prefer the candidate closest to 1 year; on a tie prefer the longer gap
+        if (delta < bestDelta || (delta === bestDelta && gap > currDate - new Date(baseResults[bestPrevIndex].inputs.dataCollectionDate).getTime())) {
+          bestDelta = delta;
+          bestPrevIndex = j;
+        }
+      }
+
+      if (bestPrevIndex !== -1) {
+        const prevDate = new Date(baseResults[bestPrevIndex].inputs.dataCollectionDate).getTime();
+        const diffYears = (currDate - prevDate) / MS_PER_YEAR;
+        const diffCm = curr.inputs.statureCm - baseResults[bestPrevIndex].inputs.statureCm;
         curr.derivedMetrics.growthVelocityCmPerYear = diffCm / diffYears;
       }
     }

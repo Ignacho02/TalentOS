@@ -244,6 +244,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       playerAddedOk: "Jugador anadido correctamente.",
       measurementExists: "Ya existe una medicion con ese jugador y fecha.",
       historyMeasurements: "Historico de mediciones",
+      evolution: "Evolución",
       measurementsRegistered: "mediciones registradas",
       date: "Fecha",
       physical: "Fisico",
@@ -470,7 +471,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
         maturityStatusExplanation: "Determina si el atleta ha alcanzado, está en o ha pasado el estirón de crecimiento (PHV).",
         adultHeightExplanation: "Estimación de la estatura final que alcanzará el atleta en la edad adulta basada en datos actuales y parentales.",
         athleteName: "Nombre del atleta",
-        latestMeasurement: "Última medida",
+        latestMeasurement: "Última medición",
         phvReference: "PHV referencia",
       },
       collective: {
@@ -798,6 +799,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       parentalHeightsReportedHintForm: "(sin marcar = medidas directamente, no se aplica corrección de sobreestimación)",
       parentalHeightsReportedHintBulk: "(sin marcar = medidas directamente)",
       sitarActive: "SITAR activo",
+      saveSettings: "Guardar",
     },
     analysisExtra: {
       latestSnapshot: "Ultima foto con insights de maduracion",
@@ -1053,6 +1055,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       playerAddedOk: "Player added successfully.",
       measurementExists: "A measurement with that player and date already exists.",
       historyMeasurements: "Measurements history",
+      evolution: "Evolution",
       measurementsRegistered: "measurements recorded",
       date: "Date",
       physical: "Physical",
@@ -1607,6 +1610,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       parentalHeightsReportedHintForm: "(unchecked = directly measured, overestimation correction not applied)",
       parentalHeightsReportedHintBulk: "(unchecked = directly measured)",
       sitarActive: "SITAR active",
+      saveSettings: "Save",
     },
     analysisExtra: {
       latestSnapshot: "Latest snapshot with maturity insights",

@@ -29,7 +29,7 @@ import {
   getLatestAssessmentsByAthlete,
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
-import { createUnifiedProfile } from "@/lib/maturation/unified-maturation";
+import { createUnifiedProfile, getGroupingBand } from "@/lib/maturation/unified-maturation";
 import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
 import type { TeamStats, AlertItem, RapidGrowthAlert } from "@/lib/maturation/analysis-helpers";
 
@@ -238,7 +238,7 @@ function IndividualView({
         ...assessment,
         classification: {
           ...assessment.classification,
-          maturityBand: profile.maturityBand,
+          maturityBand: getGroupingBand(profile),
           primaryOffset: profile.offset ?? assessment.classification.primaryOffset,
         },
       };
@@ -699,12 +699,16 @@ function IndividualView({
   }, [athleteLoad]);
 
   const maturationTimelinePoints = useMemo(() => {
-    return selectedHistory.map((h) => ({
-      date: formatDate(h.inputs.dataCollectionDate),
-      band: h.classification.maturityBand,
-      offset: Number(h.classification.primaryOffset.toFixed(2)),
-    }));
-  }, [selectedHistory]);
+    return selectedHistory.map((h) => {
+      const hSex = getAssessmentSex(h);
+      const hProfile = createUnifiedProfile(h, selectedEngine, bioBandingStrategy, hSex);
+      return {
+        date: formatDate(h.inputs.dataCollectionDate),
+        band: getGroupingBand(hProfile),
+        offset: Number((hProfile.offset ?? h.classification.primaryOffset).toFixed(2)),
+      };
+    });
+  }, [selectedHistory, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const performanceTestTypes = useMemo(() => {
     if (!state.performanceDefinitions) return [];
@@ -1352,7 +1356,7 @@ function IndividualView({
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div className="text-center p-3 bg-violet-50 rounded-xl">
                       <div className="text-xs text-slate-500 mb-1">{t("analysis.individual.latestMeasurement")}</div>
-                      <div className="text-3xl font-bold text-violet-600">
+                      <div className="text-3xl font-bold text-violet-600" suppressHydrationWarning>
                         {selectedLatest.derivedMetrics.growthVelocityCmPerYear != null
                           ? formatNumber(selectedLatest.derivedMetrics.growthVelocityCmPerYear, 1)
                           : '—'}
@@ -1369,7 +1373,7 @@ function IndividualView({
                   </div>
                   <div className="h-36 w-full">
                     <ResponsiveContainer width="99.9%" height={144} minWidth={0} debounce={100}>
-                      <LineChart data={combinedHistory.filter(d => d.growthVelocity != null)}>
+                      <LineChart data={combinedHistory}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
                         <YAxis fontSize={10} axisLine={false} tickLine={false} unit=" cm/a" width={52} />
