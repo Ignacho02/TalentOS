@@ -1030,9 +1030,12 @@ export function MaturationSection({
                     if (sortWithinGroup === "offset") {
                       const aProfile = rowProfiles.get(a.inputs.id);
                       const bProfile = rowProfiles.get(b.inputs.id);
-                      const aOffset = aProfile?.offset ?? a.classification.primaryOffset;
-                      const bOffset = bProfile?.offset ?? b.classification.primaryOffset;
-                      return (aOffset ?? 0) - (bOffset ?? 0);
+                      const aOffset = aProfile?.offset ?? null;
+                      const bOffset = bProfile?.offset ?? null;
+                      if (aOffset === null && bOffset === null) return 0;
+                      if (aOffset === null) return 1;
+                      if (bOffset === null) return -1;
+                      return aOffset - bOffset;
                     }
                     return a.inputs.athleteName.localeCompare(b.inputs.athleteName);
                   });
@@ -1077,7 +1080,11 @@ export function MaturationSection({
                               })()}
                             </td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">
-                              {formatNumber(rowProfiles.get(row.inputs.id)?.offset ?? row.classification.primaryOffset, 2)}
+                              {(() => {
+                                const profile = rowProfiles.get(row.inputs.id);
+                                const val = profile?.offset;
+                                return val != null ? formatNumber(val, 2) : "—";
+                              })()}
                             </td>
                             {/* APHV (single column with method indicator) */}
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">
@@ -1306,7 +1313,7 @@ export function MaturationSection({
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.offset")}</p>
-                            <p className="text-sm font-semibold text-zinc-900">{latestProfile?.offset != null ? formatNumber(latestProfile.offset, 2) : latest.classification.primaryOffset != null ? formatNumber(latest.classification.primaryOffset, 2) : "—"}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latestProfile?.offset != null ? formatNumber(latestProfile.offset, 2) : "—"}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">% PAH</p>
@@ -1555,7 +1562,7 @@ export function MaturationSection({
                                   <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.inputs.sittingHeightCm, 1)} cm</td>
                                   <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.derivedMetrics.chronologicalAge, 2)}</td>
                                   <td className="py-1.5 px-3 font-medium text-accent whitespace-nowrap">{rProfile ? getGroupingBand(rProfile) : r.classification.maturityBand}</td>
-                                  <td className="py-1.5 px-3 whitespace-nowrap">{rProfile?.offset != null ? formatNumber(rProfile.offset, 2) : formatNumber(r.classification.primaryOffset, 2)}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{rProfile?.offset != null ? formatNumber(rProfile.offset, 2) : "—"}</td>
                                   <td className="py-1.5 px-3 whitespace-nowrap">{r.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(r.methodOutputs.percentageAdultHeight, 1)}%` : "—"}</td>
                                   <td className="py-1.5 px-3 whitespace-nowrap">{rProfile?.aphv != null ? formatNumber(rProfile.aphv, 2) : "—"}</td>
                                   <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.derivedMetrics.sittingHeightRatio, 3)}</td>

@@ -618,9 +618,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       moore2Title: "Fallback Moore-2 activo",
       moore2Body:
         "No hay altura sentado registrada. Se ha usado Moore-2 (estatura total) con un error adicional de ~0.1 años respecto a Moore-1. Registra la altura sentado en la próxima medición.",
-      sitarActiveTitle: "Motor SITAR activo",
+      sitarActiveTitle: "Motor SITAR seleccionado",
       sitarActiveBody:
-        "Con ≥3 mediciones longitudinales, SITAR estima APHV con ~80% de clasificación correcta frente a ~50–70% de los métodos de offset. Los parámetros de referencia son Monasterio (2026).",
+        "Estás usando SITAR como motor madurativo. Con ≥3 mediciones longitudinales, estima APHV con ~80% de clasificación correcta frente a ~50–70% de los métodos de offset (Monasterio, 2026). Error típico APHV ≈ ±0.6 años. PHV y PAH son estimaciones secundarias con mayor variabilidad.",
     },
     community: {
       title: "Comunidad",
@@ -784,7 +784,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       moorDesc: "Aplicable a ambos sexos. Precisión intermedia.",
       mirwaldDesc: "Método versátil para ambos sexos. Mejor rendimiento en adolescentes más avanzados en maduración (Post-PHV).",
       sherarDesc: "Mirwald (♀) — Eq. 4 de Mirwald et al. (2002). Óptimo para chicas de 8-18 años. Para chicas, priorizar PAH% sobre offset (Koziel & Malina, 2018).",
-      sitarDesc: "Método longitudinal basado en histórico de mediciones. Requiere mínimo 3 mediciones en el tiempo. Separa tamaño, timing y velocidad individual de crecimiento.",
+      sitarDesc: "Modelo longitudinal individual (Cole et al., 2010; Monasterio et al., 2026). Requiere ≥3 mediciones en ≥6 meses, varones. ~80% clasificación correcta vs ~50–70% de métodos de offset. No se activa automáticamente — selección explícita requerida.",
       consensusDesc: "Media ponderada dinámica de los métodos disponibles. Los pesos se reajustan automáticamente cuando faltan datos.",
       groupDesc: "Clasificación maduativa en tres bandas: Pre-PHV, Mid-PHV y Post-PHV.",
       offsetDesc: "Años de diferencia con respecto al PHV. Negativo = antes de PHV, Positivo = después de PHV.",
@@ -1440,9 +1440,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       moore2Title: "Moore-2 fallback active",
       moore2Body:
         "No sitting height recorded. Moore-2 (total stature) was used, adding ~0.1 years of error vs Moore-1. Record sitting height at the next measurement.",
-      sitarActiveTitle: "SITAR engine active",
+      sitarActiveTitle: "SITAR engine selected",
       sitarActiveBody:
-        "With ≥3 longitudinal measurements, SITAR estimates APHV with ~80% correct classification vs ~50–70% for offset methods. Reference parameters: Monasterio (2026).",
+        "You are using SITAR as the maturation engine. With ≥3 longitudinal measurements, SITAR estimates APHV with ~80% correct classification vs ~50–70% for offset methods (Monasterio, 2026). Typical APHV error ≈ ±0.6 years. PHV and PAH are secondary estimates with higher variability.",
     },
     community: {
       title: "Community",
@@ -1606,7 +1606,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       moorDesc: "Applicable to both sexes. Intermediate accuracy.",
       mirwaldDesc: "Versatile method for both sexes. Best performance in more mature adolescents (Post-PHV stages).",
       sherarDesc: "Mirwald (♀) — Mirwald et al. (2002) Eq. 4. Optimal for girls aged 8-18. Prioritise PAH% over offset for girls (Koziel & Malina, 2018).",
-      sitarDesc: "Longitudinal method based on measurement history. Requires minimum 3 measurements over time. Separates individual size, timing, and growth velocity.",
+      sitarDesc: "Individual longitudinal growth curve model (Cole et al., 2010; Monasterio et al., 2026). Requires ≥3 measurements over ≥6 months, males only. ~80% correct classification vs ~50–70% for offset methods. Not activated automatically — explicit selection required.",
       consensusDesc: "Dynamic weighted average of available methods. Weights are rebalanced automatically when data is missing.",
       groupDesc: "Maturity classification in three bands: Pre-PHV, Mid-PHV and Post-PHV.",
       offsetDesc: "Years difference from PHV. Negative = before PHV, Positive = after PHV.",

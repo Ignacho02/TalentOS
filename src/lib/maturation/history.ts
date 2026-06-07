@@ -98,14 +98,15 @@ export function processAssessmentsWithHistory(records: AnthropometricRecord[]): 
     }
 
     // 3. SITAR Model Integration
-    // Only run if we have at least 3 longitudinal records spanning at least 6 months,
-    // athlete is male, and the date pattern is irregular or contains larger-than-expected gaps.
+    // Compute SITAR outputs whenever we have at least 3 longitudinal records spanning at least
+    // 6 months for male athletes. The user must explicitly select SITAR in Maturation Preferences;
+    // these outputs are only used when the SITAR engine is active.
     if (baseResults.length >= 3 && baseResults[0].inputs.sex === "male") {
       const firstDate = new Date(baseResults[0].inputs.dataCollectionDate).getTime();
       const lastDate = new Date(baseResults[baseResults.length - 1].inputs.dataCollectionDate).getTime();
       const spanYears = (lastDate - firstDate) / (1000 * 60 * 60 * 24 * 365.25);
 
-      if (spanYears >= 0.5 && hasIrregularLongitudinalPattern(baseResults)) {
+      if (spanYears >= 0.5) {
         const sitarOutputs = runSitarOptimization(baseResults);
 
         if (sitarOutputs) {

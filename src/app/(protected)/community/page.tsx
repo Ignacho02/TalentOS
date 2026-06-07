@@ -406,7 +406,7 @@ function DocumentationTab({ t }: { t: (key: string) => string }) {
             <Tag color="bg-blue-100 text-blue-700">Varones validado</Tag>
             <Tag color="bg-purple-100 text-purple-700">≥3 mediciones</Tag>
             <Tag color="bg-green-100 text-green-700">~80% clasificación correcta</Tag>
-            <Tag color="bg-slate-100 text-slate-700">Se activa automáticamente</Tag>
+            <Tag color="bg-violet-100 text-violet-700">Selección explícita</Tag>
           </div>
           <p className="text-sm text-slate-700 leading-relaxed">
             <strong>SITAR</strong> (SuperImposition by Translation And Rotation) es el único método longitudinal
@@ -430,7 +430,7 @@ function DocumentationTab({ t }: { t: (key: string) => string }) {
             </div>
           </div>
           <Formula>{"APHV_SITAR  = 13.5 + b\nPHV_SITAR   = 10.1 × exp(−c)\nPAH_SITAR   = 179.5 + a\n\nParámetros de referencia (fútbol élite español, Monasterio 2026):\n  meanAPHV = 13.5 años · meanPHV = 10.1 cm/año · meanAdultHeight = 179.5 cm"}</Formula>
-          <p className="text-sm text-slate-700">Se activa automáticamente con ≥3 mediciones separadas ≥6 meses. Con datos solo U13-U15, error típico en APHV ≈ ±0.6 años.</p>
+          <p className="text-sm text-slate-700">Disponible como motor explícito cuando hay ≥3 mediciones separadas ≥6 meses (varones). Seleccionar manualmente en Ajustes Madurativos. Con datos solo U13-U15, error típico en APHV ≈ ±0.6 años. PHV y PAH son estimaciones secundarias con mayor variabilidad (Monasterio et al., 2026).</p>
           <div className="space-y-2">
             <Ref title="SITAR — a useful instrument for growth curve analysis" authors="Cole TJ, Donaldson MDC, Ben-Shlomo Y" year={2010} doi="10.1093/ije/dyq115" />
             <Ref title="Application of the SITAR model for estimating APHV, PHV, and adult height in elite male football players" authors="Monasterio X et al." year={2026} />
@@ -466,8 +466,7 @@ function DocumentationTab({ t }: { t: (key: string) => string }) {
             </table>
           </div>
           <p className="text-xs text-purple-800">
-            Cuando SITAR está disponible (≥3 mediciones), su peso domina el consenso dada su superior precisión
-            longitudinal (~80% de clasificación correcta).
+            Los pesos se reajustan automáticamente cuando algún método no tiene datos disponibles (por ejemplo, sin altura sentado se excluye Fransen y se renormalizan el resto).
           </p>
         </div>
       </section>
@@ -519,7 +518,7 @@ function DocumentationTab({ t }: { t: (key: string) => string }) {
             { cond: "Varones, con altura sentado", rec: "Fransen (AUTO ♂)", why: "Mayor precisión validada en academias de fútbol masculino. Corrige sesgo en extremos." },
             { cond: "Chicas", rec: "Mirwald (♀) + % PAH (AUTO ♀)", why: "Único método de offset específico para chicas. Complementar con % PAH por mayor fiabilidad." },
             { cond: "Sin altura sentado (varones)", rec: "Moore-2 (fallback automático)", why: "La app lo activa sin intervención. Penalización de ~0.1 años MAD respecto a Moore-1." },
-            { cond: "≥3 mediciones longitudinales", rec: "SITAR (automático)", why: "~80% clasificación correcta vs ~50–70% con métodos de offset. Se activa solo." },
+            { cond: "≥3 mediciones longitudinales (varones)", rec: "SITAR (selección manual)", why: "~80% clasificación correcta vs ~50–70% con métodos de offset. Seleccionar explícitamente en Ajustes Madurativos." },
             { cond: "Tallas parentales disponibles", rec: "Khamis-Roche para % PAH", why: "La talla parental es el predictor más potente de talla adulta. Indicar si son autorreportadas." },
             { cond: "Comparativa entre métodos", rec: "Consenso", why: "Reduce el sesgo individual de cada método combinando con pesos científicamente fundamentados." },
           ] as const).map((row, i) => (

@@ -705,7 +705,7 @@ function IndividualView({
       return {
         date: formatDate(h.inputs.dataCollectionDate),
         band: getGroupingBand(hProfile),
-        offset: Number((hProfile.offset ?? h.classification.primaryOffset).toFixed(2)),
+        offset: hProfile.offset != null ? Number(hProfile.offset.toFixed(2)) : null,
       };
     });
   }, [selectedHistory, selectedEngine, bioBandingStrategy, state.athletes]);
@@ -1145,9 +1145,39 @@ function IndividualView({
               {/* Maturation Insights Cards */}
               <MaturationInsights 
                 result={selectedLatest} 
+                profile={selectedLatestProfile}
                 zScore={zScoreInfo ? { score: zScoreInfo.score, label: zScoreInfo.label } : undefined}
                 baselineLabel={currentBaseline.label}
               />
+
+              {/* DashboardInsight banners — engine-aware (SITAR, Moore-2 fallback, extremes, etc.) */}
+              {(() => {
+                const dashboardInsights = buildInsights(selectedLatest, selectedEngine);
+                if (dashboardInsights.length === 0) return null;
+                return (
+                  <div className="space-y-2">
+                    {dashboardInsights.map((insight) => {
+                      const toneStyles =
+                        insight.tone === "warning"
+                          ? "bg-amber-50 border-amber-200 text-amber-800"
+                          : insight.tone === "success"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                          : "bg-blue-50 border-blue-200 text-blue-800";
+                      const icon =
+                        insight.tone === "warning" ? "⚠️" : insight.tone === "success" ? "✅" : "ℹ️";
+                      return (
+                        <div
+                          key={insight.id}
+                          className={`rounded-xl border px-4 py-3 text-sm ${toneStyles}`}
+                        >
+                          <span className="font-semibold mr-1">{icon} {t(insight.titleKey)}</span>
+                          {t(insight.bodyKey)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* MATURITY OFFSET & TEAM COMPARISON SECTION */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1473,10 +1503,13 @@ function IndividualView({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {[selectedLatest, ...comparisonLatest].filter(Boolean).map((a: any) => (
+                        {[selectedLatest, ...comparisonLatest].filter(Boolean).map((a: any) => {
+                          const aSex = getAssessmentSex(a);
+                          const aProfile = createUnifiedProfile(a, selectedEngine, bioBandingStrategy, aSex);
+                          return (
                           <tr key={a.inputs.athleteId} className={a.inputs.athleteId === selectedAthleteId ? "bg-teal-50/30" : ""}>
                             <td className="px-6 py-4 font-bold">{a.inputs.athleteName}</td>
-                            <td className="px-6 py-4 font-bold text-teal-600">{formatNumber(a.classification.primaryOffset, 2)}</td>
+                            <td className="px-6 py-4 font-bold text-teal-600">{aProfile.offset != null ? formatNumber(aProfile.offset, 2) : "—"}</td>
                             <td className="px-6 py-4">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                                 a.classification.maturityBand === "Pre-PHV" ? "bg-teal-100 text-teal-700" :
@@ -1489,7 +1522,8 @@ function IndividualView({
                             <td className="px-6 py-4">{formatNumber(a.methodOutputs.mooreAphv, 2)}</td>
                             <td className="px-6 py-4">{a.methodOutputs.pahCm ? `${formatNumber(a.methodOutputs.pahCm, 2)} cm` : "N/A"}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1546,16 +1580,20 @@ function IndividualView({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {selectedHistory.map((h) => (
+                      {selectedHistory.map((h) => {
+                        const hSex = getAssessmentSex(h);
+                        const hProfile = createUnifiedProfile(h, selectedEngine, bioBandingStrategy, hSex);
+                        return (
                         <tr key={h.inputs.dataCollectionDate} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 font-medium">{formatDate(h.inputs.dataCollectionDate)}</td>
-                          <td className="px-6 py-4 font-medium text-teal-600">{formatNumber(h.classification.primaryOffset, 2)}</td>
+                          <td className="px-6 py-4 font-medium text-teal-600">{hProfile.offset != null ? formatNumber(hProfile.offset, 2) : "—"}</td>
                           <td className="px-6 py-4">{formatNumber(h.methodOutputs.mooreAphv, 2)} {t("analysis.individual.years")}</td>
                           <td className="px-6 py-4">{formatNumber(h.methodOutputs.mirwaldAphv, 2)} {t("analysis.individual.years")}</td>
                           <td className="px-6 py-4">{h.methodOutputs.pahCm ? `${formatNumber(h.methodOutputs.pahCm, 2)} cm` : "N/A"}</td>
                           <td className="px-6 py-4">{h.methodOutputs.percentageAdultHeight ? `${formatNumber(h.methodOutputs.percentageAdultHeight, 2)}%` : "N/A"}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

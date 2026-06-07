@@ -29,13 +29,12 @@ export function MaturationPreferences({
     setDraftBioStrategy(bioBandingStrategy);
   }, [selectedEngine, bioBandingStrategy]);
 
-  const showSitar = measurementCount >= 3;
   const hasUnsavedChanges = draftEngine !== selectedEngine || draftBioStrategy !== bioBandingStrategy;
 
-  // Engine options based on sex
+  // Engine options based on sex — SITAR is always listed as an explicit option
   const availableEngines: MaturationEngine[] = sex === "male"
-    ? ["auto", "fransen", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])]
-    : ["auto", "sherar", "moore", "mirwald", "consensus", ...(showSitar ? ["sitar" as MaturationEngine] : [])];
+    ? ["auto", "fransen", "moore", "mirwald", "consensus", "sitar"]
+    : ["auto", "sherar", "moore", "mirwald", "consensus"];
 
   const getEngineTranslatedLabel = (engine: MaturationEngine): string => {
     const labels: Record<MaturationEngine, string> = {
@@ -101,14 +100,14 @@ export function MaturationPreferences({
                     <label htmlFor={`engine-${engine}`} className="flex-1 cursor-pointer">
                       <span className="font-medium text-slate-700 text-sm">
                         {getEngineTranslatedLabel(engine)}
-                        {engine === "sitar" && (
-                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
-                            AUTO ≥3
+                        {engine === "sitar" && measurementCount < 3 && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">
+                            ≥3 mediciones
                           </span>
                         )}
-                        {engine === "auto" && measurementCount >= 3 && sex === "male" && (
+                        {engine === "sitar" && measurementCount >= 3 && (
                           <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">
-                            {t("maturationMethods.sitarActive")}
+                            Disponible
                           </span>
                         )}
                       </span>

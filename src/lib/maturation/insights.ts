@@ -1,6 +1,7 @@
 import type { DashboardInsight, MaturationResult } from "@/lib/types";
+import type { MaturationEngine } from "./unified-maturation";
 
-export function buildInsights(result: MaturationResult): DashboardInsight[] {
+export function buildInsights(result: MaturationResult, selectedEngine?: MaturationEngine): DashboardInsight[] {
   const insights: DashboardInsight[] = [];
 
   // Extreme offset warning — error multiplies ×2–6 (Koziel & Malina 2018)
@@ -40,8 +41,8 @@ export function buildInsights(result: MaturationResult): DashboardInsight[] {
     });
   }
 
-  // SITAR active — inform user which engine is running
-  if (result.sitarOutputs?.sitarActive) {
+  // SITAR active — inform user they are using the SITAR engine
+  if (selectedEngine === "sitar" && result.sitarOutputs?.sitarActive) {
     insights.push({
       id: `${result.inputs.id}-sitar`,
       tone: "success",

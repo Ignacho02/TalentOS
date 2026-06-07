@@ -1,10 +1,11 @@
 import React from 'react';
 import { TrendingUp, AlertCircle, CheckCircle2, Info } from 'lucide-react';
-import type { MaturationResult } from '@/lib/types';
+import type { MaturationResult, UnifiedMaturityProfile } from '@/lib/types';
 import { useLocale } from '@/lib/i18n/locale-context';
 
 interface MaturationInsightsProps {
   result: MaturationResult;
+  profile?: UnifiedMaturityProfile | null;
   zScore?: {
     score: number;
     label: string;
@@ -12,9 +13,12 @@ interface MaturationInsightsProps {
   baselineLabel?: string;
 }
 
-export function MaturationInsights({ result, zScore, baselineLabel }: MaturationInsightsProps) {
+export function MaturationInsights({ result, profile, zScore, baselineLabel }: MaturationInsightsProps) {
   const { t } = useLocale();
-  const { maturityBand, primaryOffset } = result.classification;
+  // Prefer engine-aware values from UnifiedMaturityProfile when available.
+  // Falls back to result.classification when engine has no data (e.g. SITAR selected for female).
+  const maturityBand = (profile?.maturityBand != null) ? profile.maturityBand : result.classification.maturityBand;
+  const primaryOffset = (profile?.offset != null) ? profile.offset : result.classification.primaryOffset;
   const { percentageAdultHeight, pahCm } = result.methodOutputs;
 
   const getBandColor = (band: string) => {

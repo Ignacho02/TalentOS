@@ -347,9 +347,10 @@ Fórmula LMS y tablas verificadas contra la referencia OMS 2007. ✅
 
 ## 6. SITAR — Modelo longitudinal individual
 
-**Estado:** ✅ Activo (requiere ≥3 mediciones longitudinales ♂)  
+**Estado:** ✅ Activo (selección explícita en Ajustes Madurativos — requiere ≥3 mediciones longitudinales ♂)  
 **Aplicable a:** Masculino  
-**Mínimo de mediciones:** 3, con un intervalo mínimo de 6 meses
+**Mínimo de mediciones:** 3, con un intervalo mínimo de 6 meses  
+**Selección:** Manual — no se activa automáticamente
 
 ### Fundamento
 
@@ -495,13 +496,13 @@ La precisión de todos los métodos depende directamente de la calidad de las me
 |---------|------------------------|
 | Pre-PHV y Mid-PHV (offset > −1) | Cada 3–6 meses |
 | Post-PHV tardío (offset > +2) | Cada 6–12 meses |
-| Para activación SITAR | Mínimo 3 mediciones en ≥6 meses |
+| Para disponibilidad SITAR | Mínimo 3 mediciones en ≥6 meses |
 
 ### Selección de motor
 
 **Para chicos:**
 1. **AUTO (recomendado):** Fransen → Moore-1 → Moore-2 (fallback sin SH) → Mirwald
-2. Si ≥3 mediciones longitudinales: considerar SITAR como referencia adicional
+2. Si ≥3 mediciones longitudinales: seleccionar **SITAR** manualmente en Ajustes Madurativos para mejor precisión en APHV
 
 **Para chicas:**
 1. **AUTO:** Mirwald (♀) → Moore → Mirwald

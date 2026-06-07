@@ -31,12 +31,10 @@ function selectBestEngine(result: MaturationResult, sex: Sex): MaturationEngine 
 
   if (sex === "male") {
     // Males: Fransen preferred, fallback Moore, then Mirwald.
-    // SITAR is available as a longitudinal reference when ≥3 measurements exist,
-    // but AUTO should not choose it ahead of the classical offset methods.
+    // SITAR is never chosen automatically — user must select it explicitly.
     if (methodOutputs.fransenAphv !== null) return "fransen";
     if (methodOutputs.mooreAphv !== null) return "moore";
     if (methodOutputs.mirwaldAphv !== null) return "mirwald";
-    if (result.sitarOutputs?.sitarActive) return "sitar";
   } else {
     // Females: Mirwald(♀) [engine key "sherar"] → Moore → Mirwald
     if (methodOutputs.sherarOffset !== null) return "sherar";
