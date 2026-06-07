@@ -92,6 +92,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       sectionSubtitleMaturation: "Registra medidas antropométricas, calcula la madurez biológica y realiza bio-banding sobre tu plantilla.",
       sectionTitlePerformance: "Rendimiento deportivo",
       sectionSubtitlePerformance: "Registra y analiza los resultados de tests físicos, técnicos y psicológicos de tus jugadores.",
+      maturation: "Maduracion",
       anthropometrics: "Antropometricos",
       performancePhysical: "Físico",
       performanceTechnicalTactical: "Técnico-táctico",
@@ -625,6 +626,15 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       title: "Comunidad",
       subtitle:
         "Un espacio preparado para conectar conocimiento, evidencias y futuras relaciones entre clubes.",
+      tabNetwork: "Red Social",
+      tabLearning: "Formación",
+      tabDocumentation: "Documentación",
+      networkComingSoon: "Próximamente",
+      networkComingSoonDesc:
+        "Canal de conexión entre clubes por zona, categoría, edad y perfil madurativo medio de plantillas. Filtros por área geográfica y comparativas inter-club.",
+      learningComingSoon: "Próximamente",
+      learningComingSoonDesc:
+        "Repositorio de evidencias científicas, posts y activos de aprendizaje transferibles para el staff técnico. Evidencias curadas, notas y marcos de interpretación práctica.",
       formationTitle: "Formacion",
       formationBody:
         "Repositorio de evidencias cientificas, posts y activos de aprendizaje transferibles para el staff.",
@@ -781,6 +791,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       aphvDesc: "Edad Peak Height Velocity estimada. Indica cuándo alcanzó o alcanzará su máximo crecimiento.",
       pahDesc: "Porcentaje de altura adulta alcanzada. Progresa de menor a mayor conforme madura.",
       shrDesc: "Ratio sentado/estatura. Indicador de proporciones corporales y cambios en composición.",
+      shrLabel: "SHR",
       whoBmiDesc: "Desviación estándar del IMC respecto a referencia WHO. Evalúa estado nutricional.",
       growthVelocityLabel: "Vel. Crecimiento",
       growthVelocityUnit: "cm/año",
@@ -902,6 +913,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       sectionSubtitleMaturation: "Record anthropometric measurements, calculate biological maturity and perform bio-banding across your squad.",
       sectionTitlePerformance: "Sports performance",
       sectionSubtitlePerformance: "Record and analyse physical, technical and psychological test results for your players.",
+      maturation: "Maturation",
       anthropometrics: "Anthropometrics",
       performance: "Performance",
       performancePhysical: "Physical",
@@ -1436,6 +1448,15 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       title: "Community",
       subtitle:
         "A workspace prepared to connect knowledge, evidence and future club relationships.",
+      tabNetwork: "Network",
+      tabLearning: "Learning",
+      tabDocumentation: "Documentation",
+      networkComingSoon: "Coming soon",
+      networkComingSoonDesc:
+        "A channel to connect clubs by region, category, age and average squad maturity profile. Geographic filters and inter-club comparisons.",
+      learningComingSoon: "Coming soon",
+      learningComingSoonDesc:
+        "Repository of scientific evidence, posts and transfer-ready learning assets for technical staff. Curated evidence, notes and practical interpretation frameworks.",
       formationTitle: "Education",
       formationBody:
         "Repository for scientific evidence, posts and transfer-ready learning assets for staff.",
@@ -1592,6 +1613,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       aphvDesc: "Estimated Peak Height Velocity age. Indicates when maximum growth was or will be reached.",
       pahDesc: "Percentage of adult height achieved. Progresses from lower to higher as maturity increases.",
       shrDesc: "Sitting height to stature ratio. Indicator of body proportions and composition changes.",
+      shrLabel: "SHR",
       whoBmiDesc: "BMI standard deviations from WHO reference. Evaluates nutritional status.",
       growthVelocityLabel: "Growth Velocity",
       growthVelocityUnit: "cm/year",

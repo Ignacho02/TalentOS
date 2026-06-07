@@ -117,7 +117,7 @@ export function calculateMaturation(
       ageLookup.stature * record.statureCm +
       ageLookup.weight * record.bodyMassKg +
       ageLookup.midParentStature * adjustedMidParent;
-    percentageAdultHeight = (record.statureCm / pahCm) * 100;
+    percentageAdultHeight = Math.min((record.statureCm / pahCm) * 100, 100);
 
     if (record.sex === "male" && ageLookup.refMean && ageLookup.refSd) {
       maturityZScore =
@@ -132,12 +132,11 @@ export function calculateMaturation(
   let kozielMalinaPercentageAdultHeight: number | null = null;
   if (!parentHeightsPresent) {
     if (record.sex === "male" && ageLookup.refMean) {
-      kozielMalinaPercentageAdultHeight = ageLookup.refMean;
-      kozielMalinaPahCm = record.statureCm / (ageLookup.refMean / 100);
+      kozielMalinaPercentageAdultHeight = Math.min(ageLookup.refMean, 100);
+      kozielMalinaPahCm = record.statureCm / (kozielMalinaPercentageAdultHeight / 100);
     } else {
-      // Approximation for girls based on age
       const approxRefMean = 75 + (chronologicalAge - 5) * 1.5; // very rough heuristic
-      const boundedMean = Math.min(Math.max(approxRefMean, 75), 99);
+      const boundedMean = Math.min(Math.max(approxRefMean, 75), 100);
       kozielMalinaPercentageAdultHeight = boundedMean;
       kozielMalinaPahCm = record.statureCm / (boundedMean / 100);
     }

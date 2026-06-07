@@ -1234,8 +1234,6 @@ export function MaturationSection({
           growthVelocity: r.derivedMetrics.growthVelocityCmPerYear,
           pah: r.methodOutputs.percentageAdultHeight,
         }));
-        const visibleHistory = [...history].reverse().slice(0, 5);
-        const hasHistoryOverflow = history.length > 5;
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
@@ -1275,20 +1273,21 @@ export function MaturationSection({
                 {latest ? (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">Última medición — {formatDate(latest.inputs.dataCollectionDate)}</p>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-4">
+                      {/* Anthropometric row */}
                       <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-4">{t("datahub.anthropometrics")}</p>
-                        <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.stature")}</p>
                             <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.statureCm, 1)} cm</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
-                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.bodyMassKg")}</p>
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.bodyMassKg").replace(/ \(.*?\)/, "")}</p>
                             <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.bodyMassKg, 1)} kg</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
-                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.sittingHeightCm")}</p>
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.sittingHeightCm").replace(/ \(.*?\)/, "")}</p>
                             <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.inputs.sittingHeightCm, 1)} cm</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
@@ -1297,9 +1296,10 @@ export function MaturationSection({
                           </div>
                         </div>
                       </section>
+                      {/* Maturation rows (2×4) */}
                       <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-4">{t("datahub.maturation")}</p>
-                        <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.group")}</p>
                             <p className="text-sm font-semibold text-accent">{latestProfile ? getGroupingBand(latestProfile) : latest.classification.maturityBand}</p>
@@ -1321,16 +1321,16 @@ export function MaturationSection({
                             <p className="text-sm font-semibold text-zinc-900">{latestProfile?.aphv != null ? formatNumber(latestProfile.aphv, 2) : "—"}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
-                            <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.sittingHeightCm")} ratio</p>
-                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.derivedMetrics.sittingHeightRatio, 1)}</p>
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("maturationMethods.shrLabel")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{formatNumber(latest.derivedMetrics.sittingHeightRatio, 3)}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">WHO BMI Z</p>
                             <p className="text-sm font-semibold text-zinc-900">{latest.classification.whoBmiZScore !== null ? formatNumber(latest.classification.whoBmiZScore, 2) : "—"}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
-                            <p className="text-xs text-zinc-500 mb-0.5">Velocidad</p>
-                            <p className="text-sm font-semibold text-zinc-900">{latest.derivedMetrics.growthVelocityCmPerYear != null ? `${formatNumber(latest.derivedMetrics.growthVelocityCmPerYear, 1)} cm/año` : "—"}</p>
+                            <p className="text-xs text-zinc-500 mb-0.5">{t("maturationMethods.growthVelocityLabel")}</p>
+                            <p className="text-sm font-semibold text-zinc-900">{latest.derivedMetrics.growthVelocityCmPerYear != null ? `${formatNumber(latest.derivedMetrics.growthVelocityCmPerYear, 1)} ${t("maturationMethods.growthVelocityUnit")}` : "—"}</p>
                           </div>
                         </div>
                       </section>
@@ -1429,115 +1429,147 @@ export function MaturationSection({
                 )}
 
                 {/* Evolutionary charts */}
-                {chartData.length >= 2 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.evolution")}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.stature")} (cm)</p>
-                        <ResponsiveContainer width="100%" height={120}>
-                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
-                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                            <Line type="monotone" dataKey="stature" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
+                {chartData.length >= 2 && (() => {
+                  const hasVelocity = chartData.some((d) => d.growthVelocity != null);
+                  const hasPah = chartData.some((d) => d.pah !== null);
+                  const matCharts = [
+                    { key: "offset", label: t("datahub.offset"), color: "#14b8a6" },
+                    ...(hasVelocity ? [{ key: "velocity", label: `${t("maturationMethods.growthVelocityLabel")} (${t("maturationMethods.growthVelocityUnit")})`, color: "#8b5cf6" }] : []),
+                    ...(hasPah ? [{ key: "pah", label: "% PAH", color: "#f97316" }] : []),
+                  ];
+                  // Anthropometric: 2 charts → center them (2-col grid, full-width on sm)
+                  // Maturative: variable count
+                  return (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-3">{t("datahub.evolution")}</p>
+                      {/* Anthropometric charts */}
+                      <p className="text-xs font-medium text-zinc-400 mb-2">{t("datahub.anthropometrics")}</p>
+                      <div className="flex justify-center mb-4">
+                        <div className="grid grid-cols-2 gap-4 w-full sm:w-2/3">
+                          <div>
+                            <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.stature")} (cm)</p>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                                <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : String(v ?? "")]} />
+                                <Line type="monotone" dataKey="stature" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div>
+                            <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.bodyMassKg").replace(/ \(.*?\)/, "")} (kg)</p>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                                <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : String(v ?? "")]} />
+                                <Line type="monotone" dataKey="bodyMass" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.bodyMassKg")}</p>
-                        <ResponsiveContainer width="100%" height={120}>
-                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
-                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                            <Line type="monotone" dataKey="bodyMass" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.offset")}</p>
-                        <ResponsiveContainer width="100%" height={120}>
-                          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
-                            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                            <Line type="monotone" dataKey="offset" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                      {chartData.some((d) => d.growthVelocity != null) && (
+                      {/* Maturative charts */}
+                      <p className="text-xs font-medium text-zinc-400 mb-2">{t("datahub.maturation")}</p>
+                      <div className={`grid gap-4 ${matCharts.length === 1 ? "grid-cols-1 sm:w-1/3 mx-auto" : matCharts.length === 2 ? "grid-cols-2 sm:w-2/3 mx-auto" : "grid-cols-1 sm:grid-cols-3"}`}>
                         <div>
-                          <p className="text-xs text-zinc-500 mb-1 text-center">Velocidad (cm/año)</p>
+                          <p className="text-xs text-zinc-500 mb-1 text-center">{t("datahub.offset")}</p>
                           <ResponsiveContainer width="100%" height={120}>
-                            <LineChart data={chartData.filter((d) => d.growthVelocity != null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                            <LineChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                               <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
                               <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                              <Line type="monotone" dataKey="growthVelocity" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : String(v ?? "")]} />
+                              <Line type="monotone" dataKey="offset" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
-                      )}
-                      {chartData.some((d) => d.pah !== null) && (
-                        <div>
-                          <p className="text-xs text-zinc-500 mb-1 text-center">% PAH</p>
-                          <ResponsiveContainer width="100%" height={120}>
-                            <LineChart data={chartData.filter((d) => d.pah !== null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                              <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
-                              <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                              <Line type="monotone" dataKey="pah" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
+                        {hasVelocity && (
+                          <div>
+                            <p className="text-xs text-zinc-500 mb-1 text-center">{t("maturationMethods.growthVelocityLabel")} ({t("maturationMethods.growthVelocityUnit")})</p>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <LineChart data={chartData.filter((d) => d.growthVelocity != null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                                <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : String(v ?? "")]} />
+                                <Line type="monotone" dataKey="growthVelocity" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                        {hasPah && (
+                          <div>
+                            <p className="text-xs text-zinc-500 mb-1 text-center">% PAH</p>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <LineChart data={chartData.filter((d) => d.pah !== null)} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickLine={false} />
+                                <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : String(v ?? "")]} />
+                                <Line type="monotone" dataKey="pah" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* History table */}
-                {history.length > 1 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-2">{t("datahub.historyMeasurements")} ({history.length})</p>
-                    <div className={cn("overflow-x-auto rounded-3xl border border-line/80", hasHistoryOverflow ? "max-h-[22rem] overflow-y-auto" : "")}> 
-                      <table className="w-full min-w-max text-xs text-left">
-                        <thead className="bg-zinc-50 sticky top-0">
-                          <tr className="text-zinc-400 border-b border-line">
-                            <th className="py-1.5 pr-4 font-medium">{t("datahub.date")}</th>
-                            <th className="py-1.5 pr-4 font-medium">{t("datahub.stature")}</th>
-                            <th className="py-1.5 pr-4 font-medium">{t("datahub.bodyMassKg")}</th>
-                            <th className="py-1.5 pr-4 font-medium">Sit. cm</th>
-                            <th className="py-1.5 pr-4 font-medium">{t("datahub.group")}</th>
-                            <th className="py-1.5 pr-4 font-medium">{t("datahub.offset")}</th>
-                            <th className="py-1.5 font-medium">%PAH</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleHistory.map((r) => (
-                            <tr key={r.inputs.id} className="border-t border-line/40">
-                              <td className="py-1.5 pr-4 text-zinc-600">{formatDate(r.inputs.dataCollectionDate)}</td>
-                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.statureCm, 1)} cm</td>
-                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.bodyMassKg, 1)} kg</td>
-                              <td className="py-1.5 pr-4">{formatNumber(r.inputs.sittingHeightCm, 1)} cm</td>
-                              <td className="py-1.5 pr-4 font-medium">{r.classification.maturityBand}</td>
-                              <td className="py-1.5 pr-4">{formatNumber(r.classification.primaryOffset, 2)}</td>
-                              <td className="py-1.5">{r.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(r.methodOutputs.percentageAdultHeight, 1)}%` : "—"}</td>
+                {history.length > 1 && (() => {
+                  const allHistory = [...history].reverse();
+                  return (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400 mb-2">{t("datahub.historyMeasurements")} ({history.length})</p>
+                      <div className={cn("overflow-x-auto border border-line/80 rounded-xl", allHistory.length > 5 ? "max-h-[22rem] overflow-y-auto" : "")}>
+                        <table className="min-w-max w-full text-xs text-left">
+                          <thead className="bg-zinc-50 sticky top-0 z-10">
+                            <tr className="text-zinc-400 border-b border-line">
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.date")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.stature")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.bodyMassKg").replace(/ \(.*?\)/, "")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.sittingHeightCm").replace(/ \(.*?\)/, "")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.age")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.group")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("datahub.offset")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">% PAH</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">APHV</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("maturationMethods.shrLabel")}</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">WHO BMI Z</th>
+                              <th className="py-1.5 px-3 font-medium whitespace-nowrap">{t("maturationMethods.growthVelocityLabel")}</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {allHistory.map((r) => {
+                              const rProfile = createUnifiedProfile(r, selectedEngine, bioBandingStrategy, athleteSex);
+                              return (
+                                <tr key={r.inputs.id} className="border-t border-line/40 hover:bg-zinc-50/50">
+                                  <td className="py-1.5 px-3 text-zinc-600 whitespace-nowrap">{formatDate(r.inputs.dataCollectionDate)}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.inputs.statureCm, 1)} cm</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.inputs.bodyMassKg, 1)} kg</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.inputs.sittingHeightCm, 1)} cm</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.derivedMetrics.chronologicalAge, 2)}</td>
+                                  <td className="py-1.5 px-3 font-medium text-accent whitespace-nowrap">{rProfile ? getGroupingBand(rProfile) : r.classification.maturityBand}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{rProfile?.offset != null ? formatNumber(rProfile.offset, 2) : formatNumber(r.classification.primaryOffset, 2)}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{r.methodOutputs.percentageAdultHeight !== null ? `${formatNumber(r.methodOutputs.percentageAdultHeight, 1)}%` : "—"}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{rProfile?.aphv != null ? formatNumber(rProfile.aphv, 2) : "—"}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{formatNumber(r.derivedMetrics.sittingHeightRatio, 3)}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{r.classification.whoBmiZScore !== null ? formatNumber(r.classification.whoBmiZScore, 2) : "—"}</td>
+                                  <td className="py-1.5 px-3 whitespace-nowrap">{r.derivedMetrics.growthVelocityCmPerYear != null ? `${formatNumber(r.derivedMetrics.growthVelocityCmPerYear, 1)}` : "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                    {hasHistoryOverflow && (
-                      <p className="text-xs text-zinc-500 mt-2">Mostrando las 5 mediciones más recientes. Desplaza para ver entradas anteriores.</p>
-                    )}
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           </div>
