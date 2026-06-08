@@ -402,12 +402,15 @@ function IndividualView({
       ch.history.forEach(h => dates.add(h.inputs.dataCollectionDate));
     });
 
+    const selectedSex = getAssessmentSex(selectedLatest);
+
     return Array.from(dates).sort().map(date => {
       const entry: any = { date: formatDate(date) };
       const values: number[] = [];
       const primaryMatch = selectedHistory.find(h => h.inputs.dataCollectionDate === date);
       if (primaryMatch) {
-        const value = Number(primaryMatch.classification.primaryOffset.toFixed(2));
+        const primaryProfile = createUnifiedProfile(primaryMatch, selectedEngine, bioBandingStrategy, selectedSex);
+        const value = Number((primaryProfile.offset ?? primaryMatch.classification.primaryOffset).toFixed(2));
         entry[selectedLatest.inputs.athleteName] = value;
         entry.growthVelocity = primaryMatch.derivedMetrics.growthVelocityCmPerYear != null
           ? Number(primaryMatch.derivedMetrics.growthVelocityCmPerYear.toFixed(1))
@@ -418,7 +421,10 @@ function IndividualView({
       comparisonHistories.forEach(ch => {
         const match = ch.history.find(h => h.inputs.dataCollectionDate === date);
         if (match) {
-          const value = Number(match.classification.primaryOffset.toFixed(2));
+          const compAthleteLatest = activeComparisonAthletes.find(a => a.inputs.athleteId === ch.id);
+          const compSex = compAthleteLatest ? getAssessmentSex(compAthleteLatest) : selectedSex;
+          const compProfile = createUnifiedProfile(match, selectedEngine, bioBandingStrategy, compSex);
+          const value = Number((compProfile.offset ?? match.classification.primaryOffset).toFixed(2));
           entry[ch.name] = value;
           values.push(value);
         }
@@ -428,7 +434,7 @@ function IndividualView({
       }
       return entry;
     });
-  }, [selectedHistory, comparisonHistories, selectedLatest, isComparisonTeamMode]);
+  }, [selectedHistory, comparisonHistories, selectedLatest, isComparisonTeamMode, selectedEngine, bioBandingStrategy, activeComparisonAthletes]);
 
   const athleteLoad = useMemo(() => {
     if (!selectedAthleteId) return [];
@@ -1520,11 +1526,11 @@ function IndividualView({
                             <td className="px-6 py-4 font-bold text-teal-600">{aProfile.offset != null ? formatNumber(aProfile.offset, 2) : "—"}</td>
                             <td className="px-6 py-4">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                                a.classification.maturityBand === "Pre-PHV" ? "bg-teal-100 text-teal-700" :
-                                a.classification.maturityBand === "Mid-PHV" ? "bg-amber-100 text-amber-700" :
+                                aProfile.maturityBand === "Pre-PHV" ? "bg-teal-100 text-teal-700" :
+                                aProfile.maturityBand === "Mid-PHV" ? "bg-amber-100 text-amber-700" :
                                 "bg-slate-200 text-slate-700"
                               }`}>
-                                {a.classification.maturityBand ?? "—"}
+                                {aProfile.maturityBand ?? "—"}
                               </span>
                             </td>
                             <td className="px-6 py-4">{formatNumber(a.methodOutputs.mooreAphv, 2)}</td>

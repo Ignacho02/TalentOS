@@ -25,14 +25,6 @@ export function formatDate(value: string) {
   return `${String(day).padStart(2,"0")} ${months[(month ?? 1) - 1]} ${year}`;
 }
 
-export function toSlug(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
 export function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }

@@ -200,7 +200,7 @@ function getAlternativeMethods(
  * Get human-readable label for engine
  * Note: "sherar" engine key displays as "Mirwald (♀)" — correct attribution per Mirwald (2002).
  */
-export function getEngineLabel(engine: MaturationEngine): string {
+function getEngineLabel(engine: MaturationEngine): string {
   const labels: Record<MaturationEngine, string> = {
     auto: "Automático",
     fransen: "Fransen",
@@ -211,22 +211,6 @@ export function getEngineLabel(engine: MaturationEngine): string {
     consensus: "Consenso",
   };
   return labels[engine];
-}
-
-/**
- * Get engine description with year
- */
-export function getEngineInfo(engine: MaturationEngine): { label: string; year?: number } {
-  const info: Record<MaturationEngine, { label: string; year?: number }> = {
-    auto: { label: "Automático" },
-    fransen: { label: "Fransen", year: 2018 },
-    moore: { label: "Moore", year: 2015 },
-    mirwald: { label: "Mirwald", year: 2002 },
-    sherar: { label: "Mirwald (♀)", year: 2002 },  // ← attribution corrected
-    sitar: { label: "SITAR", year: 2010 },
-    consensus: { label: "Consenso ponderado" },
-  };
-  return info[engine];
 }
 
 /**
@@ -258,7 +242,11 @@ export function createUnifiedProfile(
   const alternativeMethods =
     selectedEngine !== "auto" ? getAlternativeMethods(result, sex, resolvedEngine) : undefined;
 
-  const info = getEngineInfo(resolvedEngine);
+  const methodLabel = getEngineLabel(resolvedEngine);
+  // Year lookup kept inline — avoids re-exporting a rarely-needed map
+  const yearMap: Partial<Record<MaturationEngine, number>> = {
+    fransen: 2018, moore: 2015, mirwald: 2002, sherar: 2002, sitar: 2010,
+  };
 
   return {
     selectedEngine: resolvedEngine,
@@ -269,40 +257,12 @@ export function createUnifiedProfile(
     pahPercentage,
     pahBand,
     bioBandingStrategy,
-    methodLabel: info.label,
-    methodYear: info.year,
+    methodLabel,
+    methodYear: yearMap[resolvedEngine],
     alternativeMethods,
     result,
     athleteSex: sex,
   };
-}
-
-/**
- * Update engine selection in existing profile
- */
-export function updateProfileEngine(
-  profile: UnifiedMaturityProfile,
-  newEngine: MaturationEngine,
-  bioBandingStrategy?: "offset" | "pah"
-): UnifiedMaturityProfile {
-  return createUnifiedProfile(
-    profile.result,
-    newEngine,
-    bioBandingStrategy ?? profile.bioBandingStrategy,
-    profile.athleteSex
-  );
-}
-
-/**
- * Get the biological banding metric
- * (what actually groups athletes together)
- */
-export function getGroupingMetric(profile: UnifiedMaturityProfile): number | null {
-  if (profile.bioBandingStrategy === "offset") {
-    return profile.offset;
-  } else {
-    return profile.pahPercentage;
-  }
 }
 
 export function getGroupingBand(profile: UnifiedMaturityProfile): MaturityBand | null {
@@ -317,15 +277,4 @@ export function getGroupingBand(profile: UnifiedMaturityProfile): MaturityBand |
   if (profile.pahPercentage < 85) return "Pre-PHV";
   if (profile.pahPercentage < 95) return "Mid-PHV";
   return "Post-PHV";
-}
-
-/**
- * Get the biological banding label
- */
-export function getGroupingLabel(profile: UnifiedMaturityProfile): string {
-  if (profile.bioBandingStrategy === "offset") {
-    return "Offset";
-  } else {
-    return "% PAH";
-  }
 }

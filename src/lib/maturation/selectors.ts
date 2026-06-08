@@ -78,26 +78,6 @@ export function filterAssessmentsForDataHub({
   });
 }
 
-export function getLatestParentHeightsByAthleteName(assessments: MaturationResult[]) {
-  const latestParents = new Map<
-    string,
-    { motherHeightCm?: number | null; fatherHeightCm?: number | null; date: string }
-  >();
-
-  for (const assessment of assessments) {
-    const existing = latestParents.get(assessment.inputs.athleteName);
-    if (!existing || assessment.inputs.dataCollectionDate > existing.date) {
-      latestParents.set(assessment.inputs.athleteName, {
-        motherHeightCm: assessment.inputs.motherHeightCm,
-        fatherHeightCm: assessment.inputs.fatherHeightCm,
-        date: assessment.inputs.dataCollectionDate,
-      });
-    }
-  }
-
-  return latestParents;
-}
-
 export function getAssessmentsForTeam(
   assessments: MaturationResult[],
   teamName: string | undefined,

@@ -1273,14 +1273,17 @@ export function MaturationSection({
         const latestAthleteName = latest?.inputs.athleteName ?? athlete.name;
         const latestTeamName = latest?.inputs.teamName ?? athlete.teamName;
         const latestPosition = latest?.inputs.position ?? athlete.position;
-        const chartData = history.map((r) => ({
-          date: r.inputs.dataCollectionDate.slice(0, 7),
-          stature: r.inputs.statureCm,
-          bodyMass: r.inputs.bodyMassKg,
-          offset: parseFloat(r.classification.primaryOffset.toFixed(2)),
-          growthVelocity: r.derivedMetrics.growthVelocityCmPerYear,
-          pah: r.methodOutputs.percentageAdultHeight,
-        }));
+        const chartData = history.map((r) => {
+          const rProfile = createUnifiedProfile(r, selectedEngine, bioBandingStrategy, athleteSex);
+          return {
+            date: r.inputs.dataCollectionDate.slice(0, 7),
+            stature: r.inputs.statureCm,
+            bodyMass: r.inputs.bodyMassKg,
+            offset: parseFloat((rProfile.offset ?? r.classification.primaryOffset).toFixed(2)),
+            growthVelocity: r.derivedMetrics.growthVelocityCmPerYear,
+            pah: r.methodOutputs.percentageAdultHeight,
+          };
+        });
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
