@@ -184,19 +184,22 @@ export async function importPerformanceEntriesAction(
   const supabase = await createSupabaseClient();
   const member = await getClubMemberRow(session);
 
-  const canEditPerformance = member.role === "owner" || member.role === "admin" || member.can_edit_performance !== false;
+  const canEditPerformance = member.role === "owner" || member.can_edit_performance !== false;
   if (!canEditPerformance) {
     throw new Error("No tienes permiso para importar entradas de rendimiento.");
   }
 
-  const athleteIds = [...new Set(rows.map((row) => row.athleteId).filter(isUUID))];
-  const athletesQuery = supabase.from("athletes").select("id").in("id", athleteIds).eq("club_id", session.clubId);
+  const athleteIds = [...new Set(rows.map((row) => row.athleteId).filter((id): id is string => typeof id === "string" && isUUID(id)))];
+  const athletesQuery = supabase.from("athletes").select("id, name").in("id", athleteIds).eq("club_id", session.clubId);
   if (member.team_ids && member.team_ids.length > 0) {
     athletesQuery.in("team_id", member.team_ids);
   }
 
   const { data: allowedAthletes } = await athletesQuery;
   const validIds = new Set((allowedAthletes ?? []).map((a) => a.id as string));
+  const athleteMap = new Map<string, string>(
+    (allowedAthletes ?? []).map((a) => [String(a.name).toLowerCase(), a.id as string]),
+  );
 
   const inserts: ReturnType<typeof toEntryInsert>[] = [];
 

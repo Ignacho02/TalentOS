@@ -110,6 +110,25 @@ type PerformancePercentileStrip = {
 // ---------------------------------------------------------------------------
 // INDIVIDUAL TAB
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Module-level helper — resolves sex from the athletes roster.
+// Shared by IndividualView, CollectiveView and AssistantView.
+// ---------------------------------------------------------------------------
+function resolveAssessmentSex(
+  assessment: MaturationResult,
+  athletes: ReturnType<typeof useAppState>["state"]["athletes"],
+): Sex {
+  const athlete = athletes.find(
+    (candidate) =>
+      candidate.id === assessment.inputs.athleteId ||
+      (
+        candidate.name.toLowerCase() === assessment.inputs.athleteName.toLowerCase() &&
+        candidate.dob === assessment.inputs.dob
+      ),
+  );
+  return athlete?.sex === "female" ? "female" : "male";
+}
+
 function IndividualView({
   assessments,
   state,
@@ -218,17 +237,8 @@ function IndividualView({
     return () => clearTimeout(timer);
   }, [selectedAthleteId, activeSubTab]);
 
-  const getAssessmentSex = (assessment: MaturationResult): Sex => {
-    const athlete = state.athletes.find(
-      (candidate) =>
-        candidate.id === assessment.inputs.athleteId ||
-        (
-          candidate.name.toLowerCase() === assessment.inputs.athleteName.toLowerCase() &&
-          candidate.dob === assessment.inputs.dob
-        ),
-    );
-    return athlete?.sex === "female" ? "female" : "male";
-  };
+  const getAssessmentSex = (assessment: MaturationResult): Sex =>
+    resolveAssessmentSex(assessment, state.athletes);
 
   const latestByAthlete = useMemo(
     () => getLatestAssessmentsByAthlete(assessments).map((assessment) => {
@@ -752,7 +762,7 @@ function IndividualView({
                 <h3 className="font-bold text-slate-900 truncate">
                   {selectedLatest.inputs.athleteName}
                 </h3>
-                <p className="text-xs text-slate-500">{selectedLatest.inputs.teamName} · {selectedLatest.classification.maturityBand}</p>
+                <p className="text-xs text-slate-500">{selectedLatest.inputs.teamName} · {selectedLatest.classification.maturityBand ?? "—"}</p>
               </div>
             </div>
 
@@ -1152,7 +1162,7 @@ function IndividualView({
 
               {/* DashboardInsight banners — engine-aware (SITAR, Moore-2 fallback, extremes, etc.) */}
               {(() => {
-                const dashboardInsights = buildInsights(selectedLatest, selectedEngine);
+                const dashboardInsights = buildInsights(selectedLatest, selectedEngine, selectedLatestProfile?.maturityBand);
                 if (dashboardInsights.length === 0) return null;
                 return (
                   <div className="space-y-2">
@@ -1516,7 +1526,7 @@ function IndividualView({
                                 a.classification.maturityBand === "Mid-PHV" ? "bg-amber-100 text-amber-700" :
                                 "bg-slate-200 text-slate-700"
                               }`}>
-                                {a.classification.maturityBand}
+                                {a.classification.maturityBand ?? "—"}
                               </span>
                             </td>
                             <td className="px-6 py-4">{formatNumber(a.methodOutputs.mooreAphv, 2)}</td>
@@ -2162,6 +2172,8 @@ function CollectiveView({
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
+
   const teams = useMemo(
     () => getUniqueAthleteTeams(state.athletes),
     [state.athletes],
@@ -2179,9 +2191,23 @@ function CollectiveView({
     }
   }, [teams, selectedTeam, setSelectedTeam]);
 
+  // Apply the active engine's unified profile so classification.primaryOffset
+  // and classification.maturityBand reflect the user-selected engine, not the
+  // default combined engine.
   const latestByAthlete = useMemo(
-    () => getLatestAssessmentsByAthlete(assessments),
-    [assessments],
+    () => getLatestAssessmentsByAthlete(assessments).map((assessment) => {
+      const athleteSex = resolveAssessmentSex(assessment, state.athletes);
+      const profile = createUnifiedProfile(assessment, selectedEngine, bioBandingStrategy, athleteSex);
+      return {
+        ...assessment,
+        classification: {
+          ...assessment.classification,
+          maturityBand: getGroupingBand(profile),
+          primaryOffset: profile.offset ?? assessment.classification.primaryOffset,
+        },
+      };
+    }),
+    [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
   const teamStats = useMemo(() => {
@@ -2194,7 +2220,7 @@ function CollectiveView({
     const sdOff = offsets.length > 1 ? Math.sqrt(offsets.reduce((s, v) => s + (v - meanOff) ** 2, 0) / offsets.length) : 0;
 
     const bandCounts: Record<MaturityBand, number> = { "Pre-PHV": 0, "Mid-PHV": 0, "Post-PHV": 0 };
-    teamData.forEach((a) => bandCounts[a.classification.maturityBand]++);
+    teamData.forEach((a) => { if (a.classification.maturityBand) bandCounts[a.classification.maturityBand]++; });
 
     const sorted = [...teamData].sort((a, b) => a.classification.primaryOffset - b.classification.primaryOffset);
 
@@ -2575,7 +2601,7 @@ function CollectiveView({
                           a.classification.maturityBand === "Mid-PHV" ? "bg-amber-100 text-amber-700" :
                           "bg-slate-200 text-slate-700"
                         }`}>
-                          {a.classification.maturityBand}
+                          {a.classification.maturityBand ?? "—"}
                         </span>
                       </td>
                     </tr>
@@ -2604,6 +2630,8 @@ function AssistantView({
   t: (k: string) => string;
   locale: string;
 }) {
+  const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
+
   const alerts = useMemo(() => buildAlerts(assessments), [assessments]);
   const rapidGrowth = useMemo(() => detectRapidGrowth(assessments), [assessments]);
 
@@ -2612,12 +2640,12 @@ function AssistantView({
     const map = new Map<string, { 
       name: string; 
       team?: string; 
-      band: MaturityBand; 
+      band: MaturityBand | null; 
       alerts: AlertItem[]; 
       advice: string[] 
     }>();
 
-    // Latest assessments to get current band
+    // Latest assessments — band resolved from the active engine's unified profile.
     const latestMap = new Map(
       getLatestAssessmentsByAthlete(assessments).map((assessment) => [
         assessment.inputs.athleteId,
@@ -2626,10 +2654,14 @@ function AssistantView({
     );
 
     latestMap.forEach((a, id) => {
+      const athleteSex = resolveAssessmentSex(a, state.athletes);
+      const profile = createUnifiedProfile(a, selectedEngine, bioBandingStrategy, athleteSex);
+      const band = getGroupingBand(profile);
+
       const advice: string[] = [];
-      if (a.classification.maturityBand === "Mid-PHV") {
+      if (band === "Mid-PHV") {
         advice.push(t("analysis.assistant.growthSpurtAdvice"));
-      } else if (a.classification.maturityBand === "Pre-PHV") {
+      } else if (band === "Pre-PHV") {
         advice.push(t("analysis.assistant.prePHVAdvice"));
       } else {
         advice.push(t("analysis.assistant.postPHVAdvice"));
@@ -2638,7 +2670,7 @@ function AssistantView({
       map.set(id, {
         name: a.inputs.athleteName,
         team: a.inputs.teamName,
-        band: a.classification.maturityBand,
+        band,
         alerts: alerts.filter(al => al.athleteName === a.inputs.athleteName),
         advice,
       });
@@ -2660,7 +2692,7 @@ function AssistantView({
         });
 
     return Array.from(map.values()).filter(a => a.alerts.length > 0 || a.band === "Mid-PHV");
-  }, [assessments, alerts, rapidGrowth, t]);
+  }, [assessments, alerts, rapidGrowth, t, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const handleExportPDF = () => {
     window.print();

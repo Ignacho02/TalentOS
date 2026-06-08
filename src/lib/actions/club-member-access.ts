@@ -19,7 +19,7 @@ type ClubPermissionKey =
   | "can_edit_training_load";
 
 function isClubAdmin(member: ClubMemberRow | null | undefined) {
-  return !!member && (member.role === "owner" || member.role === "admin");
+  return !!member && member.role === "owner";
 }
 
 function hasPermission(member: ClubMemberRow | null, permission: ClubPermissionKey) {

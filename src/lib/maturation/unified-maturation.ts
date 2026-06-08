@@ -142,10 +142,12 @@ function getEngineMetrics(
 }
 
 /**
- * Classify maturity band from offset
+ * Classify maturity band from offset.
+ * Returns null when offset is null (engine could not produce a value for this athlete).
+ * Callers must handle null — never invent a band from missing data.
  */
-function classifyMaturityBand(offset: number | null) {
-  if (offset === null) return "Mid-PHV";
+function classifyMaturityBand(offset: number | null): MaturityBand | null {
+  if (offset === null) return null;
   if (offset <= -1) return "Pre-PHV";
   if (offset >= 1) return "Post-PHV";
   return "Mid-PHV";
@@ -303,15 +305,15 @@ export function getGroupingMetric(profile: UnifiedMaturityProfile): number | nul
   }
 }
 
-export function getGroupingBand(profile: UnifiedMaturityProfile): MaturityBand {
+export function getGroupingBand(profile: UnifiedMaturityProfile): MaturityBand | null {
   if (profile.bioBandingStrategy === "offset") {
-    if (profile.offset === null) return "Mid-PHV";
+    if (profile.offset === null) return null;
     if (profile.offset <= -1) return "Pre-PHV";
     if (profile.offset >= 1) return "Post-PHV";
     return "Mid-PHV";
   }
 
-  if (profile.pahPercentage === null) return "Mid-PHV";
+  if (profile.pahPercentage === null) return null;
   if (profile.pahPercentage < 85) return "Pre-PHV";
   if (profile.pahPercentage < 95) return "Mid-PHV";
   return "Post-PHV";

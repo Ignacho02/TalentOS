@@ -1,11 +1,20 @@
-import type { MaturationResult } from "@/lib/types";
-
 /**
- * Maturation Strategy Engine
- * 
- * Defines which calculation methods to use for different maturation concepts.
- * Separates "biological concepts" (APHV, Offset, PAH) from "calculation methods".
+ * @deprecated This file is no longer used in production.
+ *
+ * The canonical maturation engine is `unified-maturation.ts`.
+ * All components should import from there.
+ *
+ * This file is kept only to avoid breaking any future imports that may reference it,
+ * but all functions here are stubs or corrected legacy versions.
+ * It will be removed in a future cleanup pass.
+ *
+ * Known issues (fixed below, but the file itself is obsolete):
+ * - getSelectedAphv() was returning the offset, not the APHV.
+ * - getSelectedPah() was referencing non-existent fields (khamisRochePah, pahEstimate).
+ * - METHOD_DESCRIPTIONS["sherar"] had wrong title/year (was "Sherar"/2005, should be "Mirwald (♀)"/2002).
  */
+
+import type { MaturationResult } from "@/lib/types";
 
 export type MaturationStrategy = {
   aphvMethod: "auto" | "fransen" | "sherar" | "moore" | "mirwald" | "consensus";
@@ -23,11 +32,6 @@ export const DEFAULT_STRATEGY: MaturationStrategy = {
   useConsensus: false,
 };
 
-/**
- * Get APHV method priority based on sex
- * Male: Fransen → Moore → Mirwald
- * Female: Sherar → Moore → Mirwald
- */
 export function getAphvMethodPriority(
   sex: "male" | "female"
 ): ("fransen" | "sherar" | "moore" | "mirwald")[] {
@@ -37,9 +41,6 @@ export function getAphvMethodPriority(
   return ["sherar", "moore", "mirwald"];
 }
 
-/**
- * Select best APHV method for athlete based on available data
- */
 export function selectBestAphvMethod(
   result: MaturationResult,
   sex: "male" | "female"
@@ -65,9 +66,13 @@ export function selectBestAphvMethod(
 }
 
 /**
- * Get selected APHV value based on strategy
+ * @deprecated Use `createUnifiedProfile` from `unified-maturation.ts` instead.
+ *
+ * Returns the maturity OFFSET (years from PHV) for the selected method.
+ * Note: this function was previously called getSelectedAphv() but returned the offset —
+ * that naming error is preserved here for backward compatibility but marked clearly.
  */
-export function getSelectedAphv(
+export function getSelectedOffset(
   result: MaturationResult,
   sex: "male" | "female",
   strategy: MaturationStrategy
@@ -76,7 +81,6 @@ export function getSelectedAphv(
   let value: number | null = null;
 
   if (strategy.aphvMethod === "consensus" && strategy.useConsensus) {
-    // Calculate weighted consensus
     const values: Array<[number, number]> = [];
 
     if (result.methodOutputs.fransenOffset !== null) {
@@ -90,9 +94,9 @@ export function getSelectedAphv(
     }
 
     if (values.length > 0) {
-      const totalWeight = values.reduce((sum, [_, w]) => sum + w, 0);
+      const totalWeight = values.reduce((sum, [, w]) => sum + w, 0);
       value = values.reduce((sum, [v, w]) => sum + v * w, 0) / totalWeight;
-      method = "consensus";
+      method = null; // consensus has no single method
     }
   } else if (strategy.aphvMethod === "auto") {
     method = selectBestAphvMethod(result, sex);
@@ -118,45 +122,31 @@ export function getSelectedAphv(
 }
 
 /**
- * Get offset value (Maturity Offset) - derived from APHV selection
- */
-export function getSelectedOffset(
-  result: MaturationResult,
-  sex: "male" | "female",
-  strategy: MaturationStrategy
-): { value: number | null; method: string } {
-  // Offset is the same calculation as APHV in our current model
-  return getSelectedAphv(result, sex, strategy);
-}
-
-/**
- * Get PAH (Predicted Adult Height) based on strategy
+ * @deprecated Use `createUnifiedProfile` from `unified-maturation.ts` instead.
+ *
+ * Returns the predicted adult height (PAH) based on the strategy.
+ * Fixed: now correctly references `pahCm` and `kozielMalinaPahCm` from MethodOutputs
+ * (the old version referenced non-existent fields `khamisRochePah` and `pahEstimate`).
  */
 export function getSelectedPah(
   result: MaturationResult,
   strategy: MaturationStrategy
 ): { value: number | null; method: string } {
-  if (strategy.pahMethod === "auto") {
-    // Prefer Khamis-Roche if available (requires parent heights)
-    if (result.methodOutputs.khamisRochePah !== null) {
-      return { value: result.methodOutputs.khamisRochePah, method: "khamis-roche" };
+  if (strategy.pahMethod === "auto" || strategy.pahMethod === "khamis-roche") {
+    // Khamis-Roche PAH (requires parental heights)
+    if (result.methodOutputs.pahCm !== null) {
+      return { value: result.methodOutputs.pahCm, method: "khamis-roche" };
     }
-    // Fallback to estimate
-    if (result.methodOutputs.pahEstimate !== null) {
-      return { value: result.methodOutputs.pahEstimate, method: "estimate" };
-    }
-  } else if (strategy.pahMethod === "khamis-roche") {
-    return { value: result.methodOutputs.khamisRochePah, method: "khamis-roche" };
-  } else if (strategy.pahMethod === "fallback") {
-    return { value: result.methodOutputs.pahEstimate, method: "estimate" };
   }
-
+  if (strategy.pahMethod === "auto" || strategy.pahMethod === "fallback") {
+    // Koziel-Malina fallback (no parental heights needed)
+    if (result.methodOutputs.kozielMalinaPahCm !== null) {
+      return { value: result.methodOutputs.kozielMalinaPahCm, method: "fallback" };
+    }
+  }
   return { value: null, method: "none" };
 }
 
-/**
- * Get all available secondary APHV methods (for expandable section)
- */
 export function getSecondaryAphvMethods(
   result: MaturationResult
 ): Array<{ method: string; value: number }> {
@@ -166,7 +156,8 @@ export function getSecondaryAphvMethods(
     methods.push({ method: "Fransen", value: result.methodOutputs.fransenOffset });
   }
   if (result.methodOutputs.sherarOffset !== null) {
-    methods.push({ method: "Sherar", value: result.methodOutputs.sherarOffset });
+    // Display label corrected: equation is Mirwald et al. (2002) Eq. 4, not Sherar
+    methods.push({ method: "Mirwald (♀)", value: result.methodOutputs.sherarOffset });
   }
   if (result.methodOutputs.mooreOffset !== null) {
     methods.push({ method: "Moore", value: result.methodOutputs.mooreOffset });
@@ -179,7 +170,8 @@ export function getSecondaryAphvMethods(
 }
 
 /**
- * Get method descriptions for UI display
+ * Method descriptions for UI display.
+ * Note: "sherar" entry corrected — title is "Mirwald (♀)", year is 2002.
  */
 export const METHOD_DESCRIPTIONS: Record<string, { title: string; year: number; description: string }> = {
   fransen: {
@@ -189,10 +181,12 @@ export const METHOD_DESCRIPTIONS: Record<string, { title: string; year: number; 
       "Maturity ratio method (males only). Predicts APHV using sitting height to standing height ratio and current age.",
   },
   sherar: {
-    title: "Sherar",
-    year: 2005,
+    // Corrected: this is Mirwald et al. (2002) Eq. 4 — Sherar (2005) uses it internally but
+    // does not publish a new offset equation of its own.
+    title: "Mirwald (♀)",
+    year: 2002,
     description:
-      "Maturity offset adjustment for females. Enhances prediction accuracy using anthropometric indicators.",
+      "Female maturity offset equation (Mirwald et al., 2002, Eq. 4). Estimates years from PHV using leg length, sitting height, age, and body mass.",
   },
   moore: {
     title: "Moore",

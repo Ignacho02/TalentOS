@@ -31,7 +31,7 @@ export interface TeamStats {
   athleteName: string;
   teamName: string | undefined;
   offset: number;
-  band: MaturityBand;
+  band: MaturityBand | null;
   statureCm: number;
   bodyMassKg: number;
   chronologicalAge: number;
@@ -86,7 +86,7 @@ export function buildTeamStats(
     "Post-PHV": 0,
   };
   athletes.forEach((a) => {
-    bandCounts[a.band]++;
+    if (a.band) bandCounts[a.band]++;
   });
 
   const sorted = [...athletes].sort((a, b) => a.offset - b.offset);

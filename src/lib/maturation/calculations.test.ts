@@ -8,7 +8,7 @@ import { createUnifiedProfile, getGroupingBand } from "./unified-maturation";
 const boyResult = calculateMaturation(demoRecords[0]);
 assert.equal(boyResult.inputs.sex, "male");
 assert.equal(typeof boyResult.methodOutputs.fransenOffset, "number");
-assert.equal(boyResult.classification.maturityBand.length > 0, true);
+assert.equal(boyResult.classification.maturityBand !== null && boyResult.classification.maturityBand.length > 0, true);
 
 const girlResult = calculateMaturation(demoRecords[2]);
 assert.equal(girlResult.inputs.sex, "female");

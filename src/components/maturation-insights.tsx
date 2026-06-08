@@ -17,7 +17,9 @@ export function MaturationInsights({ result, profile, zScore, baselineLabel }: M
   const { t } = useLocale();
   // Prefer engine-aware values from UnifiedMaturityProfile when available.
   // Falls back to result.classification when engine has no data (e.g. SITAR selected for female).
-  const maturityBand = (profile?.maturityBand != null) ? profile.maturityBand : result.classification.maturityBand;
+  const maturityBand = (profile?.maturityBand != null)
+    ? profile.maturityBand
+    : result.classification.maturityBand ?? "—";
   const primaryOffset = (profile?.offset != null) ? profile.offset : result.classification.primaryOffset;
   const { percentageAdultHeight, pahCm } = result.methodOutputs;
 

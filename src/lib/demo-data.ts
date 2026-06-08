@@ -375,4 +375,4 @@ export const demoState: AppState = {
   ],
 };
 
-export const demoAssessments = demoRecords.map(calculateMaturation);
+export const demoAssessments = demoRecords.map((record) => calculateMaturation(record));

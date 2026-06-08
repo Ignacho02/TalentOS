@@ -105,7 +105,7 @@ export interface MaturationResult {
   methodOutputs: MethodOutputs;
   sitarOutputs?: SitarOutputs;
   classification: {
-    maturityBand: MaturityBand;
+    maturityBand: MaturityBand | null;
     pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%";
     primaryOffset: number;
     whoBmiZScore: number | null;
@@ -126,7 +126,7 @@ export interface UnifiedMaturityProfile {
   // Primary biological metrics (derived from selected engine)
   aphv: number | null;           // Age at peak height velocity
   offset: number | null;          // Offset from PHV (maturation status)
-  maturityBand: MaturityBand;     // Pre/Mid/Post-PHV classification
+  maturityBand: MaturityBand | null; // null when selected engine cannot produce an offset
   
   // PAH metrics
   pah: number | null;             // Predicted adult height
@@ -139,7 +139,7 @@ export interface UnifiedMaturityProfile {
   // Method label for display ("fransen", "auto", "consensus", etc)
   methodLabel: string;
   methodYear?: number;
-  
+
   // Advanced: alternative methods (only shown if user enables)
   alternativeMethods?: Array<{
     engine: "fransen" | "sherar" | "moore" | "mirwald" | "sitar" | "consensus";

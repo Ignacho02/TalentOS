@@ -442,13 +442,16 @@ export async function loadAppStateForSession(
   let authUsersData: DbAuthUser[] = [];
   if (memberIds.length > 0) {
     try {
-      const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers({
-        limit: 1000,
-      });
+      const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers();
       if (listError) {
         console.warn("[supabase] auth.admin.listUsers failed:", listError.message);
       } else {
-        authUsersData = (listData?.users ?? []).filter((u) => memberIds.includes(u.id));
+        authUsersData = (listData?.users ?? []).map((u) => ({
+          id: u.id,
+          email: u.email,
+          raw_user_meta_data: u.user_metadata ?? null,
+          user_metadata: u.user_metadata ?? null,
+        })).filter((user) => memberIds.includes(user.id));
       }
     } catch (err) {
       console.warn("[supabase] auth.admin.listUsers error:", err);

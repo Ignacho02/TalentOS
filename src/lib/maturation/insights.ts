@@ -1,7 +1,21 @@
-import type { DashboardInsight, MaturationResult } from "@/lib/types";
+import type { DashboardInsight, MaturationResult, MaturityBand } from "@/lib/types";
 import type { MaturationEngine } from "./unified-maturation";
 
-export function buildInsights(result: MaturationResult, selectedEngine?: MaturationEngine): DashboardInsight[] {
+/**
+ * Build dashboard insights for a single assessment.
+ *
+ * @param result         Raw MaturationResult from calculations.
+ * @param selectedEngine The engine currently active in the UI (from useMaturationPreferences).
+ * @param activeBand     Maturity band derived from the active engine's UnifiedMaturityProfile.
+ *                       When provided this is used for band-specific insights instead of the
+ *                       raw classification.maturityBand (which reflects the default combined
+ *                       engine, not necessarily the user-selected one).
+ */
+export function buildInsights(
+  result: MaturationResult,
+  selectedEngine?: MaturationEngine,
+  activeBand?: MaturityBand | null
+): DashboardInsight[] {
   const insights: DashboardInsight[] = [];
 
   // Extreme offset warning — error multiplies ×2–6 (Koziel & Malina 2018)
@@ -41,7 +55,7 @@ export function buildInsights(result: MaturationResult, selectedEngine?: Maturat
     });
   }
 
-  // SITAR active — inform user they are using the SITAR engine
+  // SITAR active — inform user they are using the SITAR engine, and warn about PHV variability
   if (selectedEngine === "sitar" && result.sitarOutputs?.sitarActive) {
     insights.push({
       id: `${result.inputs.id}-sitar`,
@@ -49,9 +63,21 @@ export function buildInsights(result: MaturationResult, selectedEngine?: Maturat
       titleKey: "insights.sitarActiveTitle",
       bodyKey: "insights.sitarActiveBody",
     });
+    // PHV from SITAR has high variability (SD ±1.78 cm/year, Monasterio 2026).
+    // Always surface this warning so users don't over-interpret the PHV value.
+    insights.push({
+      id: `${result.inputs.id}-sitar-phv-warning`,
+      tone: "warning",
+      titleKey: "insights.sitarPhvWarningTitle",
+      bodyKey: "insights.sitarPhvWarningBody",
+    });
   }
 
-  const band = result.classification.maturityBand;
+  // Band-specific insights.
+  // Use `activeBand` (from the active engine's UnifiedMaturityProfile) when available so
+  // the insight reflects the engine the user has selected, not the default combined engine.
+  const band: MaturityBand | null = activeBand ?? result.classification.maturityBand;
+
   if (band === "Pre-PHV") {
     insights.push({
       id: `${result.inputs.id}-pre`,

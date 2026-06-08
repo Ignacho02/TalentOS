@@ -621,6 +621,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       sitarActiveTitle: "Motor SITAR seleccionado",
       sitarActiveBody:
         "Estás usando SITAR como motor madurativo. Con ≥3 mediciones longitudinales, estima APHV con ~80% de clasificación correcta frente a ~50–70% de los métodos de offset (Monasterio, 2026). Error típico APHV ≈ ±0.6 años. PHV y PAH son estimaciones secundarias con mayor variabilidad.",
+      sitarPhvWarningTitle: "PHV SITAR: alta variabilidad",
+      sitarPhvWarningBody:
+        "La estimación de PHV con SITAR tiene un error típico de ±1.78 cm/año (SD; Monasterio, 2026), lo que significa que el 95% de las estimaciones cae dentro de ±3.5 cm/año del valor real. Úsala solo como orientación. APHV y PAH son las estimaciones más fiables de SITAR.",
     },
     community: {
       title: "Comunidad",
@@ -1443,6 +1446,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       sitarActiveTitle: "SITAR engine selected",
       sitarActiveBody:
         "You are using SITAR as the maturation engine. With ≥3 longitudinal measurements, SITAR estimates APHV with ~80% correct classification vs ~50–70% for offset methods (Monasterio, 2026). Typical APHV error ≈ ±0.6 years. PHV and PAH are secondary estimates with higher variability.",
+      sitarPhvWarningTitle: "SITAR PHV: high variability",
+      sitarPhvWarningBody:
+        "SITAR's PHV estimate has a typical error of ±1.78 cm/year (SD; Monasterio, 2026), meaning 95% of estimates fall within ±3.5 cm/year of the true value. Use it for orientation only. APHV and PAH are SITAR's most reliable outputs.",
     },
     community: {
       title: "Community",

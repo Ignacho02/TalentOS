@@ -19,7 +19,7 @@ import { FieldError, invalidInputClass } from "@/components/field-error";
 import { validateAnthropometric, type FieldErrors } from "@/lib/form-errors";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
-import type { AnthropometricRecordInput, UnifiedMaturityProfile } from "@/lib/types";
+import type { AnthropometricRecordInput, UnifiedMaturityProfile, MaturityBand } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { MaturationPreferences } from "@/components/maturation-preferences";
 import { useMaturationPreferences } from "@/lib/hooks/use-maturation-preferences";
@@ -236,7 +236,8 @@ export function MaturationSection({
       }
 
       // Filtros de maduracion
-      if (columnFilters.band.length > 0 && !columnFilters.band.includes(getRecordGroupingBand(row))) {
+      const recordBand = getRecordGroupingBand(row);
+      if (columnFilters.band.length > 0 && (recordBand === null || !columnFilters.band.includes(recordBand))) {
         return false;
       }
       if (row.classification.primaryOffset < columnFilters.offset.min || row.classification.primaryOffset > columnFilters.offset.max) {
@@ -305,7 +306,7 @@ export function MaturationSection({
 
   const maturityBands = useMemo(() => {
     const bands = new Set(filteredRows.map((r) => getRecordGroupingBand(r)));
-    return Array.from(bands).sort();
+    return Array.from(bands).filter((b): b is MaturityBand => b !== null).sort();
   }, [filteredRows, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const rowProfiles = useMemo(() => {
@@ -1076,7 +1077,7 @@ export function MaturationSection({
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center font-medium">
                               {(() => {
                                 const profile = rowProfiles.get(row.inputs.id);
-                                return profile ? getGroupingBand(profile) : row.classification.maturityBand;
+                                return (profile ? getGroupingBand(profile) : row.classification.maturityBand) ?? "—";
                               })()}
                             </td>
                             <td className="bg-[#eaf4f2] px-3 py-3 text-center">
@@ -1124,25 +1125,45 @@ export function MaturationSection({
 
                 // PHV only (no team grouping)
                 if (!groupByTeam && groupByPHV) {
-                  return BAND_ORDER.map((band) => {
-                    const bandRows = sortRows(filteredData.filter((r) => {
-                      const profile = rowProfiles.get(r.inputs.id);
-                      return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === band;
-                    }));
-                    if (bandRows.length === 0) return null;
-                    return (
-                      <Fragment key={band}>
-                        <tr>
-                          <td className={`pl-5 pr-3 py-1.5 text-left border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
-                            <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
-                            <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
-                          </td>
-                          {totalCols > 1 && <td colSpan={totalCols - 1} className={`border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}></td>}
-                        </tr>
-                        {bandRows.map(renderRow)}
-                      </Fragment>
-                    );
-                  });
+                  const unclassified = sortRows(filteredData.filter((r) => {
+                    const profile = rowProfiles.get(r.inputs.id);
+                    return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === null;
+                  }));
+                  return (
+                    <>
+                      {BAND_ORDER.map((band) => {
+                        const bandRows = sortRows(filteredData.filter((r) => {
+                          const profile = rowProfiles.get(r.inputs.id);
+                          return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === band;
+                        }));
+                        if (bandRows.length === 0) return null;
+                        return (
+                          <Fragment key={band}>
+                            <tr>
+                              <td className={`pl-5 pr-3 py-1.5 text-left border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}>
+                                <span className={`text-xs font-semibold ${BAND_TEXT[band]}`}>{band}</span>
+                                <span className={`ml-1.5 text-xs ${BAND_TEXT[band]} opacity-70`}>({bandRows.length})</span>
+                              </td>
+                              {totalCols > 1 && <td colSpan={totalCols - 1} className={`border-t-2 border-zinc-200 ${BAND_COLORS[band]}`}></td>}
+                            </tr>
+                            {bandRows.map(renderRow)}
+                          </Fragment>
+                        );
+                      })}
+                      {unclassified.length > 0 && (
+                        <Fragment key="__unclassified__">
+                          <tr>
+                            <td className="pl-5 pr-3 py-1.5 text-left border-t-2 border-zinc-200 bg-zinc-50">
+                              <span className="text-xs font-semibold text-zinc-400">—</span>
+                              <span className="ml-1.5 text-xs text-zinc-400 opacity-70">({unclassified.length})</span>
+                            </td>
+                            {totalCols > 1 && <td colSpan={totalCols - 1} className="border-t-2 border-zinc-200 bg-zinc-50"></td>}
+                          </tr>
+                          {unclassified.map(renderRow)}
+                        </Fragment>
+                      )}
+                    </>
+                  );
                 }
 
                 // Team only (no PHV sub-grouping)
@@ -1203,6 +1224,25 @@ export function MaturationSection({
                           </Fragment>
                         );
                       })}
+                      {(() => {
+                        const unclassifiedRows = sortRows(teamRows.filter((r) => {
+                          const profile = rowProfiles.get(r.inputs.id);
+                          return (profile ? getGroupingBand(profile) : r.classification.maturityBand) === null;
+                        }));
+                        if (unclassifiedRows.length === 0) return null;
+                        return (
+                          <Fragment key="__unclassified__">
+                            <tr>
+                              <td className="pl-5 pr-3 py-1.5 text-left border-t border-zinc-200 bg-zinc-50">
+                                <span className="text-xs font-semibold text-zinc-400">—</span>
+                                <span className="ml-1.5 text-xs text-zinc-400 opacity-70">({unclassifiedRows.length})</span>
+                              </td>
+                              {totalCols > 1 && <td colSpan={totalCols - 1} className="border-t border-zinc-200 bg-zinc-50"></td>}
+                            </tr>
+                            {unclassifiedRows.map(renderRow)}
+                          </Fragment>
+                        );
+                      })()}
                     </Fragment>
                   );
                 });
@@ -1309,7 +1349,7 @@ export function MaturationSection({
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.group")}</p>
-                            <p className="text-sm font-semibold text-accent">{latestProfile ? getGroupingBand(latestProfile) : latest.classification.maturityBand}</p>
+                            <p className="text-sm font-semibold text-accent">{latestProfile ? (getGroupingBand(latestProfile) ?? "—") : latest.classification.maturityBand}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-line px-3 py-2.5">
                             <p className="text-xs text-zinc-500 mb-0.5">{t("datahub.offset")}</p>
@@ -2215,53 +2255,5 @@ function AddMeasurementFormBody({
         <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent/90">{t("datahub.savePlayer")}</button>
       </div>
     </>
-  );
-}
-
-function HistoryRow({
-  history,
-}: {
-  history: ReturnType<typeof useAppState>["assessments"];
-}) {
-  const { t } = useLocale();
-  return (
-    <tr>
-      <td colSpan={13} className="border-t border-line/50 bg-white/55 px-5 py-5">
-        <div className="rounded-[1.5rem] border border-line bg-white/80 p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-zinc-900">{t("datahub.historyMeasurements")}</h3>
-            <p className="text-xs text-ink-soft">{history.length} {t("datahub.measurementsRegistered")}</p>
-          </div>
-          <div className="table-scroll overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-ink-soft">
-                <tr>
-                  <th className="border-b border-line px-3 py-2">{t("datahub.date")}</th>
-                  <th className="border-b border-line px-3 py-2">Stature</th>
-                  <th className="border-b border-line px-3 py-2">Mass</th>
-                  <th className="border-b border-line px-3 py-2">Sitting</th>
-                  <th className="border-b border-line px-3 py-2">{t("datahub.group")}</th>
-                  <th className="border-b border-line px-3 py-2">{t("datahub.offset")}</th>
-                  <th className="border-b border-line px-3 py-2">% PAH</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((item) => (
-                  <tr key={item.inputs.id} className="border-t border-line/50">
-                    <td className="px-3 py-2">{formatDate(item.inputs.dataCollectionDate)}</td>
-                    <td className="px-3 py-2">{formatNumber(item.inputs.statureCm, 1)} cm</td>
-                    <td className="px-3 py-2">{formatNumber(item.inputs.bodyMassKg, 1)} kg</td>
-                    <td className="px-3 py-2">{formatNumber(item.inputs.sittingHeightCm, 1)} cm</td>
-                    <td className="px-3 py-2">{item.classification.maturityBand}</td>
-                    <td className="px-3 py-2">{formatNumber(item.classification.primaryOffset, 2)}</td>
-                    <td className="px-3 py-2">{formatNumber(item.methodOutputs.percentageAdultHeight, 2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </td>
-    </tr>
   );
 }

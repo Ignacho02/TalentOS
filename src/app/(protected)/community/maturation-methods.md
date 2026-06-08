@@ -200,7 +200,7 @@ APHV = AGE − MO
 ### Estado de implementación
 
 Moore-1 (♂ y ♀) verificado. ✅  
-Moore-2 (♂ fallback sin SH): implementación planificada como mejora próxima.
+Moore-2 (♂ fallback sin SH): implementado y activo. ✅ Se aplica automáticamente cuando no hay altura sentado registrada. El insight `moore2` avisa al usuario cuando este fallback está en uso.
 
 ### Referencias
 
@@ -260,7 +260,7 @@ HP_adj = ((HP_cm × 0.3937 × 0.955) + 2.316) × 2.54   // padre
 MPS    = (HM_adj + HP_adj) / 2
 ```
 
-> ⚠️ **Importante:** Esta corrección solo debe aplicarse cuando las tallas son **autoreportadas**. Si las tallas parentales han sido medidas directamente, debe usarse la conversión de unidades sin los factores de corrección. La UI permite indicar el tipo de talla (próxima mejora).
+> ⚠️ **Importante:** Esta corrección solo debe aplicarse cuando las tallas son **autoreportadas**. Si las tallas parentales han sido medidas directamente, debe usarse la conversión de unidades sin los factores de corrección. La UI permite indicar el tipo de talla mediante el campo «Tallas parentales autoreportadas» en el formulario de entrada. ✅
 
 ### Métricas derivadas
 

@@ -95,7 +95,7 @@ export async function importTrainingLoadEntriesAction(
   const supabase = await createSupabaseClient();
   const member = await getClubMemberRow(session);
 
-  const canEditTrainingLoad = member.role === "owner" || member.role === "admin" || member.can_edit_training_load !== false;
+  const canEditTrainingLoad = member.role === "owner" || member.can_edit_training_load !== false;
   if (!canEditTrainingLoad) {
     throw new Error("No tienes permiso para importar entradas de carga de entrenamiento.");
   }
