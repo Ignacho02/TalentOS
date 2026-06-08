@@ -105,15 +105,6 @@ export function getAssessmentsForTeam(
   return assessments.filter((assessment) => assessment.inputs.teamName === teamName);
 }
 
-export function getAssessmentsForBand(
-  assessments: MaturationResult[],
-  maturityBand: MaturationResult["classification"]["maturityBand"] | undefined,
-) {
-  return assessments.filter(
-    (assessment) => assessment.classification.maturityBand === maturityBand,
-  );
-}
-
 export function getDataHubPerformanceArea(
   tab: string | null,
   area: string | null,

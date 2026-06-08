@@ -15,15 +15,18 @@ interface MaturationInsightsProps {
 
 export function MaturationInsights({ result, profile, zScore, baselineLabel }: MaturationInsightsProps) {
   const { t } = useLocale();
-  // Prefer engine-aware values from UnifiedMaturityProfile when available.
-  // Falls back to result.classification when engine has no data (e.g. SITAR selected for female).
-  const maturityBand = (profile?.maturityBand != null)
-    ? profile.maturityBand
-    : result.classification.maturityBand ?? "—";
-  const primaryOffset = (profile?.offset != null) ? profile.offset : result.classification.primaryOffset;
+
+  // Use engine-aware values from UnifiedMaturityProfile exclusively.
+  // If the active engine cannot produce a value (e.g. SITAR selected for a female
+  // with insufficient longitudinal data), both band and offset are null — we never
+  // fall back to the raw classification values, which reflect the default combined
+  // engine (Fransen/Moore) and would be misleading residuals.
+  const maturityBand = profile?.maturityBand ?? null;
+  const primaryOffset = profile?.offset ?? null;
+
   const { percentageAdultHeight, pahCm } = result.methodOutputs;
 
-  const getBandColor = (band: string) => {
+  const getBandColor = (band: string | null) => {
     switch (band) {
       case 'Pre-PHV': return 'text-teal-700 bg-teal-50 border-teal-200';
       case 'Mid-PHV': return 'text-amber-700 bg-amber-50 border-amber-200';
@@ -55,11 +58,15 @@ export function MaturationInsights({ result, profile, zScore, baselineLabel }: M
             </div>
           </div>
         </div>
-        <div suppressHydrationWarning className="text-3xl font-bold mb-1">{maturityBand}</div>
+        <div suppressHydrationWarning className="text-3xl font-bold mb-1">
+          {maturityBand ?? "—"}
+        </div>
         <p suppressHydrationWarning className="text-sm opacity-90">
-          {primaryOffset < 0 
-            ? t("analysis.individual.yearsToPHV").replace("{years}", Math.abs(primaryOffset).toFixed(2))
-            : t("analysis.individual.yearsSincePHV").replace("{years}", primaryOffset.toFixed(2))}
+          {primaryOffset === null
+            ? t("analysis.individual.offsetUnavailable")
+            : primaryOffset < 0
+              ? t("analysis.individual.yearsToPHV").replace("{years}", Math.abs(primaryOffset).toFixed(2))
+              : t("analysis.individual.yearsSincePHV").replace("{years}", primaryOffset.toFixed(2))}
         </p>
       </div>
 

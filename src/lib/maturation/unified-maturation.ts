@@ -157,7 +157,7 @@ function classifyMaturityBand(offset: number | null): MaturityBand | null {
  * Classify PAH band from percentage
  */
 function classifyPahBand(percentage: number | null) {
-  if (!percentage) return "85-90%";
+  if (percentage === null || percentage === undefined) return null;
   if (percentage < 85) return "≤ 85%";
   if (percentage < 90) return "85-90%";
   if (percentage < 95) return "90-95%";

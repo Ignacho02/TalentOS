@@ -285,6 +285,8 @@ El 50% de las predicciones tendrá un error menor que el MAD; el 90% tendrá un 
 Coeficientes de regresión (Tables 1 y 2) verificados contra el paper original. ✅  
 Ajuste parental: implementado; verificación contra Epstein et al. (1995) en curso.
 
+> **Comportamiento cuando faltan alturas parentales:** Si no se registran las tallas del padre y la madre, `pahCm`, `percentageAdultHeight` y `pahBand` devuelven `null`. La interfaz muestra `—` en lugar de un valor. El fallback Koziel-Malina se activa para obtener un PAH% aproximado, pero únicamente en modo informativo — no se usa para la banda PAH del bio-banding.
+
 ### Referencias
 
 - **Khamis, H.J. & Roche, A.F. (1994).** Predicting adult stature without using skeletal age: The Khamis-Roche method. *Pediatrics*, 94(4), 504–507.
@@ -428,6 +430,8 @@ APHV_consenso = Σ(APHV_método × w_método) / Σ w_método
 ```
 
 Cuando Fransen no está disponible (chicas), los pesos se renormalizan entre Mirwald(♀) (50%), Moore (30%) y Mirwald (20%).
+
+> **Seguridad por sexo:** Fransen devuelve `null` para chicas y Mirwald(♀) devuelve `null` para chicos — por diseño. El motor de consenso filtra automáticamente los métodos con valor `null` antes de ponderar, por lo que nunca mezcla ecuaciones de sexo distinto. Los pesos se renormalizan sobre los métodos disponibles en cada caso.
 
 > **Nota:** Los pesos asignados son decisiones de diseño de la app basadas en la literatura, no valores derivados de una validación cruzada propia. Representan el criterio científico del equipo sobre la calidad relativa de cada método por sexo.
 

@@ -20,18 +20,16 @@ import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import { useMaturationPreferences } from "@/lib/hooks/use-maturation-preferences";
 import { MaturationInsights } from "@/components/maturation-insights";
 import {
-  buildTeamStats, computeAthleteZScore, buildBioBandingGroups,
   buildAlerts, detectRapidGrowth,
 } from "@/lib/maturation/analysis-helpers";
 import {
-  getAssessmentsForBand,
   getAssessmentsForTeam,
   getLatestAssessmentsByAthlete,
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
 import { createUnifiedProfile, getGroupingBand } from "@/lib/maturation/unified-maturation";
 import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
-import type { TeamStats, AlertItem, RapidGrowthAlert } from "@/lib/maturation/analysis-helpers";
+import type { AlertItem } from "@/lib/maturation/analysis-helpers";
 
 const bandColors: Record<string, string> = {
   "Pre-PHV": "#0f766e",
@@ -2632,7 +2630,27 @@ function AssistantView({
 }) {
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
 
-  const alerts = useMemo(() => buildAlerts(assessments), [assessments]);
+  // Resolve latest assessments with the active engine so that primaryOffset and
+  // maturityBand in classification reflect the user's selected engine — not the
+  // default "combined" offset produced by calculations.ts.
+  const latestEngineResolved = useMemo(
+    () =>
+      getLatestAssessmentsByAthlete(assessments).map((assessment) => {
+        const athleteSex = resolveAssessmentSex(assessment, state.athletes);
+        const profile = createUnifiedProfile(assessment, selectedEngine, bioBandingStrategy, athleteSex);
+        return {
+          ...assessment,
+          classification: {
+            ...assessment.classification,
+            maturityBand: getGroupingBand(profile),
+            primaryOffset: profile.offset ?? assessment.classification.primaryOffset,
+          },
+        };
+      }),
+    [assessments, selectedEngine, bioBandingStrategy, state.athletes],
+  );
+
+  const alerts = useMemo(() => buildAlerts(latestEngineResolved), [latestEngineResolved]);
   const rapidGrowth = useMemo(() => detectRapidGrowth(assessments), [assessments]);
 
   // Combine and deduplicate alerts by athlete for the assistant view
@@ -2645,18 +2663,10 @@ function AssistantView({
       advice: string[] 
     }>();
 
-    // Latest assessments — band resolved from the active engine's unified profile.
-    const latestMap = new Map(
-      getLatestAssessmentsByAthlete(assessments).map((assessment) => [
-        assessment.inputs.athleteId,
-        assessment,
-      ]),
-    );
-
-    latestMap.forEach((a, id) => {
-      const athleteSex = resolveAssessmentSex(a, state.athletes);
-      const profile = createUnifiedProfile(a, selectedEngine, bioBandingStrategy, athleteSex);
-      const band = getGroupingBand(profile);
+    // latestEngineResolved already has maturityBand and primaryOffset resolved
+    // from the active engine — no need to call createUnifiedProfile again.
+    latestEngineResolved.forEach((a) => {
+      const band = a.classification.maturityBand;
 
       const advice: string[] = [];
       if (band === "Mid-PHV") {
@@ -2667,7 +2677,7 @@ function AssistantView({
         advice.push(t("analysis.assistant.postPHVAdvice"));
       }
 
-      map.set(id, {
+      map.set(a.inputs.athleteId, {
         name: a.inputs.athleteName,
         team: a.inputs.teamName,
         band,
@@ -2692,7 +2702,7 @@ function AssistantView({
         });
 
     return Array.from(map.values()).filter(a => a.alerts.length > 0 || a.band === "Mid-PHV");
-  }, [assessments, alerts, rapidGrowth, t, selectedEngine, bioBandingStrategy, state.athletes]);
+  }, [latestEngineResolved, alerts, rapidGrowth, t]);
 
   const handleExportPDF = () => {
     window.print();

@@ -106,7 +106,7 @@ export interface MaturationResult {
   sitarOutputs?: SitarOutputs;
   classification: {
     maturityBand: MaturityBand | null;
-    pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%";
+    pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%" | null;
     primaryOffset: number;
     whoBmiZScore: number | null;
   };
@@ -131,7 +131,7 @@ export interface UnifiedMaturityProfile {
   // PAH metrics
   pah: number | null;             // Predicted adult height
   pahPercentage: number | null;   // % of predicted adult height
-  pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%";
+  pahBand: "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%" | null;
   
   // Bio-banding strategy (how to group athletes)
   bioBandingStrategy: "offset" | "pah";  // Which metric drives grouping

@@ -52,8 +52,8 @@ function classifyBand(primaryOffset: number): MaturityBand {
   return "Mid-PHV";
 }
 
-function classifyPahBand(percentage: number | null): "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%" {
-  if (!percentage) return "85-90%";
+function classifyPahBand(percentage: number | null): "≤ 85%" | "85-90%" | "90-95%" | "≥ 95%" | null {
+  if (percentage === null || percentage === undefined) return null;
   if (percentage < 85) return "≤ 85%";
   if (percentage < 90) return "85-90%";
   if (percentage < 95) return "90-95%";
