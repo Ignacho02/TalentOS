@@ -1,4 +1,6 @@
-# Maduration
+# Maduration App
+
+
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react)
@@ -11,7 +13,8 @@
 
 Maduration es una web app para clubes y staffs de formacion que convierte mediciones antropometricas y datos de rendimiento en contexto util para la toma de decisiones. El foco del producto esta en maduracion biologica, bio-banding, analisis comparativo y una estructura de DataHub que pueda crecer hacia operaciones reales de club.
 
-Este repositorio esta preparado como handoff tecnico: explica que hace hoy la app, que partes estan realmente operativas y donde tocar segun el tipo de cambio.
+Este repositorio esta preparado explica que hace hoy la app, que partes estan realmente operativas y donde tocar segun el tipo de cambio.
+Para acceder a la documentación detallada leer el documento [Enterprise Documentation](docs/Maduration-Enterprise-Documentation.md)
 
 ## Que problema resuelve
 
