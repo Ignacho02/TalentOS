@@ -193,6 +193,8 @@ Database:
 
 # 6. Repository Structure
 
+```text
+
 src/
 ├── app/
 ├── components/
@@ -201,6 +203,8 @@ src/
 ├── public/
 ├── docs/
 └── supabase/
+
+```
 
 ---
 
@@ -286,6 +290,7 @@ Classifications:
 
 # 9. Entity Relationships
 
+```text
 Club
  ├── Teams
  ├── Athletes
@@ -297,7 +302,7 @@ Team
 Athlete
  ├── Anthropometric Records
  └── Performance Entries
-
+```
 ---
 
 # 10. Security
