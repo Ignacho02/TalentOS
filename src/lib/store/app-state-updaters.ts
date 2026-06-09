@@ -6,6 +6,7 @@ import type {
   Athlete,
   Club,
   ClubUser,
+  GpsSession,
   Locale,
   PerformanceDefinition,
   PerformanceEntry,
@@ -495,5 +496,19 @@ export function setCurrentUserRoleInState(current: AppState, role: AppState["cur
     currentUserRole: role,
     currentUserTeamIds: teamIds,
     ...(permissions ? { currentUserPermissions: permissions } : {}),
+  };
+}
+
+export function addGpsSessionToState(current: AppState, session: GpsSession): AppState {
+  return {
+    ...current,
+    gpsSessions: [...(current.gpsSessions ?? []), session],
+  };
+}
+
+export function deleteGpsSessionFromState(current: AppState, id: string): AppState {
+  return {
+    ...current,
+    gpsSessions: (current.gpsSessions ?? []).filter((s) => s.id !== id),
   };
 }

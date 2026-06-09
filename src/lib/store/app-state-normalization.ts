@@ -114,6 +114,7 @@ export function normalizeState(input: unknown): AppState {
         };
       },
     ),
+    gpsSessions: Array.isArray(candidate.gpsSessions) ? candidate.gpsSessions : [],
     preferences: {
       ...demoState.preferences,
       ...(candidate.preferences ?? {}),
@@ -162,6 +163,7 @@ export function normalizeState(input: unknown): AppState {
       ),
     ],
     clubUsers: baseState.clubUsers.length > 0 ? baseState.clubUsers : demoState.clubUsers,
+    gpsSessions: baseState.gpsSessions,
     currentUserRole: baseState.currentUserRole,
     currentUserTeamIds: baseState.currentUserTeamIds,
     currentUserPermissions: baseState.currentUserPermissions,

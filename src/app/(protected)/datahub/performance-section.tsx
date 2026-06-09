@@ -80,6 +80,7 @@ export function PerformanceSection({
     addPerformanceEntry, updatePerformanceEntry, deletePerformanceEntry,
     addTrainingLoadEntry, importPerformanceEntries,
     addPerformanceDefinition, updatePerformanceDefinition, deletePerformanceDefinition,
+    addGpsSession,
     state
   } = useAppState();
   const { t, locale } = useLocale();
@@ -250,8 +251,7 @@ export function PerformanceSection({
   const [tlAttended, setTlAttended] = useState(true);
   const [tlRpe,      setTlRpe]      = useState(5);
 
-  // ── GPS sessions (client-side, future: persist to server) ─────────────────
-  const [gpsSessions, setGpsSessions] = useState<GpsSession[]>([]);
+  // ── GPS sessions — persisted in global store ───────────────────────────────
   // Day modal add-session selector
   type DayModalPanel = "none" | "uc" | "gps";
   const [dayModalPanel, setDayModalPanel] = useState<DayModalPanel>("none");
@@ -408,7 +408,7 @@ export function PerformanceSection({
   const { trainingLoadEntries } = state;
   const entriesForDate   = (date: string) => trainingLoadEntries.filter(e => e.date === date);
   const totalLoadForDate = (date: string) => entriesForDate(date).reduce((s, e) => s + e.load, 0);
-  const gpsSessionsForDate = (date: string) => gpsSessions.filter(s => s.date === date);
+  const gpsSessionsForDate = (date: string) => (state.gpsSessions ?? []).filter(s => s.date === date);
 
   async function handleGpsParseFile() {
     if (!gpsFile || !gpsImportTeamId) return;
@@ -519,7 +519,7 @@ export function PerformanceSection({
         rawRows: enrichedRows,
         notes: gpsImportNotes || undefined,
       };
-      setGpsSessions(prev => [...prev, session]);
+      addGpsSession(session);
       // reset GPS form
       setGpsFile(null);
       setGpsImportNotes("");
@@ -1322,6 +1322,7 @@ export function PerformanceSection({
                 const day = di + 1;
                 const ds  = `${calYear}-${String(calMonth + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
                 const ens = entriesForDate(ds);
+                const gpsSess = gpsSessionsForDate(ds);
                 const tl  = totalLoadForDate(ds);
                 const isSel   = selectedDate === ds;
                 const isToday = ds === new Date().toISOString().split("T")[0];
@@ -1344,7 +1345,7 @@ export function PerformanceSection({
                       {tl > 0 && <span className="text-[10px] font-bold text-zinc-500">{tl}</span>}
                     </div>
                     <div className="mt-1 flex flex-col gap-0.5">
-                      {/* One badge per unique (sessionType + team) */}
+                      {/* UC session badges */}
                       {(() => {
                         // group entries by sessionType+teamId to get distinct sessions
                         const seen = new Map<string, { type: "training"|"match"; teamName: string }>();
@@ -1370,6 +1371,21 @@ export function PerformanceSection({
                           </div>
                         ));
                       })()}
+                      {/* GPS session badges */}
+                      {gpsSess.map(session => (
+                        <div key={session.id}
+                          className={cn("flex items-center gap-0.5 rounded-full px-1.5 py-0.5 w-fit",
+                            session.sessionType === "match" ? "bg-purple-50" : "bg-emerald-50")}>
+                          <MapPin className={cn("h-2.5 w-2.5 shrink-0",
+                            session.sessionType === "match" ? "text-purple-500" : "text-emerald-500")} />
+                          {session.teamName && (
+                            <span className={cn("text-[8px] font-semibold truncate max-w-[52px]",
+                              session.sessionType === "match" ? "text-purple-600" : "text-emerald-600")}>
+                              {session.teamName}
+                            </span>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -1997,13 +2013,34 @@ export function PerformanceSection({
                             </div>
                             <div className="grid gap-1">
                               <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "File (Excel or CSV)" : "Archivo (Excel o CSV)"}</label>
-                              <label className="cursor-pointer">
+                              <label
+                                className="cursor-pointer"
+                                onDragEnter={e => { e.preventDefault(); e.stopPropagation(); }}
+                                onDragOver={e => { e.preventDefault(); e.stopPropagation(); (e.currentTarget.firstElementChild as HTMLElement)?.classList.add("border-emerald-500", "bg-emerald-50"); }}
+                                onDragLeave={e => { e.preventDefault(); e.stopPropagation(); (e.currentTarget.firstElementChild as HTMLElement)?.classList.remove("border-emerald-500", "bg-emerald-50"); }}
+                                onDrop={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  (e.currentTarget.firstElementChild as HTMLElement)?.classList.remove("border-emerald-500", "bg-emerald-50");
+                                  const file = e.dataTransfer.files?.[0];
+                                  if (file && (file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv"))) {
+                                    setGpsFile(file);
+                                    setGpsImportError("");
+                                  }
+                                }}
+                              >
                                 <div className={cn(
-                                  "flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-5 transition text-sm font-medium",
+                                  "flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed px-4 py-6 transition text-sm font-medium",
                                   gpsFile ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-zinc-300 bg-white text-zinc-500 hover:border-zinc-400 hover:bg-zinc-50"
                                 )}>
-                                  <FileSpreadsheet className="h-5 w-5 shrink-0" />
-                                  {gpsFile ? gpsFile.name : (locale === "en" ? "Click to select file" : "Haz clic para seleccionar archivo")}
+                                  <FileSpreadsheet className="h-6 w-6 shrink-0" />
+                                  {gpsFile
+                                    ? <span className="text-center break-all">{gpsFile.name}</span>
+                                    : <>
+                                        <span>{locale === "en" ? "Drop file here or click to select" : "Arrastra el archivo aquí o haz clic"}</span>
+                                        <span className="text-[11px] font-normal text-zinc-400">.xlsx · .xls · .csv</span>
+                                      </>
+                                  }
                                 </div>
                                 <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
                                   onChange={e => { setGpsFile(e.target.files?.[0] ?? null); setGpsImportError(""); }} />
@@ -2056,6 +2093,12 @@ export function PerformanceSection({
                                 {gpsParsedRows.map(row => {
                                   const playerName = String(row["Players"] ?? row[Object.keys(row)[0]] ?? "");
                                   const assignedId = gpsPlayerMapping[playerName] ?? "";
+                                  // Athletes already assigned to another GPS row
+                                  const alreadyAssigned = new Set(
+                                    Object.entries(gpsPlayerMapping)
+                                      .filter(([k, v]) => k !== playerName && v !== "")
+                                      .map(([, v]) => v)
+                                  );
                                   return (
                                     <div key={playerName} className="flex items-center gap-2 rounded-xl bg-white border border-line/60 px-3 py-2">
                                       <div className={cn("h-2 w-2 rounded-full shrink-0", assignedId ? "bg-emerald-500" : "bg-zinc-300")} />
@@ -2066,9 +2109,11 @@ export function PerformanceSection({
                                         className="flex-1 rounded-xl border border-line bg-white px-2 py-1.5 text-xs text-zinc-700 outline-none focus:border-emerald-400"
                                       >
                                         <option value="">{locale === "en" ? "— skip —" : "— ignorar —"}</option>
-                                        {teamAthletesList.map(a => (
-                                          <option key={a.id} value={a.id}>{a.name}</option>
-                                        ))}
+                                        {teamAthletesList
+                                          .filter(a => !alreadyAssigned.has(a.id))
+                                          .map(a => (
+                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                          ))}
                                       </select>
                                     </div>
                                   );

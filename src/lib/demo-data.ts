@@ -287,6 +287,7 @@ export const demoState: AppState = {
   records: demoRecords,
   performanceEntries: demoPerformanceEntries,
   trainingLoadEntries: [],
+  gpsSessions: [],
   performanceDefinitions: [
     // Physical tests (10)
     { id: "pdef-10m-sprint", name: "10 m Sprint", nameKey: "datahub.presetName.sprint10m", descriptionKey: "datahub.presetSprintDesc", area: "physical", unit: "s", attempts: 2, isRating: false, scoringStrategy: "best", interpretation: "lower_better", description: "Velocidad en sprint corto. Mide la aceleracion inicial, fundamental en acciones explosivas del futbol." },

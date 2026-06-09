@@ -37,12 +37,17 @@ import {
   deleteTrainingLoadEntryAction,
   importTrainingLoadEntriesAction,
 } from "@/lib/actions/training-load-entries";
+import {
+  addGpsSessionAction,
+  deleteGpsSessionAction,
+} from "@/lib/actions/gps-sessions";
 import type {
   AppState,
   AnthropometricRecordInput,
   Athlete,
   Club,
   ClubUser,
+  GpsSession,
   Locale,
   MaturationResult,
   PerformanceDefinition,
@@ -54,6 +59,7 @@ import { normalizeState } from "./app-state-normalization";
 import {
   addAthleteToState,
   addClubUserToState,
+  addGpsSessionToState,
   addPerformanceDefinitionToState,
   addPerformanceEntryToState,
   addRecordToState,
@@ -61,6 +67,7 @@ import {
   addTrainingLoadEntryToState,
   deleteAthleteFromState,
   deleteClubUserFromState,
+  deleteGpsSessionFromState,
   deletePerformanceDefinitionFromState,
   deletePerformanceEntryInState,
   deleteTeamFromState,
@@ -105,6 +112,8 @@ interface AppStateContextValue {
   updateClub: (updates: Partial<Club>) => void;
   addTrainingLoadEntry: (entry: Omit<TrainingLoadEntry, "id" | "load">) => void;
   deleteTrainingLoadEntry: (id: string) => void;
+  addGpsSession: (session: GpsSession) => void;
+  deleteGpsSession: (id: string) => void;
   addPerformanceDefinition: (def: Omit<PerformanceDefinition, "id">) => void;
   updatePerformanceDefinition: (id: string, updates: Partial<PerformanceDefinition>) => void;
   deletePerformanceDefinition: (id: string) => void;
@@ -171,6 +180,7 @@ export function AppStateProvider({
             records: freshState.records,
             performanceEntries: freshState.performanceEntries,
             trainingLoadEntries: freshState.trainingLoadEntries,
+            gpsSessions: freshState.gpsSessions,
             performanceDefinitions: freshState.performanceDefinitions,
             preferences: freshState.preferences,
           }));
@@ -353,6 +363,16 @@ export function AppStateProvider({
     void deleteTrainingLoadEntryAction(id).catch(reportPersistenceError);
   };
 
+  const addGpsSession = (session: GpsSession) => {
+    setState((current) => addGpsSessionToState(current, session));
+    void addGpsSessionAction(session).catch(reportPersistenceError);
+  };
+
+  const deleteGpsSession = (id: string) => {
+    setState((current) => deleteGpsSessionFromState(current, id));
+    void deleteGpsSessionAction(id).catch(reportPersistenceError);
+  };
+
   const addPerformanceDefinition = (definition: Omit<PerformanceDefinition, "id">) => {
     setState((current) => addPerformanceDefinitionToState(current, definition));
     void addPerformanceDefinitionAction(definition)
@@ -423,6 +443,8 @@ export function AppStateProvider({
       updateClub,
       addTrainingLoadEntry,
       deleteTrainingLoadEntry,
+      addGpsSession,
+      deleteGpsSession,
       addPerformanceDefinition,
       updatePerformanceDefinition,
       deletePerformanceDefinition,
