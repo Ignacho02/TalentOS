@@ -1690,6 +1690,7 @@ export function PerformanceSection({
                       setPerfFieldErrors(prev => clearFieldError(prev, "testName"));
                     }}
                   >
+                    <option value="">{t("datahub.selectTest") || "-- Seleccionar test --"}</option>
                     {testDefs.map(d => {
                       const label = (d.nameKey ? t(d.nameKey) : null) || d.name;
                       return <option key={d.id} value={d.name}>{label} ({d.unit})</option>;
