@@ -747,6 +747,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       calendarComingSoon: "La vista de calendario estara disponible en futuras actualizaciones.",
       entriesForDate: "Registros del dia",
       noEntriesForDate: "No hay registros para esta fecha",
+      selectedDateDetails: "Detalles de la fecha seleccionada",
     },
     gps: {
       title: "GPS",
@@ -1573,6 +1574,7 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
       calendarComingSoon: "Calendar view will be available in future updates.",
       entriesForDate: "Entries for date",
       noEntriesForDate: "No entries for this date",
+      selectedDateDetails: "Selected date details",
     },
     gps: {
       title: "GPS",

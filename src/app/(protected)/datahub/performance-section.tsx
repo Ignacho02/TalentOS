@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 
@@ -91,7 +92,7 @@ export function PerformanceSection({
   function resolveInitialPerfTab(): "testBattery" | "tests" | "trainingLoad" {
     if (viewParam === "testBattery") return "testBattery";
     if (viewParam === "tests") return "tests";
-    if (viewParam === "trainingLoad" || viewParam === "gps") return "trainingLoad";
+    if (viewParam === "trainingLoad") return "trainingLoad";
     return "testBattery";
   }
 
@@ -99,10 +100,6 @@ export function PerformanceSection({
   const [perfTab, setPerfTab] = usePersistentState<"testBattery" | "tests" | "trainingLoad">(
     "datahub_perf_tab_v2",
     viewParam ? resolveInitialPerfTab() : "testBattery"
-  );
-  const [trainingLoadSubTab, setTrainingLoadSubTab] = usePersistentState<"training" | "gps">(
-    "datahub_training_load_sub_tab",
-    viewParam === "gps" ? "gps" : "training"
   );
 
   // ── Test battery management states & handlers ─────────────────────────────
@@ -164,12 +161,8 @@ export function PerformanceSection({
       setPerfTab("tests");
     } else if (v === "trainingLoad") {
       setPerfTab("trainingLoad");
-      setTrainingLoadSubTab("training");
-    } else if (v === "gps") {
-      setPerfTab("trainingLoad");
-      setTrainingLoadSubTab("gps");
     }
-  }, [searchParams, setPerfTab, setTrainingLoadSubTab]);
+  }, [searchParams, setPerfTab]);
 
   // ── Add-result modal ───────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false);
@@ -216,7 +209,6 @@ export function PerformanceSection({
 
       // Reset persistent sub-selections within each tab
       setTestBatteryArea("physical");
-      setTrainingLoadSubTab("training");
 
       // Reset all local search, filters, groupings, and orderings of the Performance tab
       setPlayerSearch("");
@@ -1155,29 +1147,7 @@ export function PerformanceSection({
       {/* ══════════════════════ TRAINING LOAD TAB ══════════════════════ */}
       {perfTab === "trainingLoad" && (
         <section className="panel rounded-[1.75rem] p-6 space-y-4">
-          <div className="flex gap-2 flex-wrap">
-            {[
-              { id: "training" as const, label: t("trainingLoad.training") },
-              { id: "gps" as const, label: t("gps.title") },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setTrainingLoadSubTab(tab.id)}
-                className={cn(
-                  "flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition",
-                  trainingLoadSubTab === tab.id
-                    ? "bg-accent text-white"
-                    : "bg-white border border-line text-zinc-600 hover:bg-zinc-50"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {trainingLoadSubTab === "training" ? (
-            <div className="space-y-6">
+          <div className="space-y-6">
               {/* ── Month nav ── */}
               <div className="flex items-center justify-between">
                 <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
@@ -1261,265 +1231,254 @@ export function PerformanceSection({
             </div>
           </div>
 
-          {/* ── Selected date panel ── */}
-          {selectedDate && (
-            <div className="rounded-2xl border border-line bg-white/70 p-5 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-zinc-900">{formatDate(selectedDate)}</h3>
-                <button
-                  type="button"
-                  onClick={() => setTlShowPanel((v) => !v)}
-                  disabled={!canEditTrainingLoad}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition",
-                    canEditTrainingLoad
-                      ? "bg-accent text-white hover:bg-accent/90"
-                      : "border border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed",
-                  )}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {locale === "en" ? "Add session" : "Añadir sesión"}
-                </button>
-              </div>
+          {/* ── Selected date modal ── */}
+          {selectedDate && typeof document !== "undefined" && createPortal((
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+              onClick={() => { setSelectedDate(null); setTlShowPanel(false); }}
+            >
+              <div
+                className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-black/5"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="border-b border-line bg-zinc-50/80 px-6 py-5 sm:px-8 sm:py-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="text-2xl font-semibold text-zinc-900 leading-tight truncate">{formatDate(selectedDate)}</h3>
+                      <p className="text-sm text-zinc-500 mt-1">{t("trainingLoad.selectedDateDetails")}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedDate(null); setTlShowPanel(false); }}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
+                      aria-label={t("datahub.cancel") || "Cerrar"}
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
 
-              {/* Existing entries for selected date */}
-              {entriesForDate(selectedDate).length > 0 && (
-                <SessionList
-                  entries={entriesForDate(selectedDate)}
-                  athletes={state.athletes}
-                  locale={locale}
-                  allEntries={trainingLoadEntries}
-                />
-              )}
-
-              {/* Add session inline panel */}
-              {tlShowPanel && (
-                <div className="rounded-2xl border-2 border-accent/30 bg-accent/5 p-4 space-y-4">
-
-                    {/* ── Config row ── */}
-                    <div className="flex flex-wrap gap-3 items-end">
-                      {/* Type */}
-                      <div className="grid gap-1">
-                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
-                        <div className="flex gap-2">
-                          {(["training", "match"] as const).map(st => (
-                            <button key={st} type="button"
-                              onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
-                              className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                                tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
-                              {st === "training" ? (locale === "en" ? "Training" : "Manual") : (locale === "en" ? "Match" : "Partido")}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Team — mandatory */}
-                      <div className="grid gap-1">
-                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
-                        <select value={tlTeamId}
-                          onChange={e => setTlTeamId(e.target.value)}
-                          className={cn("rounded-xl border bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none",
-                            !tlTeamId ? "border-red-300" : "border-line")}>
-                          <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
-                          {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-                        </select>
-                      </div>
-
-                      {/* Global minutes */}
-                      <div className="grid gap-1">
-                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Minutes (default)" : "Minutos (defecto)"}</label>
-                        <input type="number" min={0} max={300} value={tlMinutes}
-                          onChange={e => setTlMinutes(Number(e.target.value) || 0)}
-                          className="w-24 rounded-xl border border-line bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none focus:border-accent/50" />
-                      </div>
-
-                      {/* RPE toggle — hidden for match (auto 10) */}
-                      {!isMatch && (
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">RPE</label>
-                          <button type="button"
-                            onClick={() => setTlUseRpe((v) => !v)}
-                            className={cn("flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border transition",
-                              tlUseRpe ? "bg-accent/10 border-accent/30 text-accent" : "bg-white border-line text-zinc-400")}>
-                            <span className={cn("w-7 h-4 rounded-full transition flex items-center px-0.5",
-                              tlUseRpe ? "bg-accent" : "bg-zinc-200")}>
-                              <span className={cn("w-3 h-3 rounded-full bg-white shadow-sm transition-transform",
-                                tlUseRpe ? "translate-x-3" : "translate-x-0")} />
-                            </span>
-                            {tlUseRpe ? (locale === "en" ? "On" : "Activo") : (locale === "en" ? "Off" : "Sin RPE")}
-                          </button>
-                        </div>
-                      )}
-                      {isMatch && (
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">RPE</label>
-                          <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-red-600">Auto 10</span>
-                        </div>
-                      )}
-
-                      {/* Notes */}
-                      <div className="grid gap-1 flex-1 min-w-32">
-                        <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes" : "Notas"}</label>
-                        <input type="text" value={tlNotes} onChange={e => setTlNotes(e.target.value)}
-                          placeholder={locale === "en" ? "Optional..." : "Opcional..."}
-                          className="rounded-xl border border-line bg-white px-3 py-1.5 text-sm text-zinc-700 outline-none focus:border-accent/50" />
-                      </div>
+                <div className="flex-1 overflow-y-auto">
+                <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] p-6 sm:p-8">
+                  <div className="space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-line bg-white p-5 shadow-sm">
+                      <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
+                        className="rounded-full border border-line bg-white/90 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-white">
+                        ←
+                      </button>
+                      <h2 className="text-lg font-semibold text-zinc-900">{monthNames[calMonth]} {calYear}</h2>
+                      <button onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
+                        className="rounded-full border border-line bg-white/90 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-white">
+                        →
+                      </button>
                     </div>
 
-                    {/* ── Player list ── */}
-                    {!tlTeamId ? (
-                      <p className="text-sm text-zinc-500 text-center py-2">
-                        {locale === "en" ? "Select a team first." : "Selecciona un equipo primero."}
-                      </p>
-                    ) : teamAthletes.length === 0 ? (
-                      <p className="text-sm text-zinc-500 text-center py-2">
-                        {locale === "en" ? "No players in this team." : "No hay jugadores en este equipo."}
-                      </p>
-                    ) : (
-                      <>
-                        {/* Column headers */}
-                        <div className="grid items-center gap-x-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1"
-                          style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
-                          <span>{locale === "en" ? "Player" : "Jugador"}</span>
-                          <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
-                          <span className="text-center">min</span>
-                          {(tlUseRpe || isMatch) && <span>RPE</span>}
-                        </div>
-
-                        <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-                          {teamAthletes.map(ath => {
-                            const attended = tlAttendedMap[ath.id] !== false;
-                            const rpe      = isMatch ? 10 : (tlRpeMap[ath.id] ?? 6);
-                            const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
-                            return (
-                              <div key={ath.id}
-                                className="grid items-center gap-x-2"
-                                style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
-
-                                {/* Name */}
-                                <span className={cn("text-sm font-medium truncate",
-                                  attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
-                                  {ath.name}
-                                </span>
-
-                                {/* Attended toggle */}
-                                <div className="flex justify-center">
-                                  <button type="button"
-                                    onClick={() => setTlAttendedMap(m => ({ ...m, [ath.id]: !attended }))}
-                                    className={cn("rounded-full w-8 h-5 transition flex items-center px-0.5",
-                                      attended ? "bg-accent" : "bg-zinc-200")}>
-                                    <span className={cn("w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
-                                      attended ? "translate-x-3" : "translate-x-0")} />
-                                  </button>
-                                </div>
-
-                                {/* Per-player minutes override */}
-                                <input type="number" min={0} max={300}
-                                  value={mins}
-                                  disabled={!attended}
-                                  onChange={e => setTlMinutesMap((m: Record<string, number>) => ({ ...m, [ath.id]: Number(e.target.value) || 0 }))}
-                                  className={cn("w-full rounded-lg border px-2 py-1 text-xs text-center outline-none focus:border-accent/50",
-                                    !attended ? "bg-zinc-50 border-zinc-100 text-zinc-300" : "border-line bg-white text-zinc-700",
-                                    (tlMinutesMap[ath.id] !== undefined && tlMinutesMap[ath.id] !== tlMinutes) && attended && "border-amber-300 bg-amber-50"
-                                  )}
-                                />
-
-                                {/* RPE */}
-                                {attended && (tlUseRpe || isMatch) && (
-                                  isMatch ? (
-                                    <span className="text-xs font-bold text-red-500">10</span>
-                                  ) : (
-                                    <div className="flex gap-0.5">
-                                      {[1,2,3,4,5,6,7,8,9,10].map(v => (
-                                        <button key={v} type="button"
-                                          onClick={() => setTlRpeMap(m => ({ ...m, [ath.id]: v }))}
-                                          className={cn(
-                                            "w-6 h-6 rounded-md text-[10px] font-bold transition",
-                                            rpe === v
-                                              ? v <= 3 ? "bg-green-500 text-white"
-                                              : v <= 6 ? "bg-yellow-400 text-white"
-                                              : v <= 8 ? "bg-orange-500 text-white"
-                                              : "bg-red-500 text-white"
-                                              : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
-                                          )}>
-                                          {v}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Save / Cancel */}
-                        {(!tlTeamId || !selectedDate) && (
-                          <p className="text-xs text-red-600 pt-1">
-                            {t("datahub.validations.issue.trainingLoadPrereq")}
-                          </p>
-                        )}
-                        <div className="flex gap-3 pt-2">
-                          <button type="button"
-                            disabled={!tlTeamId || !selectedDate || !canEditTrainingLoad}
-                            onClick={() => {
-                              if (!selectedDate || !canEditTrainingLoad) return;
-                              teamAthletes.forEach(ath => {
-                                const attended = tlAttendedMap[ath.id] !== false;
-                                const rpe      = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);  // 1 = neutral, never 0 (breaks load calc)
-                                const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
-                                addTrainingLoadEntry({
-                                  athleteId:    ath.id,
-                                  date:         selectedDate,
-                                  attended,
-                                  sessionType:  tlType,
-                                  minutesPlayed: attended ? mins : 0,
-                                  rpe:          attended ? rpe : 0,
-                                  notes:        tlNotes || undefined,
-                                });
-                              });
-                              setTlShowPanel(false);
-                              setTlRpeMap({});
-                              setTlAttendedMap({});
-                              setTlMinutesMap({});
-                              setTlNotes("");
-                            }}
-                            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent/90 transition disabled:opacity-40"
-                          >
-                            <Plus className="h-4 w-4" />
-                            {locale === "en" ? "Save session" : "Guardar sesión"}
-                          </button>
-                          <button type="button"
-                            onClick={() => { setTlShowPanel(false); setTlRpeMap({}); setTlAttendedMap({}); setTlMinutesMap({}); setTlNotes(""); }}
-                            className="rounded-2xl border border-line px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition">
-                            {t("datahub.cancel") || "Cancelar"}
-                          </button>
-                        </div>
-                        {!canEditTrainingLoad && (
-                          <p className="text-sm text-red-600 pt-2">
-                            {t("datahub.trainingLoadNoPermission") ||
-                              "No tienes permiso para editar registros de carga de entrenamiento."}
-                          </p>
-                        )}
-                      </>
-                    )}
+                    <div className="rounded-3xl border border-line bg-white p-5 shadow-sm">
+                      <SessionList
+                        entries={entriesForDate(selectedDate)}
+                        athletes={state.athletes}
+                        locale={locale}
+                        allEntries={trainingLoadEntries}
+                      />
+                    </div>
                   </div>
-                )}
-            </div>
-          )}
-        </div>
-      ) : (
-            <section className="rounded-2xl border border-line bg-white/50 p-8 text-center">
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <MapPin className="h-6 w-6 text-zinc-400" />
-                <h2 className="text-xl font-semibold">{t("gps.title")}</h2>
+
+                  <div className="space-y-5">
+                    <div className="rounded-3xl border border-line bg-zinc-50 p-5 shadow-sm">
+                      <div className="mb-5 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-600 uppercase tracking-wide">{t("trainingLoad.addEntry")}</p>
+                          <p className="text-xs text-zinc-500">{locale === "en" ? "Quick session details" : "Detalles rápidos de la sesión"}</p>
+                        </div>
+                        <span className="inline-flex rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">{t("trainingLoad.training")}</span>
+                      </div>
+
+                      <div className="grid gap-4">
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
+                          <div className="flex gap-2">
+                            {(["training", "match"] as const).map(st => (
+                              <button key={st} type="button"
+                                onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
+                                className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                                  tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
+                                {st === "training" ? (locale === "en" ? "Training" : "Manual") : (locale === "en" ? "Match" : "Partido")}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
+                          <select value={tlTeamId}
+                            onChange={e => setTlTeamId(e.target.value)}
+                            className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
+                              !tlTeamId ? "border-red-300" : "border-line")}>
+                            <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
+                            {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                          </select>
+                        </div>
+
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Minutes (default)" : "Minutos (defecto)"}</label>
+                          <input type="number" min={0} max={300} value={tlMinutes}
+                            onChange={e => setTlMinutes(Number(e.target.value) || 0)}
+                            className="w-full rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                        </div>
+
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">RPE</label>
+                          {isMatch ? (
+                            <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">Auto 10</span>
+                          ) : (
+                            <button type="button"
+                              onClick={() => setTlUseRpe((v) => !v)}
+                              className={cn("flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border transition",
+                                tlUseRpe ? "bg-accent/10 border-accent/30 text-accent" : "bg-white border-line text-zinc-400")}>
+                              <span className={cn("w-7 h-4 rounded-full transition flex items-center px-0.5",
+                                tlUseRpe ? "bg-accent" : "bg-zinc-200")}>
+                                <span className={cn("w-3 h-3 rounded-full bg-white shadow-sm transition-transform",
+                                  tlUseRpe ? "translate-x-3" : "translate-x-0")} />
+                              </span>
+                              {tlUseRpe ? (locale === "en" ? "On" : "Activo") : (locale === "en" ? "Off" : "Sin RPE")}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid gap-1">
+                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes" : "Notas"}</label>
+                          <input type="text" value={tlNotes} onChange={e => setTlNotes(e.target.value)}
+                            placeholder={locale === "en" ? "Optional..." : "Opcional..."}
+                            className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                        </div>
+                      </div>
+
+                      {(!tlTeamId || !selectedDate) ? (
+                        <p className="text-sm text-red-600 text-center">{t("datahub.validations.issue.trainingLoadPrereq")}</p>
+                      ) : teamAthletes.length === 0 ? (
+                        <p className="text-sm text-zinc-500 text-center">{locale === "en" ? "No players in this team." : "No hay jugadores en este equipo."}</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="grid items-center gap-x-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-wide"
+                            style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
+                            <span>{locale === "en" ? "Player" : "Jugador"}</span>
+                            <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
+                            <span className="text-center">min</span>
+                            {(tlUseRpe || isMatch) && <span>RPE</span>}
+                          </div>
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {teamAthletes.map(ath => {
+                              const attended = tlAttendedMap[ath.id] !== false;
+                              const rpe      = isMatch ? 10 : (tlRpeMap[ath.id] ?? 6);
+                              const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
+                              return (
+                                <div key={ath.id}
+                                  className="grid items-center gap-x-2"
+                                  style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
+
+                                  <span className={cn("text-sm font-medium truncate",
+                                    attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
+                                    {ath.name}
+                                  </span>
+
+                                  <div className="flex justify-center">
+                                    <button type="button"
+                                      onClick={() => setTlAttendedMap(m => ({ ...m, [ath.id]: !attended }))}
+                                      className={cn("rounded-full w-8 h-5 transition flex items-center px-0.5",
+                                        attended ? "bg-accent" : "bg-zinc-200")}>
+                                      <span className={cn("w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
+                                        attended ? "translate-x-3" : "translate-x-0")} />
+                                    </button>
+                                  </div>
+
+                                  <input type="number" min={0} max={300}
+                                    value={mins}
+                                    disabled={!attended}
+                                    onChange={e => setTlMinutesMap((m: Record<string, number>) => ({ ...m, [ath.id]: Number(e.target.value) || 0 }))}
+                                    className={cn("w-full rounded-2xl border px-2 py-1 text-xs text-center outline-none focus:border-accent/50",
+                                      !attended ? "bg-zinc-50 border-zinc-100 text-zinc-300" : "border-line bg-white text-zinc-700",
+                                      (tlMinutesMap[ath.id] !== undefined && tlMinutesMap[ath.id] !== tlMinutes) && attended && "border-amber-300 bg-amber-50"
+                                    )}
+                                  />
+
+                                  {attended && (tlUseRpe || isMatch) && (
+                                    isMatch ? (
+                                      <span className="text-xs font-bold text-red-500">10</span>
+                                    ) : (
+                                      <div className="flex gap-0.5">
+                                        {[1,2,3,4,5,6,7,8,9,10].map(v => (
+                                          <button key={v} type="button"
+                                            onClick={() => setTlRpeMap(m => ({ ...m, [ath.id]: v }))}
+                                            className={cn(
+                                              "w-6 h-6 rounded-md text-[10px] font-bold transition",
+                                              rpe === v
+                                                ? v <= 3 ? "bg-green-500 text-white"
+                                                : v <= 6 ? "bg-yellow-400 text-white"
+                                                : v <= 8 ? "bg-orange-500 text-white"
+                                                : "bg-red-500 text-white"
+                                                : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                                            )}>
+                                            {v}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-3 sm:flex-row">
+                        <button
+                          type="button"
+                          disabled={!tlTeamId || !selectedDate || !canEditTrainingLoad}
+                          onClick={() => {
+                            if (!selectedDate || !canEditTrainingLoad) return;
+                            teamAthletes.forEach(ath => {
+                              const attended = tlAttendedMap[ath.id] !== false;
+                              const rpe      = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);
+                              const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
+                              addTrainingLoadEntry({
+                                athleteId:    ath.id,
+                                date:         selectedDate,
+                                attended,
+                                sessionType:  tlType,
+                                minutesPlayed: attended ? mins : 0,
+                                rpe:          attended ? rpe : 0,
+                                notes:        tlNotes || undefined,
+                              });
+                            });
+                            setTlShowPanel(false);
+                            setTlRpeMap({});
+                            setTlAttendedMap({});
+                            setTlMinutesMap({});
+                            setTlNotes("");
+                          }}
+                          className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-40"
+                        >
+                          <Plus className="h-4 w-4" />
+                          {locale === "en" ? "Save session" : "Guardar sesión"}
+                        </button>
+                        <button type="button"
+                          onClick={() => { setTlShowPanel(false); setTlRpeMap({}); setTlAttendedMap({}); setTlMinutesMap({}); setTlNotes(""); }}
+                          className="flex-1 rounded-2xl border border-line bg-white px-5 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+                        >
+                          {t("datahub.cancel") || "Cancelar"}
+                        </button>
+                      </div>
+                    </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p className="text-lg font-medium text-zinc-700 mb-2">{t("gps.comingSoon")}</p>
-              <p className="text-sm text-zinc-500 max-w-md mx-auto">{t("gps.body")}</p>
-            </section>
-          )}
-        </section>
-      )}
+            </div>
+          ), document.body)}
+        </div>
+      </section>
+    )}
 
       {/* ══════════════════════ ADD RESULT MODAL ══════════════════════ */}
       {showAddModal && (
