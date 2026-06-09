@@ -208,6 +208,48 @@ export interface TrainingLoadEntry {
   notes?: string;
 }
 
+// ─── GPS / multi-source training events ──────────────────────────────────────
+
+/**
+ * Summary metrics extracted from a GPS import (Excel/CSV).
+ * Intentionally flexible: only the keys present in the imported file are set.
+ * The full column set is stored in `rawColumns` / `rawRows` for future analysis views.
+ */
+export interface GpsSessionSummary {
+  playerCount?: number;
+  totalDistanceM?: number;     // sum across all players, metres
+  avgDistanceM?: number;       // per-player average, metres
+  totalHsrM?: number;          // high-speed running, metres
+  totalSprintsN?: number;
+  maxSpeedKmh?: number;
+  [key: string]: number | undefined; // extensible for any future KPI
+}
+
+export interface GpsSession {
+  id: string;
+  date: string;                       // ISO "YYYY-MM-DD"
+  sessionType: "training" | "match";
+  teamId: string;
+  teamName?: string;
+  source: "gps";
+  fileName: string;
+  importedAt: string;                 // ISO timestamp
+  summary: GpsSessionSummary;
+  /** Column headers from the original file (for future analysis view) */
+  rawColumns: string[];
+  /** Raw rows as key-value records, one per player row */
+  rawRows: Record<string, string | number>[];
+  notes?: string;
+}
+
+/**
+ * Discriminated union of all training event types a calendar day can hold.
+ * Add new variants here to extend the system.
+ */
+export type TrainingEvent =
+  | { source: "uc"; entry: TrainingLoadEntry }
+  | { source: "gps"; session: GpsSession };
+
 export interface PerformanceDefinition {
   id: string;
   name: string;
@@ -269,6 +311,7 @@ export interface AppState {
   records: AnthropometricRecord[];
   performanceEntries: PerformanceEntry[];
   trainingLoadEntries: TrainingLoadEntry[];
+  gpsSessions: GpsSession[];
   performanceDefinitions: PerformanceDefinition[];
   preferences: UserPreferences;
   /** Club users list (managed by admin) */

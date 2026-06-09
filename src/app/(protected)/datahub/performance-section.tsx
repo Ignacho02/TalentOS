@@ -25,6 +25,7 @@ import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type {
   PerformanceArea, PerformanceEntryInput, PerformanceEntry, PerformanceDefinition, TrainingLoadEntry,
+  GpsSession, GpsSessionSummary,
 } from "@/lib/types";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { usePersistentState } from "@/lib/hooks/use-persistent-state";
@@ -249,6 +250,19 @@ export function PerformanceSection({
   const [tlAttended, setTlAttended] = useState(true);
   const [tlRpe,      setTlRpe]      = useState(5);
 
+  // ── GPS sessions (client-side, future: persist to server) ─────────────────
+  const [gpsSessions, setGpsSessions] = useState<GpsSession[]>([]);
+  // Day modal add-session selector
+  type DayModalPanel = "none" | "uc" | "gps";
+  const [dayModalPanel, setDayModalPanel] = useState<DayModalPanel>("none");
+  // GPS import state
+  const [gpsFile, setGpsFile] = useState<File | null>(null);
+  const [gpsImportType, setGpsImportType] = useState<"training" | "match">("training");
+  const [gpsImportTeamId, setGpsImportTeamId] = useState("");
+  const [gpsImportNotes, setGpsImportNotes] = useState("");
+  const [gpsImportError, setGpsImportError] = useState("");
+  const [gpsImportLoading, setGpsImportLoading] = useState(false);
+
   // ── Calendar ───────────────────────────────────────────────────────────────
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -387,6 +401,68 @@ export function PerformanceSection({
   const { trainingLoadEntries } = state;
   const entriesForDate   = (date: string) => trainingLoadEntries.filter(e => e.date === date);
   const totalLoadForDate = (date: string) => entriesForDate(date).reduce((s, e) => s + e.load, 0);
+  const gpsSessionsForDate = (date: string) => gpsSessions.filter(s => s.date === date);
+
+  async function handleGpsImport() {
+    if (!gpsFile || !selectedDate || !gpsImportTeamId) return;
+    setGpsImportLoading(true);
+    setGpsImportError("");
+    try {
+      const buffer = await gpsFile.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws);
+      const rawColumns = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
+
+      // Build summary — map common GPS column name patterns
+      const numVal = (row: Record<string, string | number>, ...keys: string[]) => {
+        for (const k of keys) {
+          const found = Object.keys(row).find(rk => rk.toLowerCase().includes(k.toLowerCase()));
+          if (found && row[found] != null && !Number.isNaN(Number(row[found]))) return Number(row[found]);
+        }
+        return undefined;
+      };
+
+      const summary: GpsSessionSummary = {};
+      if (rawRows.length > 0) {
+        summary.playerCount = rawRows.length;
+        const dists = rawRows.map(r => numVal(r, "distance", "dist")).filter((v): v is number => v !== undefined);
+        if (dists.length) {
+          summary.totalDistanceM = Math.round(dists.reduce((a, b) => a + b, 0));
+          summary.avgDistanceM   = Math.round(summary.totalDistanceM / dists.length);
+        }
+        const hsrs = rawRows.map(r => numVal(r, "hsr", "high speed", "highspeed")).filter((v): v is number => v !== undefined);
+        if (hsrs.length) summary.totalHsrM = Math.round(hsrs.reduce((a, b) => a + b, 0));
+        const speeds = rawRows.map(r => numVal(r, "max speed", "maxspeed", "top speed")).filter((v): v is number => v !== undefined);
+        if (speeds.length) summary.maxSpeedKmh = Math.max(...speeds);
+      }
+
+      const teamName = state.teams.find(t => t.id === gpsImportTeamId)?.name;
+      const session: GpsSession = {
+        id: crypto.randomUUID(),
+        date: selectedDate,
+        sessionType: gpsImportType,
+        teamId: gpsImportTeamId,
+        teamName,
+        source: "gps",
+        fileName: gpsFile.name,
+        importedAt: new Date().toISOString(),
+        summary,
+        rawColumns,
+        rawRows,
+        notes: gpsImportNotes || undefined,
+      };
+      setGpsSessions(prev => [...prev, session]);
+      // reset GPS form
+      setGpsFile(null);
+      setGpsImportNotes("");
+      setDayModalPanel("none");
+    } catch (err) {
+      setGpsImportError(locale === "en" ? "Failed to parse file. Check format." : "No se pudo leer el archivo. Verifica el formato.");
+    } finally {
+      setGpsImportLoading(false);
+    }
+  }
   const loadColor        = (load: number) =>
     load === 0 ? "bg-white" :
     load < 200 ? "bg-green-100 border-green-300" :
@@ -1231,254 +1307,515 @@ export function PerformanceSection({
             </div>
           </div>
 
-          {/* ── Selected date modal ── */}
-          {selectedDate && typeof document !== "undefined" && createPortal((
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
-              onClick={() => { setSelectedDate(null); setTlShowPanel(false); }}
-            >
+          {/* ── Selected date modal (multi-event) ── */}
+          {selectedDate && typeof document !== "undefined" && createPortal((() => {
+            const closeModal = () => {
+              setSelectedDate(null);
+              setTlShowPanel(false);
+              setDayModalPanel("none");
+              setGpsFile(null);
+              setGpsImportError("");
+            };
+
+            const ucEntries = entriesForDate(selectedDate);
+            const gpsForDay = gpsSessionsForDate(selectedDate);
+            const hasEvents = ucEntries.length > 0 || gpsForDay.length > 0;
+
+            // Group UC entries by sessionType+team for event cards
+            const ucGroups = (() => {
+              const map = new Map<string, { sType: "training"|"match"; teamName: string; entries: TrainingLoadEntry[] }>();
+              for (const e of ucEntries) {
+                const ath = state.athletes.find(a => a.id === e.athleteId);
+                const teamName = ath?.teamName ?? "";
+                const key = `${e.sessionType}::${teamName}`;
+                if (!map.has(key)) map.set(key, { sType: e.sessionType as "training"|"match", teamName, entries: [] });
+                map.get(key)!.entries.push(e);
+              }
+              return Array.from(map.values());
+            })();
+
+            const loadColour = (load: number) =>
+              load === 0 ? "text-zinc-400" :
+              load < 200 ? "text-green-600" :
+              load < 400 ? "text-yellow-600" :
+              load < 600 ? "text-orange-500" : "text-red-600";
+
+            const rpeColour = (rpe: number) =>
+              rpe <= 3 ? "bg-green-100 text-green-700" :
+              rpe <= 6 ? "bg-yellow-100 text-yellow-700" :
+              rpe <= 8 ? "bg-orange-100 text-orange-700" : "bg-red-100 text-red-700";
+
+            const loadUnit = locale === "en" ? "L.U." : "U.C.";
+
+            return (
               <div
-                className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-black/5"
-                onClick={e => e.stopPropagation()}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+                onClick={closeModal}
               >
-                <div className="border-b border-line bg-zinc-50/80 px-6 py-5 sm:px-8 sm:py-6">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <h3 className="text-2xl font-semibold text-zinc-900 leading-tight truncate">{formatDate(selectedDate)}</h3>
-                      <p className="text-sm text-zinc-500 mt-1">{t("trainingLoad.selectedDateDetails")}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedDate(null); setTlShowPanel(false); }}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
-                      aria-label={t("datahub.cancel") || "Cerrar"}
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto">
-                <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] p-6 sm:p-8">
-                  <div className="space-y-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-line bg-white p-5 shadow-sm">
-                      <button onClick={() => setCalendarDate(new Date(calYear, calMonth - 1, 1))}
-                        className="rounded-full border border-line bg-white/90 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-white">
-                        ←
-                      </button>
-                      <h2 className="text-lg font-semibold text-zinc-900">{monthNames[calMonth]} {calYear}</h2>
-                      <button onClick={() => setCalendarDate(new Date(calYear, calMonth + 1, 1))}
-                        className="rounded-full border border-line bg-white/90 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-white">
-                        →
-                      </button>
-                    </div>
-
-                    <div className="rounded-3xl border border-line bg-white p-5 shadow-sm">
-                      <SessionList
-                        entries={entriesForDate(selectedDate)}
-                        athletes={state.athletes}
-                        locale={locale}
-                        allEntries={trainingLoadEntries}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-5">
-                    <div className="rounded-3xl border border-line bg-zinc-50 p-5 shadow-sm">
-                      <div className="mb-5 flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-semibold text-zinc-600 uppercase tracking-wide">{t("trainingLoad.addEntry")}</p>
-                          <p className="text-xs text-zinc-500">{locale === "en" ? "Quick session details" : "Detalles rápidos de la sesión"}</p>
-                        </div>
-                        <span className="inline-flex rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">{t("trainingLoad.training")}</span>
+                <div
+                  className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-black/5"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {/* Header */}
+                  <div className="border-b border-line bg-zinc-50/80 px-6 py-5 shrink-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-xl font-bold text-zinc-900 leading-tight">{formatDate(selectedDate)}</h3>
+                        <p className="text-xs text-zinc-400 mt-0.5 uppercase tracking-wide">
+                          {hasEvents
+                            ? `${ucGroups.length + gpsForDay.length} ${locale === "en" ? "event(s) registered" : "evento(s) registrado(s)"}`
+                            : locale === "en" ? "No events yet" : "Sin eventos registrados"}
+                        </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={closeModal}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-zinc-500 transition hover:bg-zinc-100 shrink-0"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
 
-                      <div className="grid gap-4">
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
-                          <div className="flex gap-2">
-                            {(["training", "match"] as const).map(st => (
-                              <button key={st} type="button"
-                                onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
-                                className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                                  tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
-                                {st === "training" ? (locale === "en" ? "Training" : "Manual") : (locale === "en" ? "Match" : "Partido")}
-                              </button>
-                            ))}
+                  {/* Body: events list + add panel */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+                    {/* ── Empty state ── */}
+                    {!hasEvents && dayModalPanel === "none" && (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+                          <Calendar className="h-6 w-6 text-zinc-400" />
+                        </div>
+                        <p className="text-sm font-medium text-zinc-500">
+                          {locale === "en" ? "No sessions recorded for this day." : "No hay sesiones registradas para este día."}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {locale === "en" ? "Use the button below to add one." : "Usa el botón de abajo para añadir una."}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* ── UC event cards ── */}
+                    {ucGroups.map(({ sType, teamName, entries: groupEntries }) => {
+                      const attended = groupEntries.filter(e => e.attended);
+                      const avgLoad = attended.length
+                        ? Math.round(attended.reduce((s, e) => s + e.minutesPlayed * (e.rpe > 1 ? e.rpe : 6), 0) / attended.length)
+                        : 0;
+                      const avgRpe = attended.length
+                        ? Math.round(attended.reduce((s, e) => s + (e.rpe > 1 ? e.rpe : 6), 0) / attended.length)
+                        : 0;
+                      const minutes = groupEntries[0]?.minutesPlayed ?? 0;
+                      return (
+                        <div key={`uc::${sType}::${teamName}`}
+                          className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                                sType === "match" ? "bg-purple-100" : "bg-blue-100"
+                              )}>
+                                {sType === "match"
+                                  ? <Trophy className="h-4 w-4 text-purple-600" />
+                                  : <Dumbbell className="h-4 w-4 text-blue-600" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-bold text-zinc-900">
+                                    {sType === "match" ? (locale === "en" ? "Match" : "Partido") : (locale === "en" ? "Training (UC)" : "Entrenamiento UC")}
+                                  </span>
+                                  <span className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                    sType === "match" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                                  )}>UC</span>
+                                </div>
+                                <p className="text-xs text-zinc-500 truncate">{teamName || "—"}</p>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className={cn("text-base font-bold tabular-nums", loadColour(avgLoad))}>
+                                Ø {avgLoad} {loadUnit}
+                              </p>
+                              <p className="text-[10px] text-zinc-400">
+                                {attended.length}/{groupEntries.length} · {minutes} min
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2 border-t border-line/40 pt-3">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                              <span className="font-medium">{locale === "en" ? "Duration:" : "Duración:"}</span> {minutes} min
+                            </span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold", rpeColour(avgRpe))}>
+                              RPE Ø{avgRpe > 0 ? avgRpe : "—"}
+                            </span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold", loadColour(avgLoad))}>
+                              {locale === "en" ? "Load:" : "Carga:"} {avgLoad} {loadUnit}
+                            </span>
                           </div>
                         </div>
+                      );
+                    })}
 
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
-                          <select value={tlTeamId}
-                            onChange={e => setTlTeamId(e.target.value)}
-                            className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
-                              !tlTeamId ? "border-red-300" : "border-line")}>
-                            <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
-                            {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-                          </select>
-                        </div>
-
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Minutes (default)" : "Minutos (defecto)"}</label>
-                          <input type="number" min={0} max={300} value={tlMinutes}
-                            onChange={e => setTlMinutes(Number(e.target.value) || 0)}
-                            className="w-full rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
-                        </div>
-
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">RPE</label>
-                          {isMatch ? (
-                            <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">Auto 10</span>
-                          ) : (
-                            <button type="button"
-                              onClick={() => setTlUseRpe((v) => !v)}
-                              className={cn("flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border transition",
-                                tlUseRpe ? "bg-accent/10 border-accent/30 text-accent" : "bg-white border-line text-zinc-400")}>
-                              <span className={cn("w-7 h-4 rounded-full transition flex items-center px-0.5",
-                                tlUseRpe ? "bg-accent" : "bg-zinc-200")}>
-                                <span className={cn("w-3 h-3 rounded-full bg-white shadow-sm transition-transform",
-                                  tlUseRpe ? "translate-x-3" : "translate-x-0")} />
-                              </span>
-                              {tlUseRpe ? (locale === "en" ? "On" : "Activo") : (locale === "en" ? "Off" : "Sin RPE")}
-                            </button>
+                    {/* ── GPS event cards ── */}
+                    {gpsForDay.map(session => (
+                      <div key={session.id}
+                        className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className={cn(
+                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                              session.sessionType === "match" ? "bg-purple-100" : "bg-emerald-100"
+                            )}>
+                              {session.sessionType === "match"
+                                ? <Trophy className="h-4 w-4 text-purple-600" />
+                                : <MapPin className="h-4 w-4 text-emerald-600" />}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-sm font-bold text-zinc-900">
+                                  {session.sessionType === "match" ? (locale === "en" ? "Match" : "Partido") : (locale === "en" ? "Training (GPS)" : "Entrenamiento GPS")}
+                                </span>
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">GPS</span>
+                              </div>
+                              <p className="text-xs text-zinc-500 truncate">{session.teamName || "—"} · {session.fileName}</p>
+                            </div>
+                          </div>
+                          {session.summary.playerCount !== undefined && (
+                            <p className="text-sm font-bold text-zinc-700 shrink-0">{session.summary.playerCount} {locale === "en" ? "players" : "jugadores"}</p>
                           )}
                         </div>
-
-                        <div className="grid gap-1">
-                          <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes" : "Notas"}</label>
-                          <input type="text" value={tlNotes} onChange={e => setTlNotes(e.target.value)}
-                            placeholder={locale === "en" ? "Optional..." : "Opcional..."}
-                            className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                        <div className="mt-3 flex flex-wrap gap-2 border-t border-line/40 pt-3">
+                          {session.summary.avgDistanceM !== undefined && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                              <span className="font-medium">Ø dist:</span> {(session.summary.avgDistanceM / 1000).toFixed(2)} km
+                            </span>
+                          )}
+                          {session.summary.totalHsrM !== undefined && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-700 font-medium">
+                              HSR: {(session.summary.totalHsrM / 1000).toFixed(2)} km
+                            </span>
+                          )}
+                          {session.summary.maxSpeedKmh !== undefined && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-1 text-xs text-orange-700 font-medium">
+                              Vmax: {session.summary.maxSpeedKmh.toFixed(1)} km/h
+                            </span>
+                          )}
+                          {session.summary.playerCount !== undefined && !session.summary.avgDistanceM && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600">
+                              {session.summary.playerCount} {locale === "en" ? "rows imported" : "filas importadas"}
+                            </span>
+                          )}
                         </div>
                       </div>
+                    ))}
 
-                      {(!tlTeamId || !selectedDate) ? (
-                        <p className="text-sm text-red-600 text-center">{t("datahub.validations.issue.trainingLoadPrereq")}</p>
-                      ) : teamAthletes.length === 0 ? (
-                        <p className="text-sm text-zinc-500 text-center">{locale === "en" ? "No players in this team." : "No hay jugadores en este equipo."}</p>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="grid items-center gap-x-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-wide"
-                            style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
-                            <span>{locale === "en" ? "Player" : "Jugador"}</span>
-                            <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
-                            <span className="text-center">min</span>
-                            {(tlUseRpe || isMatch) && <span>RPE</span>}
+                    {/* ── Add Session selector ── */}
+                    {dayModalPanel === "none" && (
+                      <div className="pt-1">
+                        <div className="relative">
+                          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                            <div className="w-full border-t border-line" />
                           </div>
-                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {teamAthletes.map(ath => {
-                              const attended = tlAttendedMap[ath.id] !== false;
-                              const rpe      = isMatch ? 10 : (tlRpeMap[ath.id] ?? 6);
-                              const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
-                              return (
-                                <div key={ath.id}
-                                  className="grid items-center gap-x-2"
-                                  style={{ gridTemplateColumns: "160px 40px 60px 1fr" }}>
+                          <div className="relative flex justify-center">
+                            <span className="bg-white px-3 text-xs text-zinc-400 uppercase tracking-wide">
+                              {locale === "en" ? "add session" : "añadir sesión"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            disabled={!canEditTrainingLoad}
+                            onClick={() => setDayModalPanel("uc")}
+                            className="flex flex-col items-center gap-2 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4 text-left transition hover:border-blue-400 hover:bg-blue-100 disabled:opacity-40"
+                          >
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+                              <Dumbbell className="h-5 w-5 text-blue-600" />
+                            </div>
+                            <div className="text-center">
+                              <p className="text-sm font-bold text-blue-800">
+                                {locale === "en" ? "UC Session" : "Sesión UC"}
+                              </p>
+                              <p className="text-[11px] text-blue-600 mt-0.5">min × RPE</p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDayModalPanel("gps")}
+                            className="flex flex-col items-center gap-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-100"
+                          >
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                              <MapPin className="h-5 w-5 text-emerald-600" />
+                            </div>
+                            <div className="text-center">
+                              <p className="text-sm font-bold text-emerald-800">
+                                {locale === "en" ? "Import GPS" : "Importar GPS"}
+                              </p>
+                              <p className="text-[11px] text-emerald-600 mt-0.5">Excel / CSV</p>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-                                  <span className={cn("text-sm font-medium truncate",
-                                    attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
-                                    {ath.name}
-                                  </span>
+                    {/* ── UC Session panel ── */}
+                    {dayModalPanel === "uc" && (
+                      <div className="rounded-2xl border border-line bg-zinc-50 p-5">
+                        <div className="mb-4 flex items-center justify-between">
+                          <p className="text-sm font-bold text-zinc-800">
+                            {locale === "en" ? "UC Session — min × RPE" : "Sesión UC — min × RPE"}
+                          </p>
+                          <button type="button" onClick={() => setDayModalPanel("none")}
+                            className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-200 transition">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="grid gap-3">
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
+                            <div className="flex gap-2">
+                              {(["training", "match"] as const).map(st => (
+                                <button key={st} type="button"
+                                  onClick={() => { setTlType(st); if (st === "match") setTlUseRpe(false); else setTlUseRpe(true); }}
+                                  className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                                    tlType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
+                                  {st === "training" ? (locale === "en" ? "Training" : "Manual") : (locale === "en" ? "Match" : "Partido")}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
+                            <select value={tlTeamId} onChange={e => setTlTeamId(e.target.value)}
+                              className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
+                                !tlTeamId ? "border-red-300" : "border-line")}>
+                              <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
+                              {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Default minutes" : "Minutos (defecto)"}</label>
+                            <input type="number" min={0} max={300} value={tlMinutes}
+                              onChange={e => setTlMinutes(Number(e.target.value) || 0)}
+                              className="w-full rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">RPE</label>
+                            {isMatch ? (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">Auto 10</span>
+                            ) : (
+                              <button type="button" onClick={() => setTlUseRpe(v => !v)}
+                                className={cn("flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border transition",
+                                  tlUseRpe ? "bg-accent/10 border-accent/30 text-accent" : "bg-white border-line text-zinc-400")}>
+                                <span className={cn("w-7 h-4 rounded-full transition flex items-center px-0.5", tlUseRpe ? "bg-accent" : "bg-zinc-200")}>
+                                  <span className={cn("w-3 h-3 rounded-full bg-white shadow-sm transition-transform", tlUseRpe ? "translate-x-3" : "translate-x-0")} />
+                                </span>
+                                {tlUseRpe ? (locale === "en" ? "On" : "Activo") : (locale === "en" ? "Off" : "Sin RPE")}
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes" : "Notas"}</label>
+                            <input type="text" value={tlNotes} onChange={e => setTlNotes(e.target.value)}
+                              placeholder={locale === "en" ? "Optional..." : "Opcional..."}
+                              className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                          </div>
+                        </div>
 
-                                  <div className="flex justify-center">
-                                    <button type="button"
-                                      onClick={() => setTlAttendedMap(m => ({ ...m, [ath.id]: !attended }))}
-                                      className={cn("rounded-full w-8 h-5 transition flex items-center px-0.5",
-                                        attended ? "bg-accent" : "bg-zinc-200")}>
-                                      <span className={cn("w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
-                                        attended ? "translate-x-3" : "translate-x-0")} />
-                                    </button>
-                                  </div>
-
-                                  <input type="number" min={0} max={300}
-                                    value={mins}
-                                    disabled={!attended}
-                                    onChange={e => setTlMinutesMap((m: Record<string, number>) => ({ ...m, [ath.id]: Number(e.target.value) || 0 }))}
-                                    className={cn("w-full rounded-2xl border px-2 py-1 text-xs text-center outline-none focus:border-accent/50",
-                                      !attended ? "bg-zinc-50 border-zinc-100 text-zinc-300" : "border-line bg-white text-zinc-700",
-                                      (tlMinutesMap[ath.id] !== undefined && tlMinutesMap[ath.id] !== tlMinutes) && attended && "border-amber-300 bg-amber-50"
+                        {(!tlTeamId || !selectedDate) ? (
+                          <p className="mt-3 text-sm text-red-500 text-center">{t("datahub.validations.issue.trainingLoadPrereq")}</p>
+                        ) : teamAthletes.length === 0 ? (
+                          <p className="mt-3 text-sm text-zinc-500 text-center">{locale === "en" ? "No players in this team." : "No hay jugadores en este equipo."}</p>
+                        ) : (
+                          <div className="mt-4 space-y-2">
+                            <div className="grid items-center gap-x-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-wide"
+                              style={{ gridTemplateColumns: "1fr 44px 52px 1fr" }}>
+                              <span>{locale === "en" ? "Player" : "Jugador"}</span>
+                              <span className="text-center">{locale === "en" ? "In" : "Asiste"}</span>
+                              <span className="text-center">min</span>
+                              {(tlUseRpe || isMatch) && <span>RPE</span>}
+                            </div>
+                            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                              {teamAthletes.map(ath => {
+                                const attended = tlAttendedMap[ath.id] !== false;
+                                const rpe = isMatch ? 10 : (tlRpeMap[ath.id] ?? 6);
+                                const mins = tlMinutesMap[ath.id] ?? tlMinutes;
+                                return (
+                                  <div key={ath.id} className="grid items-center gap-x-2"
+                                    style={{ gridTemplateColumns: "1fr 44px 52px 1fr" }}>
+                                    <span className={cn("text-sm font-medium truncate", attended ? "text-zinc-800" : "text-zinc-400 line-through")}>
+                                      {ath.name}
+                                    </span>
+                                    <div className="flex justify-center">
+                                      <button type="button"
+                                        onClick={() => setTlAttendedMap(m => ({ ...m, [ath.id]: !attended }))}
+                                        className={cn("rounded-full w-8 h-5 transition flex items-center px-0.5", attended ? "bg-accent" : "bg-zinc-200")}>
+                                        <span className={cn("w-4 h-4 rounded-full bg-white shadow-sm transition-transform", attended ? "translate-x-3" : "translate-x-0")} />
+                                      </button>
+                                    </div>
+                                    <input type="number" min={0} max={300} value={mins} disabled={!attended}
+                                      onChange={e => setTlMinutesMap((m: Record<string, number>) => ({ ...m, [ath.id]: Number(e.target.value) || 0 }))}
+                                      className={cn("w-full rounded-2xl border px-2 py-1 text-xs text-center outline-none focus:border-accent/50",
+                                        !attended ? "bg-zinc-50 border-zinc-100 text-zinc-300" : "border-line bg-white text-zinc-700",
+                                        (tlMinutesMap[ath.id] !== undefined && tlMinutesMap[ath.id] !== tlMinutes) && attended && "border-amber-300 bg-amber-50"
+                                      )} />
+                                    {attended && (tlUseRpe || isMatch) && (
+                                      isMatch ? (
+                                        <span className="text-xs font-bold text-red-500">10</span>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-0.5">
+                                          {[1,2,3,4,5,6,7,8,9,10].map(v => (
+                                            <button key={v} type="button"
+                                              onClick={() => setTlRpeMap(m => ({ ...m, [ath.id]: v }))}
+                                              className={cn("w-6 h-6 rounded-md text-[10px] font-bold transition",
+                                                rpe === v
+                                                  ? v <= 3 ? "bg-green-500 text-white" : v <= 6 ? "bg-yellow-400 text-white" : v <= 8 ? "bg-orange-500 text-white" : "bg-red-500 text-white"
+                                                  : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                                              )}>
+                                              {v}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )
                                     )}
-                                  />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
-                                  {attended && (tlUseRpe || isMatch) && (
-                                    isMatch ? (
-                                      <span className="text-xs font-bold text-red-500">10</span>
-                                    ) : (
-                                      <div className="flex gap-0.5">
-                                        {[1,2,3,4,5,6,7,8,9,10].map(v => (
-                                          <button key={v} type="button"
-                                            onClick={() => setTlRpeMap(m => ({ ...m, [ath.id]: v }))}
-                                            className={cn(
-                                              "w-6 h-6 rounded-md text-[10px] font-bold transition",
-                                              rpe === v
-                                                ? v <= 3 ? "bg-green-500 text-white"
-                                                : v <= 6 ? "bg-yellow-400 text-white"
-                                                : v <= 8 ? "bg-orange-500 text-white"
-                                                : "bg-red-500 text-white"
-                                                : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
-                                            )}>
-                                            {v}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              );
-                            })}
+                        <div className="mt-4 flex gap-3">
+                          <button type="button" onClick={() => setDayModalPanel("none")}
+                            className="flex-1 rounded-2xl border border-line bg-white py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition">
+                            {locale === "en" ? "Cancel" : "Cancelar"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!tlTeamId || !selectedDate || !canEditTrainingLoad}
+                            onClick={() => {
+                              if (!selectedDate || !canEditTrainingLoad) return;
+                              teamAthletes.forEach(ath => {
+                                const attended = tlAttendedMap[ath.id] !== false;
+                                const rpe = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);
+                                const mins = tlMinutesMap[ath.id] ?? tlMinutes;
+                                addTrainingLoadEntry({
+                                  athleteId: ath.id,
+                                  date: selectedDate,
+                                  attended,
+                                  sessionType: tlType,
+                                  minutesPlayed: attended ? mins : 0,
+                                  rpe: attended ? rpe : 0,
+                                  notes: tlNotes || undefined,
+                                });
+                              });
+                              setTlShowPanel(false);
+                              setTlRpeMap({});
+                              setTlAttendedMap({});
+                              setTlMinutesMap({});
+                              setTlNotes("");
+                              setDayModalPanel("none");
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-40"
+                          >
+                            <Plus className="h-4 w-4" />
+                            {locale === "en" ? "Save session" : "Guardar sesión"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── GPS Import panel ── */}
+                    {dayModalPanel === "gps" && (
+                      <div className="rounded-2xl border border-line bg-zinc-50 p-5">
+                        <div className="mb-4 flex items-center justify-between">
+                          <p className="text-sm font-bold text-zinc-800">
+                            {locale === "en" ? "Import GPS — Excel / CSV" : "Importar GPS — Excel / CSV"}
+                          </p>
+                          <button type="button" onClick={() => { setDayModalPanel("none"); setGpsFile(null); setGpsImportError(""); }}
+                            className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-200 transition">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="grid gap-3">
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
+                            <div className="flex gap-2">
+                              {(["training", "match"] as const).map(st => (
+                                <button key={st} type="button"
+                                  onClick={() => setGpsImportType(st)}
+                                  className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                                    gpsImportType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
+                                  {st === "training" ? (locale === "en" ? "Training" : "Entrenamiento") : (locale === "en" ? "Match" : "Partido")}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
+                            <select value={gpsImportTeamId} onChange={e => setGpsImportTeamId(e.target.value)}
+                              className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
+                                !gpsImportTeamId ? "border-red-300" : "border-line")}>
+                              <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
+                              {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "File (Excel or CSV)" : "Archivo (Excel o CSV)"}</label>
+                            <label className="cursor-pointer">
+                              <div className={cn(
+                                "flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-5 transition text-sm font-medium",
+                                gpsFile ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-zinc-300 bg-white text-zinc-500 hover:border-zinc-400 hover:bg-zinc-50"
+                              )}>
+                                <FileSpreadsheet className="h-5 w-5 shrink-0" />
+                                {gpsFile ? gpsFile.name : (locale === "en" ? "Click to select file" : "Haz clic para seleccionar archivo")}
+                              </div>
+                              <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                                onChange={e => { setGpsFile(e.target.files?.[0] ?? null); setGpsImportError(""); }} />
+                            </label>
+                          </div>
+                          <div className="grid gap-1">
+                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes (optional)" : "Notas (opcional)"}</label>
+                            <input type="text" value={gpsImportNotes} onChange={e => setGpsImportNotes(e.target.value)}
+                              placeholder={locale === "en" ? "e.g. Matchday 12" : "p.ej. Jornada 12"}
+                              className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                          </div>
+                          {gpsImportError && (
+                            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{gpsImportError}</p>
+                          )}
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                            <p className="text-xs text-amber-700 font-medium">
+                              {locale === "en"
+                                ? "GPS column format will be defined once you share the file structure. Currently a generic import is applied."
+                                : "El formato de columnas GPS se definirá cuando compartas la estructura del archivo. Por ahora se aplica una importación genérica."}
+                            </p>
                           </div>
                         </div>
-                      )}
-
-                      <div className="flex flex-col gap-3 sm:flex-row">
-                        <button
-                          type="button"
-                          disabled={!tlTeamId || !selectedDate || !canEditTrainingLoad}
-                          onClick={() => {
-                            if (!selectedDate || !canEditTrainingLoad) return;
-                            teamAthletes.forEach(ath => {
-                              const attended = tlAttendedMap[ath.id] !== false;
-                              const rpe      = isMatch ? 10 : (tlUseRpe ? (tlRpeMap[ath.id] ?? 6) : 1);
-                              const mins     = tlMinutesMap[ath.id] ?? tlMinutes;
-                              addTrainingLoadEntry({
-                                athleteId:    ath.id,
-                                date:         selectedDate,
-                                attended,
-                                sessionType:  tlType,
-                                minutesPlayed: attended ? mins : 0,
-                                rpe:          attended ? rpe : 0,
-                                notes:        tlNotes || undefined,
-                              });
-                            });
-                            setTlShowPanel(false);
-                            setTlRpeMap({});
-                            setTlAttendedMap({});
-                            setTlMinutesMap({});
-                            setTlNotes("");
-                          }}
-                          className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-40"
-                        >
-                          <Plus className="h-4 w-4" />
-                          {locale === "en" ? "Save session" : "Guardar sesión"}
-                        </button>
-                        <button type="button"
-                          onClick={() => { setTlShowPanel(false); setTlRpeMap({}); setTlAttendedMap({}); setTlMinutesMap({}); setTlNotes(""); }}
-                          className="flex-1 rounded-2xl border border-line bg-white px-5 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition"
-                        >
-                          {t("datahub.cancel") || "Cancelar"}
-                        </button>
+                        <div className="mt-4 flex gap-3">
+                          <button type="button" onClick={() => { setDayModalPanel("none"); setGpsFile(null); setGpsImportError(""); }}
+                            className="flex-1 rounded-2xl border border-line bg-white py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition">
+                            {locale === "en" ? "Cancel" : "Cancelar"}
+                          </button>
+                          <button type="button"
+                            disabled={!gpsFile || !gpsImportTeamId || gpsImportLoading}
+                            onClick={handleGpsImport}
+                            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-40"
+                          >
+                            <UploadCloud className="h-4 w-4" />
+                            {gpsImportLoading ? (locale === "en" ? "Importing…" : "Importando…") : (locale === "en" ? "Import" : "Importar")}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    </div>
+                    )}
+
                   </div>
                 </div>
               </div>
-            </div>
-          ), document.body)}
+            );
+          })(), document.body)}
         </div>
       </section>
     )}
+
 
       {/* ══════════════════════ ADD RESULT MODAL ══════════════════════ */}
       {showAddModal && (
