@@ -255,6 +255,8 @@ export function PerformanceSection({
   // Day modal add-session selector
   type DayModalPanel = "none" | "uc" | "gps";
   const [dayModalPanel, setDayModalPanel] = useState<DayModalPanel>("none");
+  // Expanded session cards in day modal
+  const [expandedSessionKey, setExpandedSessionKey] = useState<string | null>(null);
   // GPS import state
   const [gpsFile, setGpsFile] = useState<File | null>(null);
   const [gpsImportType, setGpsImportType] = useState<"training" | "match">("training");
@@ -262,6 +264,11 @@ export function PerformanceSection({
   const [gpsImportNotes, setGpsImportNotes] = useState("");
   const [gpsImportError, setGpsImportError] = useState("");
   const [gpsImportLoading, setGpsImportLoading] = useState(false);
+  // GPS player mapping step
+  type GpsImportStep = "form" | "mapping";
+  const [gpsImportStep, setGpsImportStep] = useState<GpsImportStep>("form");
+  const [gpsParsedRows, setGpsParsedRows] = useState<Record<string, string | number>[]>([]);
+  const [gpsPlayerMapping, setGpsPlayerMapping] = useState<Record<string, string>>({}); // rowPlayerName → athleteId
 
   // ── Calendar ───────────────────────────────────────────────────────────────
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -403,8 +410,8 @@ export function PerformanceSection({
   const totalLoadForDate = (date: string) => entriesForDate(date).reduce((s, e) => s + e.load, 0);
   const gpsSessionsForDate = (date: string) => gpsSessions.filter(s => s.date === date);
 
-  async function handleGpsImport() {
-    if (!gpsFile || !selectedDate || !gpsImportTeamId) return;
+  async function handleGpsParseFile() {
+    if (!gpsFile || !gpsImportTeamId) return;
     setGpsImportLoading(true);
     setGpsImportError("");
     try {
@@ -412,30 +419,90 @@ export function PerformanceSection({
       const wb = XLSX.read(buffer, { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rawRows = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws);
-      const rawColumns = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
+      if (rawRows.length === 0) throw new Error("empty");
+      setGpsParsedRows(rawRows);
+      // Pre-fill mapping: empty by default (user must assign)
+      const initMap: Record<string, string> = {};
+      rawRows.forEach(row => {
+        const playerName = String(row["Players"] ?? row[Object.keys(row)[0]] ?? "");
+        if (playerName) initMap[playerName] = "";
+      });
+      setGpsPlayerMapping(initMap);
+      setGpsImportStep("mapping");
+    } catch {
+      setGpsImportError(locale === "en" ? "Failed to parse file. Check format." : "No se pudo leer el archivo. Verifica el formato.");
+    } finally {
+      setGpsImportLoading(false);
+    }
+  }
 
-      // Build summary — map common GPS column name patterns
-      const numVal = (row: Record<string, string | number>, ...keys: string[]) => {
-        for (const k of keys) {
-          const found = Object.keys(row).find(rk => rk.toLowerCase().includes(k.toLowerCase()));
-          if (found && row[found] != null && !Number.isNaN(Number(row[found]))) return Number(row[found]);
-        }
-        return undefined;
+  async function handleGpsImport() {
+    if (!gpsFile || !selectedDate || !gpsImportTeamId) return;
+    setGpsImportLoading(true);
+    setGpsImportError("");
+    try {
+      // Filter rows: only those with an assigned athlete
+      const assignedRows = gpsParsedRows.filter(row => {
+        const playerName = String(row["Players"] ?? row[Object.keys(row)[0]] ?? "");
+        return gpsPlayerMapping[playerName] && gpsPlayerMapping[playerName] !== "";
+      });
+
+      if (assignedRows.length === 0) {
+        setGpsImportError(locale === "en" ? "Assign at least one player before importing." : "Asigna al menos un jugador antes de importar.");
+        setGpsImportLoading(false);
+        return;
+      }
+
+      // Enrich rows with athlete name
+      const enrichedRows = assignedRows.map(row => {
+        const playerName = String(row["Players"] ?? row[Object.keys(row)[0]] ?? "");
+        const athleteId = gpsPlayerMapping[playerName];
+        const athlete = state.athletes.find(a => a.id === athleteId);
+        return {
+          ...row,
+          _athleteId: athleteId,
+          _athleteName: athlete ? athlete.name : playerName,
+        };
+      });
+
+      const rawColumns = enrichedRows.length > 0 ? Object.keys(enrichedRows[0]) : [];
+
+      // Build summary from this specific Excel format
+      const col = (row: Record<string, string | number>, key: string): number | undefined => {
+        // Find column by exact key or normalized (strip newlines/extra spaces)
+        const found = Object.keys(row).find(k =>
+          k === key || k.replace(/\s*\n\s*/g, " ").trim() === key.replace(/\s*\n\s*/g, " ").trim()
+        );
+        if (!found) return undefined;
+        const v = Number(row[found]);
+        return isNaN(v) ? undefined : v;
       };
 
       const summary: GpsSessionSummary = {};
-      if (rawRows.length > 0) {
-        summary.playerCount = rawRows.length;
-        const dists = rawRows.map(r => numVal(r, "distance", "dist")).filter((v): v is number => v !== undefined);
-        if (dists.length) {
-          summary.totalDistanceM = Math.round(dists.reduce((a, b) => a + b, 0));
-          summary.avgDistanceM   = Math.round(summary.totalDistanceM / dists.length);
-        }
-        const hsrs = rawRows.map(r => numVal(r, "hsr", "high speed", "highspeed")).filter((v): v is number => v !== undefined);
-        if (hsrs.length) summary.totalHsrM = Math.round(hsrs.reduce((a, b) => a + b, 0));
-        const speeds = rawRows.map(r => numVal(r, "max speed", "maxspeed", "top speed")).filter((v): v is number => v !== undefined);
-        if (speeds.length) summary.maxSpeedKmh = Math.max(...speeds);
+      summary.playerCount = enrichedRows.length;
+
+      // Distance
+      const dists = enrichedRows.map(r => col(r, "Distance - Distance\n(m)") ?? col(r, "Distance - Distance (m)")).filter((v): v is number => v !== undefined);
+      if (dists.length) {
+        summary.totalDistanceM = Math.round(dists.reduce((a, b) => a + b, 0));
+        summary.avgDistanceM   = Math.round(summary.totalDistanceM / dists.length);
       }
+
+      // HSR Abs
+      const hsrs = enrichedRows.map(r => col(r, "Distance - Abs HSR\n(m)") ?? col(r, "Distance - Abs HSR (m)")).filter((v): v is number => v !== undefined);
+      if (hsrs.length) summary.totalHsrM = Math.round(hsrs.reduce((a, b) => a + b, 0));
+
+      // Max speed
+      const speeds = enrichedRows.map(r => col(r, "Sprints - Max Speed (km/h)")).filter((v): v is number => v !== undefined);
+      if (speeds.length) summary.maxSpeedKmh = Math.max(...speeds);
+
+      // Sprints
+      const sprints = enrichedRows.map(r => col(r, "Sprints Abs (count)")).filter((v): v is number => v !== undefined);
+      if (sprints.length) summary.totalSprintsN = Math.round(sprints.reduce((a, b) => a + b, 0));
+
+      // Player Load
+      const loads = enrichedRows.map(r => col(r, "Player Load (a.u.)")).filter((v): v is number => v !== undefined);
+      if (loads.length) (summary as Record<string, number | undefined>)["avgPlayerLoad"] = Math.round(loads.reduce((a, b) => a + b, 0) / loads.length * 10) / 10;
 
       const teamName = state.teams.find(t => t.id === gpsImportTeamId)?.name;
       const session: GpsSession = {
@@ -449,16 +516,19 @@ export function PerformanceSection({
         importedAt: new Date().toISOString(),
         summary,
         rawColumns,
-        rawRows,
+        rawRows: enrichedRows,
         notes: gpsImportNotes || undefined,
       };
       setGpsSessions(prev => [...prev, session]);
       // reset GPS form
       setGpsFile(null);
       setGpsImportNotes("");
+      setGpsImportStep("form");
+      setGpsParsedRows([]);
+      setGpsPlayerMapping({});
       setDayModalPanel("none");
-    } catch (err) {
-      setGpsImportError(locale === "en" ? "Failed to parse file. Check format." : "No se pudo leer el archivo. Verifica el formato.");
+    } catch {
+      setGpsImportError(locale === "en" ? "Failed to import. Please try again." : "Error al importar. Inténtalo de nuevo.");
     } finally {
       setGpsImportLoading(false);
     }
@@ -1315,6 +1385,10 @@ export function PerformanceSection({
               setDayModalPanel("none");
               setGpsFile(null);
               setGpsImportError("");
+              setGpsImportStep("form");
+              setGpsParsedRows([]);
+              setGpsPlayerMapping({});
+              setExpandedSessionKey(null);
             };
 
             const ucEntries = entriesForDate(selectedDate);
@@ -1353,7 +1427,7 @@ export function PerformanceSection({
                 onClick={closeModal}
               >
                 <div
-                  className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-black/5"
+                  className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-black/5"
                   onClick={e => e.stopPropagation()}
                 >
                   {/* Header */}
@@ -1405,9 +1479,16 @@ export function PerformanceSection({
                         ? Math.round(attended.reduce((s, e) => s + (e.rpe > 1 ? e.rpe : 6), 0) / attended.length)
                         : 0;
                       const minutes = groupEntries[0]?.minutesPlayed ?? 0;
+                      const cardKey = `uc::${sType}::${teamName}`;
+                      const isExpanded = expandedSessionKey === cardKey;
                       return (
-                        <div key={`uc::${sType}::${teamName}`}
-                          className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+                        <div key={cardKey}
+                          className="rounded-2xl border border-line bg-white shadow-sm overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSessionKey(isExpanded ? null : cardKey)}
+                            className="w-full p-4 text-left hover:bg-zinc-50/80 transition-colors"
+                          >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className={cn(
@@ -1431,13 +1512,16 @@ export function PerformanceSection({
                                 <p className="text-xs text-zinc-500 truncate">{teamName || "—"}</p>
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <p className={cn("text-base font-bold tabular-nums", loadColour(avgLoad))}>
-                                Ø {avgLoad} {loadUnit}
-                              </p>
-                              <p className="text-[10px] text-zinc-400">
-                                {attended.length}/{groupEntries.length} · {minutes} min
-                              </p>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                <p className={cn("text-base font-bold tabular-nums", loadColour(avgLoad))}>
+                                  Ø {avgLoad} {loadUnit}
+                                </p>
+                                <p className="text-[10px] text-zinc-400">
+                                  {attended.length}/{groupEntries.length} · {minutes} min
+                                </p>
+                              </div>
+                              <ChevronDown className={cn("h-4 w-4 text-zinc-400 transition-transform", isExpanded && "rotate-180")} />
                             </div>
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2 border-t border-line/40 pt-3">
@@ -1451,14 +1535,64 @@ export function PerformanceSection({
                               {locale === "en" ? "Load:" : "Carga:"} {avgLoad} {loadUnit}
                             </span>
                           </div>
+                          </button>
+                          {isExpanded && (
+                            <div className="border-t border-line/60 bg-zinc-50/60 px-4 py-3">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                                {locale === "en" ? "Athlete detail" : "Detalle por atleta"}
+                              </p>
+                              <div className="space-y-1.5">
+                                {groupEntries.map(entry => {
+                                  const ath = state.athletes.find(a => a.id === entry.athleteId);
+                                  const entryLoad = entry.attended ? entry.minutesPlayed * (entry.rpe > 1 ? entry.rpe : 6) : 0;
+                                  return (
+                                    <div key={entry.id} className="flex items-center justify-between gap-2 rounded-xl bg-white border border-line/50 px-3 py-2">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className={cn(
+                                          "h-2 w-2 rounded-full shrink-0",
+                                          entry.attended ? "bg-green-500" : "bg-zinc-300"
+                                        )} />
+                                        <span className="text-xs font-medium text-zinc-800 truncate">
+                                          {ath ? ath.name : entry.athleteId}
+                                        </span>
+                                      </div>
+                                      {entry.attended ? (
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", rpeColour(entry.rpe > 1 ? entry.rpe : 6))}>
+                                            RPE {entry.rpe > 1 ? entry.rpe : "—"}
+                                          </span>
+                                          <span className="text-[10px] text-zinc-500">{entry.minutesPlayed} min</span>
+                                          <span className={cn("text-[10px] font-bold tabular-nums", loadColour(entryLoad))}>
+                                            {entryLoad} {loadUnit}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] text-zinc-400 italic">
+                                          {locale === "en" ? "Absent" : "Ausente"}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
 
                     {/* ── GPS event cards ── */}
-                    {gpsForDay.map(session => (
+                    {gpsForDay.map(session => {
+                      const gpsKey = `gps::${session.id}`;
+                      const isExpanded = expandedSessionKey === gpsKey;
+                      return (
                       <div key={session.id}
-                        className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+                        className="rounded-2xl border border-line bg-white shadow-sm overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSessionKey(isExpanded ? null : gpsKey)}
+                          className="w-full p-4 text-left hover:bg-zinc-50/80 transition-colors"
+                        >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className={cn(
@@ -1479,9 +1613,12 @@ export function PerformanceSection({
                               <p className="text-xs text-zinc-500 truncate">{session.teamName || "—"} · {session.fileName}</p>
                             </div>
                           </div>
-                          {session.summary.playerCount !== undefined && (
-                            <p className="text-sm font-bold text-zinc-700 shrink-0">{session.summary.playerCount} {locale === "en" ? "players" : "jugadores"}</p>
-                          )}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {session.summary.playerCount !== undefined && (
+                              <p className="text-sm font-bold text-zinc-700">{session.summary.playerCount} {locale === "en" ? "players" : "jugadores"}</p>
+                            )}
+                            <ChevronDown className={cn("h-4 w-4 text-zinc-400 transition-transform", isExpanded && "rotate-180")} />
+                          </div>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2 border-t border-line/40 pt-3">
                           {session.summary.avgDistanceM !== undefined && (
@@ -1505,8 +1642,95 @@ export function PerformanceSection({
                             </span>
                           )}
                         </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="border-t border-line/60 bg-zinc-50/60 px-4 py-3">
+                            {/* Summary metrics */}
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                              {locale === "en" ? "Session summary" : "Resumen de sesión"}
+                            </p>
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              {session.summary.avgDistanceM !== undefined && (
+                                <div className="rounded-xl bg-white border border-line/50 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-zinc-400">Ø dist</p>
+                                  <p className="text-xs font-bold text-zinc-800">{(session.summary.avgDistanceM / 1000).toFixed(2)} km</p>
+                                </div>
+                              )}
+                              {session.summary.totalHsrM !== undefined && (
+                                <div className="rounded-xl bg-blue-50 border border-blue-100 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-blue-400">HSR Σ</p>
+                                  <p className="text-xs font-bold text-blue-700">{(session.summary.totalHsrM / 1000).toFixed(2)} km</p>
+                                </div>
+                              )}
+                              {session.summary.maxSpeedKmh !== undefined && (
+                                <div className="rounded-xl bg-orange-50 border border-orange-100 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-orange-400">Vmax</p>
+                                  <p className="text-xs font-bold text-orange-700">{session.summary.maxSpeedKmh.toFixed(1)} km/h</p>
+                                </div>
+                              )}
+                              {session.summary.totalSprintsN !== undefined && (
+                                <div className="rounded-xl bg-white border border-line/50 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-zinc-400">Sprints Σ</p>
+                                  <p className="text-xs font-bold text-zinc-800">{session.summary.totalSprintsN}</p>
+                                </div>
+                              )}
+                              {(session.summary as Record<string, number | undefined>)["avgPlayerLoad"] !== undefined && (
+                                <div className="rounded-xl bg-purple-50 border border-purple-100 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-purple-400">Ø PL</p>
+                                  <p className="text-xs font-bold text-purple-700">{(session.summary as Record<string, number | undefined>)["avgPlayerLoad"]}</p>
+                                </div>
+                              )}
+                              {session.summary.playerCount !== undefined && (
+                                <div className="rounded-xl bg-white border border-line/50 px-2 py-2 text-center">
+                                  <p className="text-[9px] text-zinc-400">{locale === "en" ? "Players" : "Jugadores"}</p>
+                                  <p className="text-xs font-bold text-zinc-800">{session.summary.playerCount}</p>
+                                </div>
+                              )}
+                            </div>
+                            {/* Per-player detail from rawRows */}
+                            {session.rawRows && session.rawRows.length > 0 && (
+                              <>
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                                  {locale === "en" ? "Per-player detail" : "Detalle por jugador"}
+                                </p>
+                                <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
+                                  {session.rawRows.map((row, i) => {
+                                    const athleteName = String((row as Record<string, unknown>)["_athleteName"] ?? row["Players"] ?? `#${i + 1}`);
+                                    const getNum = (key: string) => {
+                                      const found = Object.keys(row).find(k => k.replace(/\s*\n\s*/g, " ").trim() === key.replace(/\s*\n\s*/g, " ").trim());
+                                      if (!found) return undefined;
+                                      const v = Number(row[found]);
+                                      return isNaN(v) ? undefined : v;
+                                    };
+                                    const dist = getNum("Distance - Distance\n(m)") ?? getNum("Distance - Distance (m)");
+                                    const hsr = getNum("Distance - Abs HSR\n(m)") ?? getNum("Distance - Abs HSR (m)");
+                                    const speed = getNum("Sprints - Max Speed (km/h)");
+                                    const pl = getNum("Player Load (a.u.)");
+                                    const sprints = getNum("Sprints Abs (count)");
+                                    return (
+                                      <div key={i} className="rounded-xl bg-white border border-line/50 px-3 py-2">
+                                        <p className="text-xs font-semibold text-zinc-800 mb-1">{athleteName}</p>
+                                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                          {dist !== undefined && <span className="text-[10px] text-zinc-500"><span className="font-medium text-zinc-700">{(dist / 1000).toFixed(2)} km</span> dist</span>}
+                                          {hsr !== undefined && <span className="text-[10px] text-blue-600"><span className="font-medium">{(hsr / 1000).toFixed(2)} km</span> HSR</span>}
+                                          {speed !== undefined && <span className="text-[10px] text-orange-600"><span className="font-medium">{speed.toFixed(1)} km/h</span> Vmax</span>}
+                                          {sprints !== undefined && <span className="text-[10px] text-zinc-500"><span className="font-medium text-zinc-700">{sprints}</span> sprints</span>}
+                                          {pl !== undefined && <span className="text-[10px] text-purple-600"><span className="font-medium">{pl.toFixed(1)}</span> PL</span>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                            <p className="mt-2 text-[10px] text-zinc-400 truncate">
+                              <span className="font-medium">{locale === "en" ? "File:" : "Archivo:"}</span> {session.fileName}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {/* ── Add Session selector ── */}
                     {dayModalPanel === "none" && (
@@ -1729,81 +1953,151 @@ export function PerformanceSection({
                       <div className="rounded-2xl border border-line bg-zinc-50 p-5">
                         <div className="mb-4 flex items-center justify-between">
                           <p className="text-sm font-bold text-zinc-800">
-                            {locale === "en" ? "Import GPS — Excel / CSV" : "Importar GPS — Excel / CSV"}
+                            {gpsImportStep === "form"
+                              ? (locale === "en" ? "Import GPS — Excel / CSV" : "Importar GPS — Excel / CSV")
+                              : (locale === "en" ? "Assign players" : "Asignar jugadores")}
                           </p>
-                          <button type="button" onClick={() => { setDayModalPanel("none"); setGpsFile(null); setGpsImportError(""); }}
+                          <button type="button" onClick={() => {
+                            setDayModalPanel("none");
+                            setGpsFile(null);
+                            setGpsImportError("");
+                            setGpsImportStep("form");
+                            setGpsParsedRows([]);
+                            setGpsPlayerMapping({});
+                          }}
                             className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-200 transition">
                             <X className="h-4 w-4" />
                           </button>
                         </div>
-                        <div className="grid gap-3">
-                          <div className="grid gap-1">
-                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
-                            <div className="flex gap-2">
-                              {(["training", "match"] as const).map(st => (
-                                <button key={st} type="button"
-                                  onClick={() => setGpsImportType(st)}
-                                  className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                                    gpsImportType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
-                                  {st === "training" ? (locale === "en" ? "Training" : "Entrenamiento") : (locale === "en" ? "Match" : "Partido")}
-                                </button>
-                              ))}
+
+                        {/* Step 1: form */}
+                        {gpsImportStep === "form" && (
+                          <div className="grid gap-3">
+                            <div className="grid gap-1">
+                              <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Type" : "Tipo"}</label>
+                              <div className="flex gap-2">
+                                {(["training", "match"] as const).map(st => (
+                                  <button key={st} type="button"
+                                    onClick={() => setGpsImportType(st)}
+                                    className={cn("rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                                      gpsImportType === st ? "bg-accent text-white" : "bg-white border border-line text-zinc-600 hover:bg-zinc-50")}>
+                                    {st === "training" ? (locale === "en" ? "Training" : "Entrenamiento") : (locale === "en" ? "Match" : "Partido")}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="grid gap-1">
+                              <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
+                              <select value={gpsImportTeamId} onChange={e => setGpsImportTeamId(e.target.value)}
+                                className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
+                                  !gpsImportTeamId ? "border-red-300" : "border-line")}>
+                                <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
+                                {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                              </select>
+                            </div>
+                            <div className="grid gap-1">
+                              <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "File (Excel or CSV)" : "Archivo (Excel o CSV)"}</label>
+                              <label className="cursor-pointer">
+                                <div className={cn(
+                                  "flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-5 transition text-sm font-medium",
+                                  gpsFile ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-zinc-300 bg-white text-zinc-500 hover:border-zinc-400 hover:bg-zinc-50"
+                                )}>
+                                  <FileSpreadsheet className="h-5 w-5 shrink-0" />
+                                  {gpsFile ? gpsFile.name : (locale === "en" ? "Click to select file" : "Haz clic para seleccionar archivo")}
+                                </div>
+                                <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                                  onChange={e => { setGpsFile(e.target.files?.[0] ?? null); setGpsImportError(""); }} />
+                              </label>
+                            </div>
+                            <div className="grid gap-1">
+                              <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes (optional)" : "Notas (opcional)"}</label>
+                              <input type="text" value={gpsImportNotes} onChange={e => setGpsImportNotes(e.target.value)}
+                                placeholder={locale === "en" ? "e.g. Matchday 12" : "p.ej. Jornada 12"}
+                                className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
+                            </div>
+                            {gpsImportError && (
+                              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{gpsImportError}</p>
+                            )}
+                            <div className="mt-1 flex gap-3">
+                              <button type="button" onClick={() => {
+                                setDayModalPanel("none"); setGpsFile(null); setGpsImportError("");
+                              }}
+                                className="flex-1 rounded-2xl border border-line bg-white py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition">
+                                {locale === "en" ? "Cancel" : "Cancelar"}
+                              </button>
+                              <button type="button"
+                                disabled={!gpsFile || !gpsImportTeamId || gpsImportLoading}
+                                onClick={handleGpsParseFile}
+                                className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-40"
+                              >
+                                {gpsImportLoading ? (locale === "en" ? "Reading…" : "Leyendo…") : (locale === "en" ? "Next: assign players →" : "Siguiente: asignar jugadores →")}
+                              </button>
                             </div>
                           </div>
-                          <div className="grid gap-1">
-                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Team" : "Equipo"}</label>
-                            <select value={gpsImportTeamId} onChange={e => setGpsImportTeamId(e.target.value)}
-                              className={cn("rounded-2xl border bg-white px-3 py-2 text-sm text-zinc-700 outline-none",
-                                !gpsImportTeamId ? "border-red-300" : "border-line")}>
-                              <option value="">{locale === "en" ? "— select —" : "— selecciona —"}</option>
-                              {state.teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-                            </select>
-                          </div>
-                          <div className="grid gap-1">
-                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "File (Excel or CSV)" : "Archivo (Excel o CSV)"}</label>
-                            <label className="cursor-pointer">
-                              <div className={cn(
-                                "flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-5 transition text-sm font-medium",
-                                gpsFile ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-zinc-300 bg-white text-zinc-500 hover:border-zinc-400 hover:bg-zinc-50"
-                              )}>
-                                <FileSpreadsheet className="h-5 w-5 shrink-0" />
-                                {gpsFile ? gpsFile.name : (locale === "en" ? "Click to select file" : "Haz clic para seleccionar archivo")}
+                        )}
+
+                        {/* Step 2: player mapping */}
+                        {gpsImportStep === "mapping" && (() => {
+                          const teamAthletesList = gpsImportTeamId
+                            ? state.athletes.filter(a => {
+                                const team = state.teams.find(t => t.id === gpsImportTeamId);
+                                return a.teamId === gpsImportTeamId || a.teamName === team?.name;
+                              })
+                            : state.athletes;
+                          const assignedCount = Object.values(gpsPlayerMapping).filter(v => v !== "").length;
+                          return (
+                            <div className="grid gap-3">
+                              <p className="text-xs text-zinc-500">
+                                {locale === "en"
+                                  ? `Match each GPS player to an athlete on the team. Unassigned rows will be discarded.`
+                                  : `Asocia cada jugador GPS con un atleta del equipo. Las filas sin asignar se descartarán.`}
+                              </p>
+                              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {gpsParsedRows.map(row => {
+                                  const playerName = String(row["Players"] ?? row[Object.keys(row)[0]] ?? "");
+                                  const assignedId = gpsPlayerMapping[playerName] ?? "";
+                                  return (
+                                    <div key={playerName} className="flex items-center gap-2 rounded-xl bg-white border border-line/60 px-3 py-2">
+                                      <div className={cn("h-2 w-2 rounded-full shrink-0", assignedId ? "bg-emerald-500" : "bg-zinc-300")} />
+                                      <span className="text-xs font-medium text-zinc-700 w-24 shrink-0 truncate">{playerName}</span>
+                                      <select
+                                        value={assignedId}
+                                        onChange={e => setGpsPlayerMapping(prev => ({ ...prev, [playerName]: e.target.value }))}
+                                        className="flex-1 rounded-xl border border-line bg-white px-2 py-1.5 text-xs text-zinc-700 outline-none focus:border-emerald-400"
+                                      >
+                                        <option value="">{locale === "en" ? "— skip —" : "— ignorar —"}</option>
+                                        {teamAthletesList.map(a => (
+                                          <option key={a.id} value={a.id}>{a.name}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
-                                onChange={e => { setGpsFile(e.target.files?.[0] ?? null); setGpsImportError(""); }} />
-                            </label>
-                          </div>
-                          <div className="grid gap-1">
-                            <label className="text-xs font-medium text-zinc-600">{locale === "en" ? "Notes (optional)" : "Notas (opcional)"}</label>
-                            <input type="text" value={gpsImportNotes} onChange={e => setGpsImportNotes(e.target.value)}
-                              placeholder={locale === "en" ? "e.g. Matchday 12" : "p.ej. Jornada 12"}
-                              className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-zinc-700 outline-none focus:border-accent/50" />
-                          </div>
-                          {gpsImportError && (
-                            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{gpsImportError}</p>
-                          )}
-                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                            <p className="text-xs text-amber-700 font-medium">
-                              {locale === "en"
-                                ? "GPS column format will be defined once you share the file structure. Currently a generic import is applied."
-                                : "El formato de columnas GPS se definirá cuando compartas la estructura del archivo. Por ahora se aplica una importación genérica."}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex gap-3">
-                          <button type="button" onClick={() => { setDayModalPanel("none"); setGpsFile(null); setGpsImportError(""); }}
-                            className="flex-1 rounded-2xl border border-line bg-white py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition">
-                            {locale === "en" ? "Cancel" : "Cancelar"}
-                          </button>
-                          <button type="button"
-                            disabled={!gpsFile || !gpsImportTeamId || gpsImportLoading}
-                            onClick={handleGpsImport}
-                            className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-40"
-                          >
-                            <UploadCloud className="h-4 w-4" />
-                            {gpsImportLoading ? (locale === "en" ? "Importing…" : "Importando…") : (locale === "en" ? "Import" : "Importar")}
-                          </button>
-                        </div>
+                              <p className="text-[11px] text-zinc-400 text-center">
+                                {assignedCount}/{gpsParsedRows.length} {locale === "en" ? "players assigned" : "jugadores asignados"}
+                              </p>
+                              {gpsImportError && (
+                                <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{gpsImportError}</p>
+                              )}
+                              <div className="flex gap-3">
+                                <button type="button"
+                                  onClick={() => { setGpsImportStep("form"); setGpsImportError(""); }}
+                                  className="flex-1 rounded-2xl border border-line bg-white py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition">
+                                  ← {locale === "en" ? "Back" : "Atrás"}
+                                </button>
+                                <button type="button"
+                                  disabled={assignedCount === 0 || gpsImportLoading}
+                                  onClick={handleGpsImport}
+                                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-40"
+                                >
+                                  <UploadCloud className="h-4 w-4" />
+                                  {gpsImportLoading ? (locale === "en" ? "Importing…" : "Importando…") : (locale === "en" ? "Import" : "Importar")}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
