@@ -1,4 +1,5 @@
 import type { ZodError, ZodIssue } from "zod";
+export { invalidInputClass } from "@/components/field-error";
 import type { AnthropometricRecordInput, PerformanceEntryInput } from "@/lib/types";
 import {
   AnthropometricRecordSchema,

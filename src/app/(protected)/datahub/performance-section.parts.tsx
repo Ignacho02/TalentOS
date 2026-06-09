@@ -29,7 +29,9 @@ import { cn, formatDate, formatNumber } from "@/lib/utils";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import { useSearchParams } from "next/navigation";
-import { clearFieldError, FieldError, invalidInputClass } from "@/lib/form-errors";
+import { clearFieldError } from "@/lib/form-errors";
+import { invalidInputClass } from "@/components/field-error";
+import { FieldError } from "@/components/field-error";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import type {
   PerformanceArea,

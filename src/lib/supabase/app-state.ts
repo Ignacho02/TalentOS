@@ -3,6 +3,8 @@ import type {
   AppState,
   Athlete,
   Club,
+  GpsSession,
+  GpsSessionSummary,
   Locale,
   PerformanceArea,
   PerformanceDefinition,
@@ -87,6 +89,20 @@ type DbTrainingLoadEntry = {
   rpe: number;
   load: number;
   notes: string | null;
+};
+
+type DbGpsSession = {
+  id: string;
+  club_id: string;
+  team_id: string | null;
+  date: string;
+  session_type: "training" | "match";
+  file_name: string;
+  imported_at: string;
+  notes: string | null;
+  summary: GpsSessionSummary;
+  raw_columns: string[];
+  raw_rows: Record<string, string | number>[];
 };
 
 type DbPerformanceDefinition = {
@@ -252,6 +268,24 @@ function mapTrainingLoadEntry(entry: DbTrainingLoadEntry): TrainingLoadEntry {
   };
 }
 
+function mapGpsSession(row: DbGpsSession, teamsById: Map<string, Team>): GpsSession {
+  const team = row.team_id ? teamsById.get(row.team_id) : undefined;
+  return {
+    id: row.id,
+    date: row.date,
+    sessionType: row.session_type,
+    teamId: row.team_id ?? "",
+    teamName: team?.name,
+    source: "gps",
+    fileName: row.file_name,
+    importedAt: row.imported_at,
+    notes: row.notes ?? undefined,
+    summary: row.summary ?? {},
+    rawColumns: row.raw_columns ?? [],
+    rawRows: row.raw_rows ?? [],
+  };
+}
+
 function mapPerformanceDefinition(definition: DbPerformanceDefinition): PerformanceDefinition {
   return {
     id: definition.id,
@@ -367,6 +401,7 @@ export async function loadAppStateForSession(
     recordsData,
     performanceEntriesData,
     trainingLoadEntriesData,
+    gpsSessionsData,
     performanceDefinitionsData,
     preferences,
     membersData,
@@ -413,6 +448,15 @@ export async function loadAppStateForSession(
         .order("date", { ascending: false }),
       [],
     ),
+    safeQuery<DbGpsSession[]>(
+      "gps_sessions.select",
+      supabase
+        .from("gps_sessions")
+        .select("*")
+        .eq("club_id", session.clubId)
+        .order("date", { ascending: false }),
+      [],
+    ),
     safeQuery<DbPerformanceDefinition[]>(
       "performance_definitions.select",
       supabase
@@ -448,7 +492,7 @@ export async function loadAppStateForSession(
       } else {
         authUsersData = (listData?.users ?? []).map((u) => ({
           id: u.id,
-          email: u.email,
+          email: u.email ?? null,
           raw_user_meta_data: u.user_metadata ?? null,
           user_metadata: u.user_metadata ?? null,
         })).filter((user) => memberIds.includes(user.id));
@@ -505,6 +549,8 @@ export async function loadAppStateForSession(
       return athlete ? athleteAllowed(athlete) : false;
     });
 
+  const gpsSessions = gpsSessionsData.map((row) => mapGpsSession(row, teamsById));
+
   // Lista de todos los miembros del club (para la pestaña de administración)
   const clubUsers = membersData.map((member) =>
     mapMember(member, session.clubId, session, authUsersById.get(member.user_id)),
@@ -517,6 +563,7 @@ export async function loadAppStateForSession(
     records: filteredRecords,
     performanceEntries: filteredPerformanceEntries,
     trainingLoadEntries: filteredTrainingLoadEntries,
+    gpsSessions,
     performanceDefinitions: definitions,
     preferences: {
       locale: preferences?.locale === "en" ? "en" : fallbackLocale,
