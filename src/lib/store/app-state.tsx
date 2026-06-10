@@ -365,12 +365,19 @@ export function AppStateProvider({
 
   const addGpsSession = (session: GpsSession) => {
     setState((current) => addGpsSessionToState(current, session));
-    void addGpsSessionAction(session).catch(reportPersistenceError);
+    void addGpsSessionAction(session).catch((error) => {
+      reportPersistenceError(error);
+      // Revertir el optimistic update si Supabase falla
+      setState((current) => deleteGpsSessionFromState(current, session.id));
+    });
   };
 
   const deleteGpsSession = (id: string) => {
     setState((current) => deleteGpsSessionFromState(current, id));
-    void deleteGpsSessionAction(id).catch(reportPersistenceError);
+    void deleteGpsSessionAction(id).catch((error) => {
+      reportPersistenceError(error);
+      void syncPersistedState();
+    });
   };
 
   const addPerformanceDefinition = (definition: Omit<PerformanceDefinition, "id">) => {
