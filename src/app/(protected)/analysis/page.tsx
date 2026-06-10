@@ -385,13 +385,22 @@ function IndividualView({
   }, [selectedLatest, teamAssessments, currentBaseline, comparisonConfig, activeComparisonAthletes, comparisonLatest, comparisonIds]);
 
   const maturityOffsetChartData = useMemo(
-    () =>
-      teamAssessments.map((assessment) => ({
-        athleteId: assessment.inputs.athleteId,
-        name: assessment.inputs.athleteName,
-        offset: Number(assessment.classification.primaryOffset.toFixed(2)),
-      })),
-    [teamAssessments],
+    () => {
+      const selectedSex = selectedLatest ? getAssessmentSex(selectedLatest) : undefined;
+      return teamAssessments
+        .map((assessment) => {
+          const aSex = getAssessmentSex(assessment);
+          const aProfile = createUnifiedProfile(assessment, selectedEngine, bioBandingStrategy, aSex);
+          return {
+            athleteId: assessment.inputs.athleteId,
+            name: assessment.inputs.athleteName,
+            offset: aProfile.offset != null ? Number(aProfile.offset.toFixed(2)) : null,
+          };
+        })
+        .filter((d) => d.offset !== null)
+        .sort((a, b) => (b.offset as number) - (a.offset as number));
+    },
+    [teamAssessments, selectedEngine, bioBandingStrategy],
   );
 
   const combinedHistory = useMemo(() => {
@@ -469,6 +478,7 @@ function IndividualView({
       return entry;
     });
   }, [athleteLoad, comparisonIds, state.trainingLoadEntries, selectedLatest, latestByAthlete]);
+
   const athletePerformance = useMemo(() => {
     if (!selectedAthleteId) return [];
     const entries = state.performanceEntries.filter(e => e.athleteId === selectedAthleteId);
@@ -617,12 +627,16 @@ function IndividualView({
     });
   }, [expandedPerformanceComparisons, expandedPerformanceTest]);
 
+  // CHANGE 1 FIX: Renamed inner variable from `latestByAthlete` to `latestEntryByAthlete`
+  // to avoid shadowing the outer `latestByAthlete` (MaturationResult[]) which caused
+  // TypeScript to infer the wrong type and report "Property 'chronologicalAge' does not exist
+  // on type 'AnthropometricRecord'" (TS2339).
   const performancePercentileStrips = useMemo(() => {
     if (!selectedLatest || filteredAthletePerformance.length === 0) return [];
     const comparisonAthleteIds = new Set([selectedLatest.inputs.athleteId, ...comparisonLatest.map(a => a.inputs.athleteId)]);
 
     return filteredAthletePerformance.map((test) => {
-      const latestByAthlete = state.performanceEntries
+      const latestEntryByAthlete = state.performanceEntries
         .filter((e) => e.testName === test.testName && comparisonAthleteIds.has(e.athleteId))
         .reduce<Record<string, PerformanceEntry>>((acc, e) => {
           const existing = acc[e.athleteId];
@@ -632,7 +646,7 @@ function IndividualView({
           return acc;
         }, {});
 
-      const values = Object.values(latestByAthlete).map((e) => e.value).sort((a, b) => a - b);
+      const values = Object.values(latestEntryByAthlete).map((e) => e.value).sort((a, b) => a - b);
       if (values.length === 0) return null;
 
       const current = test.latest.value;
@@ -733,18 +747,6 @@ function IndividualView({
       })
       .sort((a, b) => a.session.date.localeCompare(b.session.date));
   }, [state.gpsSessions, selectedAthleteId]);
-
-  const maturationTimelinePoints = useMemo(() => {
-    return selectedHistory.map((h) => {
-      const hSex = getAssessmentSex(h);
-      const hProfile = createUnifiedProfile(h, selectedEngine, bioBandingStrategy, hSex);
-      return {
-        date: formatDate(h.inputs.dataCollectionDate),
-        band: getGroupingBand(hProfile),
-        offset: hProfile.offset != null ? Number(hProfile.offset.toFixed(2)) : null,
-      };
-    });
-  }, [selectedHistory, selectedEngine, bioBandingStrategy, state.athletes]);
 
   const performanceTestTypes = useMemo(() => {
     if (!state.performanceDefinitions) return [];
@@ -1186,36 +1188,10 @@ function IndividualView({
                 baselineLabel={currentBaseline.label}
               />
 
-              {/* DashboardInsight banners — engine-aware (SITAR, Moore-2 fallback, extremes, etc.) */}
-              {(() => {
-                const dashboardInsights = buildInsights(selectedLatest, selectedEngine, selectedLatestProfile?.maturityBand);
-                if (dashboardInsights.length === 0) return null;
-                return (
-                  <div className="space-y-2">
-                    {dashboardInsights.map((insight) => {
-                      const toneStyles =
-                        insight.tone === "warning"
-                          ? "bg-amber-50 border-amber-200 text-amber-800"
-                          : insight.tone === "success"
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                          : "bg-blue-50 border-blue-200 text-blue-800";
-                      const icon =
-                        insight.tone === "warning" ? "⚠️" : insight.tone === "success" ? "✅" : "ℹ️";
-                      return (
-                        <div
-                          key={insight.id}
-                          className={`rounded-xl border px-4 py-3 text-sm ${toneStyles}`}
-                        >
-                          <span className="font-semibold mr-1">{icon} {t(insight.titleKey)}</span>
-                          {t(insight.bodyKey)}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
+
 
               {/* MATURITY OFFSET & TEAM COMPARISON SECTION */}
+              {/* CHANGE 2: Removed teammate count from top-right of chart header */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
@@ -1223,9 +1199,6 @@ function IndividualView({
                     <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
                       {locale === 'es' ? 'Offset de maduración' : 'Maturity offset'}
                     </h3>
-                  </div>
-                  <div className="text-xs font-bold text-slate-400">
-                    {teamAssessments.length} {t("analysis.individual.teammates")}
                   </div>
                 </div>
                 
@@ -1243,8 +1216,12 @@ function IndividualView({
                           (dataMax: number) => Math.max(dataMax + 0.25, 0.25),
                         ]}
                       />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={132} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("datahub.offset")]} />
+                      <YAxis type="category" dataKey="name" tick={false} width={8} axisLine={false} tickLine={false} />
+                      <Tooltip 
+                        formatter={(val: any, _name: any, props: any) => [formatNumber(Number(val), 2), props?.payload?.name || t("datahub.offset")]} 
+                        labelFormatter={() => ''}
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      />
                       <ReferenceLine x={0} stroke="#94a3b8" strokeWidth={1.5} />
                       <Bar dataKey="offset" barSize={14} radius={5}>
                         {maturityOffsetChartData.map((entry, index) => {
@@ -1269,7 +1246,7 @@ function IndividualView({
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded-full bg-slate-200"></div>
-                      <span className="font-medium text-slate-400">{t("analysis.individual.teammates")}</span>
+                      <span className="font-medium text-slate-400">{locale === 'es' ? 'Compañeros de Equipo' : t("analysis.individual.teammates")}</span>
                     </div>
                   </div>
                   <div className="font-bold text-teal-600">
@@ -1278,75 +1255,220 @@ function IndividualView({
                 </div>
               </div>
 
-              {/* APHV PREDICTION METHODS SECTION */}
-              {selectedLatest && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  {selectedLatestProfile && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Zap className="h-5 w-5 text-slate-900" />
-                        <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                          {locale === 'es' ? 'Método seleccionado' : 'Selected method'}
-                        </h3>
-                      </div>
-                      <div className="space-y-3 text-center">
-                        <div className="text-sm text-slate-500">{selectedLatestProfile.methodLabel}</div>
-                        <div className="text-4xl font-bold text-slate-900">
-                          {selectedLatestProfile.aphv !== null ? formatNumber(selectedLatestProfile.aphv, 2) : "N/A"}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
-                        <div className="text-sm text-slate-600">
-                          {selectedLatestProfile.bioBandingStrategy === "offset"
-                            ? locale === 'es' ? 'Agrupación por offset' : 'Grouping by offset'
-                            : locale === 'es' ? '% PAH' : '% PAH'}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {selectedLatestProfile.offset !== null
-                            ? `${locale === 'es' ? 'Offset:' : 'Offset:'} ${formatNumber(selectedLatestProfile.offset, 2)}`
-                            : locale === 'es' ? 'Offset no disponible' : 'Offset unavailable'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Zap className="h-5 w-5 text-amber-600" />
-                      <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                        Moore APHV
-                      </h3>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="text-center py-4">
-                        <div className="text-4xl font-bold text-amber-600">{formatNumber(selectedLatest.methodOutputs.mooreAphv, 2)}</div>
-                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
-                      </div>
-                      <div className="text-[11px] text-slate-500 space-y-1">
-                        <div>{locale === 'es' ? 'Método: Regresión de Moore' : 'Method: Moore regression'}</div>
-                        <div>{locale === 'es' ? 'Basado en antropometría y edad' : 'Based on anthropometry and age'}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Zap className="h-5 w-5 text-blue-600" />
-                      <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                        Mirwald APHV
-                      </h3>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="text-center py-4">
-                        <div className="text-4xl font-bold text-blue-600">{formatNumber(selectedLatest.methodOutputs.mirwaldAphv, 2)}</div>
-                        <div className="text-xs text-slate-500 mt-1">{t("analysis.individual.years")}</div>
-                      </div>
-                      <div className="text-[11px] text-slate-500 space-y-1">
-                        <div>{locale === 'es' ? 'Método: Ecuación de Mirwald' : 'Method: Mirwald equation'}</div>
-                        <div>{locale === 'es' ? 'Basado en dimensiones corporales' : 'Based on body dimensions'}</div>
-                      </div>
-                    </div>
+              {/* GRÁFICO 2: EVOLUCIÓN TEMPORAL */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-teal-600" />
+                    <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                      {t("analysis.individual.temporalTrend")}
+                    </h3>
                   </div>
                 </div>
+                <div className="h-64 w-full relative">
+                  <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
+                    <LineChart data={combinedHistory}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                      <YAxis fontSize={10} axisLine={false} tickLine={false} label={{ value: t("datahub.offset"), angle: -90, position: 'insideLeft', style: { fontSize: 10 } }} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      />
+                      <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px' }} />
+                      <Line 
+                        type="monotone" 
+                        dataKey={selectedLatest?.inputs.athleteName} 
+                        stroke="#0d9488" 
+                        strokeWidth={4} 
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
+                        activeDot={{ r: 6, strokeWidth: 0 }}
+                      />
+                      {isComparisonTeamMode ? (
+                        <Line
+                          type="monotone"
+                          dataKey="meanOffset"
+                          stroke="#3b82f6"
+                          strokeWidth={3}
+                          strokeDasharray="5 5"
+                          dot={false}
+                          name={locale === 'es' ? 'Media del Equipo' : 'Team Mean'}
+                        />
+                      ) : (
+                        comparisonHistories.map((ch, i) => (
+                          <Line 
+                            key={ch.id}
+                            type="monotone" 
+                            dataKey={ch.name} 
+                            stroke={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]} 
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            dot={{ r: 3 }}
+                          />
+                        ))
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* GRÁFICO 3: DIAGRAMA DE FASES DE MADURACIÓN */}
+              {selectedLatest && selectedLatestProfile && (
+                (() => {
+                  const usesPAH = selectedLatestProfile.bioBandingStrategy === 'pah';
+                  const aphv = selectedLatestProfile.aphv;
+                  const chronoAge = selectedLatest.inputs.chronologicalAge;
+                  const offset = selectedLatestProfile.offset;
+                  const currentBand = selectedLatestProfile.maturityBand;
+
+                  if (usesPAH) {
+                    // PAH mode: show PAH% bands
+                    const pahPct = selectedLatestProfile.pahPercentage ?? selectedLatest.methodOutputs.percentageAdultHeight ?? null;
+                    const prePahMax = 85;
+                    const midPahMin = 85;
+                    const midPahMax = 95;
+                    const postPahMin = 95;
+
+                    return (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Activity className="h-5 w-5 text-teal-600" />
+                          <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                            {locale === 'es' ? 'Posición en fases de maduración (% PAH)' : 'Maturation phase position (% PAH)'}
+                          </h3>
+                        </div>
+                        {pahPct !== null ? (
+                          <div className="space-y-4">
+                            <div className="relative h-14 rounded-xl overflow-hidden flex">
+                              {/* Pre-PHV */}
+                              <div className="flex-[85] bg-teal-100 flex items-center justify-center text-[10px] font-bold text-teal-700 border-r border-white/60">Pre-PHV (&lt;85%)</div>
+                              {/* Mid-PHV */}
+                              <div className="flex-[10] bg-amber-100 flex items-center justify-center text-[10px] font-bold text-amber-700 border-r border-white/60">Mid</div>
+                              {/* Post-PHV */}
+                              <div className="flex-[5] bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">Post</div>
+                            </div>
+                            {/* Marker */}
+                            <div className="relative h-6">
+                              <div
+                                className="absolute -translate-x-1/2 flex flex-col items-center"
+                                style={{ left: `${Math.min(99, Math.max(1, pahPct))}%` }}
+                              >
+                                <div className="w-3 h-3 rounded-full bg-slate-900 border-2 border-white shadow-md" />
+                                <span className="text-[10px] font-bold text-slate-800 mt-0.5 whitespace-nowrap">{pahPct.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                              <div className={`p-2 rounded-xl ${currentBand === 'Pre-PHV' ? 'bg-teal-100 text-teal-800 font-bold ring-2 ring-teal-400' : 'text-slate-400'}`}>Pre-PHV<br/>&lt; 85%</div>
+                              <div className={`p-2 rounded-xl ${currentBand === 'Mid-PHV' ? 'bg-amber-100 text-amber-800 font-bold ring-2 ring-amber-400' : 'text-slate-400'}`}>Mid-PHV<br/>85–95%</div>
+                              <div className={`p-2 rounded-xl ${currentBand === 'Post-PHV' ? 'bg-slate-200 text-slate-800 font-bold ring-2 ring-slate-400' : 'text-slate-400'}`}>Post-PHV<br/>&gt; 95%</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">{locale === 'es' ? 'Datos de % PAH no disponibles.' : '% PAH data not available.'}</p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // OFFSET mode: show PHV timeline with Pre / Mid (-1 to +1) / Post
+                  if (aphv === null || offset === null) {
+                    return (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <p className="text-sm text-slate-400 italic">{locale === 'es' ? 'APHV no disponible para este método.' : 'APHV not available for this method.'}</p>
+                      </div>
+                    );
+                  }
+
+                  // Chronological age at each phase boundary
+                  const aphvAge = aphv;
+                  const midStart = aphvAge - 1;
+                  const midEnd = aphvAge + 1;
+                  // Display range: 2 years before Mid-start to 2 years after Mid-end
+                  const displayMin = midStart - 2;
+                  const displayMax = midEnd + 2;
+                  const totalRange = displayMax - displayMin;
+
+                  const toPercent = (age: number) => Math.min(100, Math.max(0, ((age - displayMin) / totalRange) * 100));
+
+                  const prePct = toPercent(midStart);
+                  const midPct = toPercent(midEnd);
+                  const currentAgeForDisplay = chronoAge ?? (aphvAge + offset);
+                  const currentPct = toPercent(currentAgeForDisplay);
+
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Activity className="h-5 w-5 text-teal-600" />
+                        <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
+                          {locale === 'es' ? 'Posición en el continuo de maduración (APHV)' : 'Position in maturation continuum (APHV)'}
+                        </h3>
+                      </div>
+                      <div className="space-y-3">
+                        {/* Phase bar with player position overlay */}
+                        <div className="relative">
+                          {/* Phase colour bar */}
+                          <div className="relative h-10 rounded-xl overflow-hidden flex">
+                            <div style={{ width: `${prePct}%` }} className="bg-teal-100 flex items-center justify-center text-[9px] font-bold text-teal-700 shrink-0">
+                              {prePct > 12 ? 'Pre-PHV' : ''}
+                            </div>
+                            <div style={{ width: `${midPct - prePct}%` }} className="bg-amber-100 flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">
+                              Mid-PHV
+                            </div>
+                            <div style={{ width: `${100 - midPct}%` }} className="bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-600 shrink-0">
+                              {(100 - midPct) > 10 ? 'Post-PHV' : ''}
+                            </div>
+                          </div>
+                          {/* CHANGE 3: Vertical line overlay at player's current position */}
+                          <div
+                            className="absolute top-0 bottom-0 w-0.5 bg-slate-900 shadow-md pointer-events-none"
+                            style={{ left: `${currentPct}%`, transform: 'translateX(-50%)' }}
+                          />
+                        </div>
+
+                        {/* Age labels beneath bar */}
+                        <div className="relative h-5">
+                          <span className="absolute text-[9px] text-slate-500" style={{ left: `${prePct}%`, transform: 'translateX(-50%)' }}>
+                            {midStart.toFixed(1)} {locale === 'es' ? 'a' : 'y'}
+                          </span>
+                          <span className="absolute text-[9px] text-amber-600 font-bold" style={{ left: '50%', transform: 'translateX(-50%)' }}>
+                            APHV {aphvAge.toFixed(1)} {locale === 'es' ? 'a' : 'y'}
+                          </span>
+                          <span className="absolute text-[9px] text-slate-500" style={{ left: `${midPct}%`, transform: 'translateX(-50%)' }}>
+                            {midEnd.toFixed(1)} {locale === 'es' ? 'a' : 'y'}
+                          </span>
+                        </div>
+
+                        {/* Current player marker dot + label */}
+                        <div className="relative h-8 mt-1">
+                          <div
+                            className="absolute -translate-x-1/2 flex flex-col items-center"
+                            style={{ left: `${currentPct}%` }}
+                          >
+                            <div className="w-4 h-4 rounded-full bg-slate-900 border-2 border-white shadow-md" />
+                            <span className="text-[10px] font-bold text-slate-800 mt-0.5 whitespace-nowrap">
+                              {currentAgeForDisplay.toFixed(1)} {locale === 'es' ? 'a' : 'y'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Band pills */}
+                        <div className="grid grid-cols-3 gap-2 text-center text-[11px] mt-2">
+                          <div className={`p-2 rounded-xl ${currentBand === 'Pre-PHV' ? 'bg-teal-100 text-teal-800 font-bold ring-2 ring-teal-400' : 'text-slate-400'}`}>
+                            Pre-PHV<br/><span className="text-[10px]">{locale === 'es' ? `< ${midStart.toFixed(1)} a` : `< ${midStart.toFixed(1)} y`}</span>
+                          </div>
+                          <div className={`p-2 rounded-xl ${currentBand === 'Mid-PHV' ? 'bg-amber-100 text-amber-800 font-bold ring-2 ring-amber-400' : 'text-slate-400'}`}>
+                            Mid-PHV<br/><span className="text-[10px]">{locale === 'es' ? `±1 APHV (${midStart.toFixed(1)}–${midEnd.toFixed(1)} a)` : `±1 APHV (${midStart.toFixed(1)}–${midEnd.toFixed(1)} y)`}</span>
+                          </div>
+                          <div className={`p-2 rounded-xl ${currentBand === 'Post-PHV' ? 'bg-slate-200 text-slate-800 font-bold ring-2 ring-slate-400' : 'text-slate-400'}`}>
+                            Post-PHV<br/><span className="text-[10px]">{locale === 'es' ? `> ${midEnd.toFixed(1)} a` : `> ${midEnd.toFixed(1)} y`}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
               )}
+
+
 
               {/* PAH (PROJECTED ADULT HEIGHT) SECTION */}
               {selectedLatest && (selectedLatestProfile?.pah !== null || selectedLatest.methodOutputs.pahCm) && (
@@ -1411,6 +1533,9 @@ function IndividualView({
               )}
 
               {/* GROWTH VELOCITY SECTION */}
+              {/* CHANGE 4: Chart now shows stature evolution (cm) instead of velocity.
+                  The two KPI cards remain (latest velocity + PHV reference).
+                  The description text below the chart has been removed. */}
               {selectedLatest && selectedHistory.some(h => h.derivedMetrics.growthVelocityCmPerYear != null) && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center gap-2 mb-4">
@@ -1437,89 +1562,38 @@ function IndividualView({
                       <div className="text-xs text-slate-400">{t("maturationMethods.growthVelocityUnit")}</div>
                     </div>
                   </div>
+                  {/* Stature evolution chart (cm over time) */}
                   <div className="h-36 w-full">
                     <ResponsiveContainer width="99.9%" height={144} minWidth={0} debounce={100}>
                       <LineChart data={combinedHistory}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
-                        <YAxis fontSize={10} axisLine={false} tickLine={false} unit=" cm/a" width={52} />
+                        <YAxis
+                          fontSize={10}
+                          axisLine={false}
+                          tickLine={false}
+                          unit=" cm"
+                          width={52}
+                          domain={['auto', 'auto']}
+                        />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                          formatter={(val: any) => [`${val} ${t("maturationMethods.growthVelocityUnit")}`, t("maturationMethods.growthVelocityLabel")]}
+                          formatter={(val: any) => [`${val} cm`, locale === 'es' ? 'Estatura' : 'Stature']}
                         />
                         <Line
                           type="monotone"
-                          dataKey="growthVelocity"
+                          dataKey="stature"
                           stroke="#7c3aed"
                           strokeWidth={3}
                           dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
                           connectNulls={false}
-                          name={`${t("maturationMethods.growthVelocityLabel")} (${t("maturationMethods.growthVelocityUnit")})`}
+                          name={locale === 'es' ? 'Estatura (cm)' : 'Stature (cm)'}
                         />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    {t("maturationMethods.growthVelocityDesc")}
-                  </p>
                 </div>
               )}
-
-              {/* Temporal Trend */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-teal-600" />
-                    <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                      {t("analysis.individual.temporalTrend")}
-                    </h3>
-                  </div>
-                </div>
-                <div className="h-64 w-full relative">
-                  <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
-                    <LineChart data={combinedHistory}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
-                      <YAxis fontSize={10} axisLine={false} tickLine={false} label={{ value: t("datahub.offset"), angle: -90, position: 'insideLeft', style: { fontSize: 10 } }} />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                      />
-                      <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px' }} />
-                      <Line 
-                        type="monotone" 
-                        dataKey={selectedLatest?.inputs.athleteName} 
-                        stroke="#0d9488" 
-                        strokeWidth={4} 
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                      />
-                      {isComparisonTeamMode ? (
-                        <Line
-                          type="monotone"
-                          dataKey="meanOffset"
-                          stroke="#3b82f6"
-                          strokeWidth={3}
-                          strokeDasharray="5 5"
-                          dot={false}
-                          name={locale === 'es' ? 'Media del Equipo' : 'Team Mean'}
-                        />
-                      ) : (
-                        comparisonHistories.map((ch, i) => (
-                          <Line 
-                            key={ch.id}
-                            type="monotone" 
-                            dataKey={ch.name} 
-                            stroke={['#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'][i % 4]} 
-                            strokeWidth={2}
-                            strokeDasharray="5 5"
-                            dot={{ r: 3 }}
-                          />
-                        ))
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
 
               {/* Comparison Table (only when multiple athletes selected) */}
               {comparisonIds.length > 0 && (
@@ -1565,38 +1639,6 @@ function IndividualView({
                   </div>
                 </div>
               )}
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <MapPin className="h-5 w-5 text-teal-600" />
-                  <h3 className="font-semibold text-xs uppercase tracking-wider text-slate-500">
-                    {locale === 'es' ? 'Línea de tiempo de maduración' : 'Maturation timeline'}
-                  </h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <div className="min-w-[720px]">
-                    <div className="flex items-center gap-4">
-                      {maturationTimelinePoints.map((point) => (
-                        <div key={point.date} className="flex-1 min-w-[160px]">
-                          <div className="relative h-12">
-                            <div className={`absolute left-1/2 top-1/2 h-2 w-full -translate-x-1/2 -translate-y-1/2 rounded-full ${
-                              point.band === 'Pre-PHV' ? 'bg-teal-200' : point.band === 'Mid-PHV' ? 'bg-amber-200' : 'bg-slate-300'
-                            }`} />
-                            <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 rounded-full border-2 border-white shadow-sm ${
-                              point.band === 'Pre-PHV' ? 'bg-teal-500' : point.band === 'Mid-PHV' ? 'bg-amber-500' : 'bg-slate-500'
-                            }`} />
-                          </div>
-                          <div className="mt-4 text-center text-xs text-slate-500">
-                            <div>{point.date}</div>
-                            <div className="font-semibold text-slate-800">{point.band}</div>
-                            <div>{formatNumber(point.offset, 2)} {t('datahub.offset')}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* Detailed Report Table */}
               <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
