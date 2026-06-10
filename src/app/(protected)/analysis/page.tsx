@@ -712,6 +712,16 @@ function IndividualView({
     });
   }, [athleteLoad]);
 
+  // Normalised column accessor — matches regardless of newlines / extra spaces in column names
+  const colVal = (row: Record<string, string | number>, key: string): number | undefined => {
+    const norm = (s: string) => s.replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+    const normKey = norm(key);
+    const found = Object.keys(row).find(k => norm(k) === normKey);
+    if (!found) return undefined;
+    const v = Number(row[found]);
+    return isNaN(v) ? undefined : v;
+  };
+
   // GPS sessions for selected athlete (from rawRows._athleteId)
   const athleteGpsSessions = useMemo(() => {
     if (!selectedAthleteId) return [];
@@ -2172,7 +2182,7 @@ function IndividualView({
                 {athleteGpsSessions.length > 0 ? (
                   <div className="space-y-6">
                     {/* Distance chart */}
-                    {athleteGpsSessions.some(({ row }) => row["Distance - Distance\n(m)"] !== undefined || row["Distance - Distance (m)"] !== undefined) && (
+                    {athleteGpsSessions.some(({ row }) => colVal(row, "Distance - Distance (m)") !== undefined) && (
                       <div>
                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
                           {locale === 'es' ? 'Distancia por sesión (m)' : 'Distance per session (m)'}
@@ -2181,8 +2191,8 @@ function IndividualView({
                           <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
                             <BarChart data={athleteGpsSessions.map(({ session, row }) => ({
                               date: formatDate(session.date),
-                              dist: Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0),
-                              hsr:  Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0),
+                              dist: colVal(row, "Distance - Distance (m)") ?? 0,
+                              hsr:  colVal(row, "Distance - Abs HSR (m)") ?? 0,
                             }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                               <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
@@ -2199,9 +2209,9 @@ function IndividualView({
 
                     {/* KPI summary cards */}
                     {(() => {
-                      const allDist   = athleteGpsSessions.map(({ row }) => Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0)).filter(v => v > 0);
-                      const allHsr    = athleteGpsSessions.map(({ row }) => Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0)).filter(v => v > 0);
-                      const allSpeed  = athleteGpsSessions.map(({ row }) => Number(row["Sprints - Max Speed (km/h)"] ?? 0)).filter(v => v > 0);
+                      const allDist   = athleteGpsSessions.map(({ row }) => colVal(row, "Distance - Distance (m)") ?? 0).filter(v => v > 0);
+                      const allHsr    = athleteGpsSessions.map(({ row }) => colVal(row, "Distance - Abs HSR (m)") ?? 0).filter(v => v > 0);
+                      const allSpeed  = athleteGpsSessions.map(({ row }) => colVal(row, "Sprints - Max Speed (km/h)") ?? 0).filter(v => v > 0);
                       const avgDist   = allDist.length  ? allDist.reduce((a,b)=>a+b,0)  / allDist.length  : null;
                       const avgHsr    = allHsr.length   ? allHsr.reduce((a,b)=>a+b,0)   / allHsr.length   : null;
                       const maxSpeed  = allSpeed.length ? Math.max(...allSpeed) : null;
@@ -2243,9 +2253,9 @@ function IndividualView({
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {athleteGpsSessions.map(({ session, row }, i) => {
-                            const dist  = Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0);
-                            const hsr   = Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0);
-                            const speed = Number(row["Sprints - Max Speed (km/h)"] ?? 0);
+                            const dist  = colVal(row, "Distance - Distance (m)") ?? 0;
+                            const hsr   = colVal(row, "Distance - Abs HSR (m)") ?? 0;
+                            const speed = colVal(row, "Sprints - Max Speed (km/h)") ?? 0;
                             return (
                               <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                                 <td className="px-4 py-3">{formatDate(session.date)}</td>
