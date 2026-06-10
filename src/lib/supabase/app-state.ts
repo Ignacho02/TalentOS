@@ -102,7 +102,15 @@ type DbGpsSession = {
   notes: string | null;
   summary: GpsSessionSummary;
   raw_columns: string[];
-  raw_rows: Record<string, string | number>[];
+  // raw_rows ya no se guarda aquí — están en gps_session_rows
+};
+
+type DbGpsSessionRow = {
+  id: string;
+  session_id: string;
+  athlete_id: string | null;
+  athlete_name: string | null;
+  data: Record<string, string | number>;
 };
 
 type DbPerformanceDefinition = {
@@ -268,8 +276,18 @@ function mapTrainingLoadEntry(entry: DbTrainingLoadEntry): TrainingLoadEntry {
   };
 }
 
-function mapGpsSession(row: DbGpsSession, teamsById: Map<string, Team>): GpsSession {
+function mapGpsSession(
+  row: DbGpsSession,
+  teamsById: Map<string, Team>,
+  rowsBySession: Map<string, DbGpsSessionRow[]>,
+): GpsSession {
   const team = row.team_id ? teamsById.get(row.team_id) : undefined;
+  const sessionRows = rowsBySession.get(row.id) ?? [];
+  const rawRows: Record<string, string | number>[] = sessionRows.map((r) => ({
+    ...r.data,
+    _athleteId:   r.athlete_id   ?? "",
+    _athleteName: r.athlete_name ?? "",
+  }));
   return {
     id: row.id,
     date: row.date,
@@ -282,7 +300,7 @@ function mapGpsSession(row: DbGpsSession, teamsById: Map<string, Team>): GpsSess
     notes: row.notes ?? undefined,
     summary: row.summary ?? {},
     rawColumns: row.raw_columns ?? [],
-    rawRows: row.raw_rows ?? [],
+    rawRows,
   };
 }
 
@@ -549,7 +567,28 @@ export async function loadAppStateForSession(
       return athlete ? athleteAllowed(athlete) : false;
     });
 
-  const gpsSessions = gpsSessionsData.map((row) => mapGpsSession(row, teamsById));
+  // Filas GPS: segunda query con los IDs de sesión ya conocidos
+  const gpsSessionIds = gpsSessionsData.map((s) => s.id);
+  let gpsRowsData: DbGpsSessionRow[] = [];
+  if (gpsSessionIds.length > 0) {
+    const { data: rowsResult } = await supabase
+      .from("gps_session_rows")
+      .select("id, session_id, athlete_id, athlete_name, data")
+      .in("session_id", gpsSessionIds);
+    gpsRowsData = rowsResult ?? [];
+  }
+
+  // Agrupar filas por session_id para acceso O(1) en mapGpsSession
+  const rowsBySession = new Map<string, DbGpsSessionRow[]>();
+  for (const r of gpsRowsData) {
+    const arr = rowsBySession.get(r.session_id) ?? [];
+    arr.push(r);
+    rowsBySession.set(r.session_id, arr);
+  }
+
+  const gpsSessions = gpsSessionsData.map((row) =>
+    mapGpsSession(row, teamsById, rowsBySession)
+  );
 
   // Lista de todos los miembros del club (para la pestaña de administración)
   const clubUsers = membersData.map((member) =>
