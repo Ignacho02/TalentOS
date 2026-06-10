@@ -2239,6 +2239,120 @@ function IndividualView({
                       );
                     })()}
 
+                    {/* Player Load vs HMLD */}
+                    {athleteGpsSessions.some(({ row }) => colVal(row, "Player Load (a.u.)") !== undefined) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                          {locale === 'es' ? 'Player Load y HMLD por sesión' : 'Player Load & HMLD per session'}
+                        </p>
+                        <div className="h-56">
+                          <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
+                            <ComposedChart data={athleteGpsSessions.map(({ session, row }) => ({
+                              date: formatDate(session.date),
+                              playerLoad: colVal(row, "Player Load (a.u.)") ?? 0,
+                              hmldM: colVal(row, "Load - HMLD (m)") ?? 0,
+                            }))} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis yAxisId="left" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis yAxisId="right" orientation="right" fontSize={10} axisLine={false} tickLine={false} />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(v: any, name: any) => [formatNumber(Number(v), 1), name]} />
+                              <Legend verticalAlign="top" align="right" />
+                              <Bar yAxisId="left" dataKey="playerLoad" name="Player Load (a.u.)" fill="#8b5cf6" radius={[4,4,0,0]} opacity={0.85} />
+                              <Line yAxisId="right" type="monotone" dataKey="hmldM" name="HMLD (m)" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Accelerations & Decelerations */}
+                    {athleteGpsSessions.some(({ row }) => colVal(row, "Accelerations - High Intensity Acc Abs (count)") !== undefined) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                          {locale === 'es' ? 'Aceleraciones y deceleraciones de alta intensidad' : 'High intensity accelerations & decelerations'}
+                        </p>
+                        <div className="h-52">
+                          <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
+                            <BarChart data={athleteGpsSessions.map(({ session, row }) => ({
+                              date: formatDate(session.date),
+                              acc: colVal(row, "Accelerations - High Intensity Acc Abs (count)") ?? 0,
+                              dec: Math.abs(colVal(row, "Accelerations - High Intensity Dec Abs (count)") ?? 0),
+                            }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis fontSize={10} axisLine={false} tickLine={false} />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(v: any, name: any) => [formatNumber(Number(v), 0), name]} />
+                              <Legend verticalAlign="top" align="right" />
+                              <Bar dataKey="acc" name={locale === 'es' ? 'Acc alta int.' : 'Hi acc'} fill="#10b981" radius={[4,4,0,0]} />
+                              <Bar dataKey="dec" name={locale === 'es' ? 'Dec alta int.' : 'Hi dec'} fill="#f43f5e" radius={[4,4,0,0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Speed zones stacked area */}
+                    {athleteGpsSessions.some(({ row }) => colVal(row, "Speed Zones (m) [0.0, 6.0]") !== undefined) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                          {locale === 'es' ? 'Distribución por zonas de velocidad (m)' : 'Speed zone distribution (m)'}
+                        </p>
+                        <div className="h-56">
+                          <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
+                            <AreaChart data={athleteGpsSessions.map(({ session, row }) => ({
+                              date: formatDate(session.date),
+                              z1: colVal(row, "Speed Zones (m) [0.0, 6.0]") ?? 0,
+                              z2: colVal(row, "Speed Zones (m) [6.0, 12.0]") ?? 0,
+                              z3: colVal(row, "Speed Zones (m) [12.0, 18.0]") ?? 0,
+                              z4: colVal(row, "Speed Zones (m) [18.0, 21.0]") ?? 0,
+                              z5: colVal(row, "Speed Zones (m) [21.0, 24.0]") ?? 0,
+                              z6: colVal(row, "Speed Zones (m) [24.0, 50.0]") ?? 0,
+                            }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis fontSize={10} axisLine={false} tickLine={false} />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(v: any, name: any) => [`${formatNumber(Number(v), 0)} m`, name]} />
+                              <Legend verticalAlign="top" align="right" iconType="square" wrapperStyle={{ fontSize: 10 }} />
+                              <Area type="monotone" stackId="1" dataKey="z1" name="0–6 km/h"  stroke="#94a3b8" fill="#e2e8f0" />
+                              <Area type="monotone" stackId="1" dataKey="z2" name="6–12 km/h" stroke="#34d399" fill="#6ee7b7" />
+                              <Area type="monotone" stackId="1" dataKey="z3" name="12–18 km/h" stroke="#3b82f6" fill="#93c5fd" />
+                              <Area type="monotone" stackId="1" dataKey="z4" name="18–21 km/h" stroke="#f59e0b" fill="#fcd34d" />
+                              <Area type="monotone" stackId="1" dataKey="z5" name="21–24 km/h" stroke="#f97316" fill="#fdba74" />
+                              <Area type="monotone" stackId="1" dataKey="z6" name=">24 km/h"  stroke="#ef4444" fill="#fca5a5" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sprints count + distance */}
+                    {athleteGpsSessions.some(({ row }) => colVal(row, "Sprints Abs (count)") !== undefined) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                          {locale === 'es' ? 'Sprints: cantidad y distancia acumulada' : 'Sprints: count & accumulated distance'}
+                        </p>
+                        <div className="h-52">
+                          <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
+                            <ComposedChart data={athleteGpsSessions.map(({ session, row }) => ({
+                              date: formatDate(session.date),
+                              count: colVal(row, "Sprints Abs (count)") ?? 0,
+                              distM: colVal(row, "Sprints - Distance Abs(m)") ?? 0,
+                            }))} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis yAxisId="left" fontSize={10} axisLine={false} tickLine={false} allowDecimals={false} />
+                              <YAxis yAxisId="right" orientation="right" fontSize={10} axisLine={false} tickLine={false} unit=" m" />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(v: any, name: any) => [formatNumber(Number(v), 1), name]} />
+                              <Legend verticalAlign="top" align="right" />
+                              <Bar yAxisId="left" dataKey="count" name={locale === 'es' ? 'Nº sprints' : 'Sprint count'} fill="#0d9488" radius={[4,4,0,0]} />
+                              <Line yAxisId="right" type="monotone" dataKey="distM" name={locale === 'es' ? 'Dist. sprint (m)' : 'Sprint dist (m)'} stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Session table */}
                     <div className="overflow-hidden rounded-xl border border-slate-100">
                       <table className="w-full text-left text-sm">
