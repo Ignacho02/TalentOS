@@ -28,7 +28,7 @@ import {
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
 import { createUnifiedProfile, getGroupingBand } from "@/lib/maturation/unified-maturation";
-import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
+import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex, GpsSession } from "@/lib/types";
 import type { AlertItem } from "@/lib/maturation/analysis-helpers";
 
 const bandColors: Record<string, string> = {
@@ -711,6 +711,18 @@ function IndividualView({
       };
     });
   }, [athleteLoad]);
+
+  // GPS sessions for selected athlete (from rawRows._athleteId)
+  const athleteGpsSessions = useMemo(() => {
+    if (!selectedAthleteId) return [];
+    return (state.gpsSessions ?? [])
+      .filter(s => s.rawRows.some(r => String(r._athleteId) === selectedAthleteId))
+      .map(s => {
+        const row = s.rawRows.find(r => String(r._athleteId) === selectedAthleteId);
+        return { session: s, row: row ?? {} };
+      })
+      .sort((a, b) => a.session.date.localeCompare(b.session.date));
+  }, [state.gpsSessions, selectedAthleteId]);
 
   const maturationTimelinePoints = useMemo(() => {
     return selectedHistory.map((h) => {
@@ -2079,11 +2091,11 @@ function IndividualView({
 
           {activeSubTab === 'load' && (
             <div className="space-y-6">
-              {/* Training Load History */}
+              {/* UC Training Load History */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-6">
                   <Dumbbell className="h-5 w-5 text-teal-600" />
-                  <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Historial de Carga de Entrenamiento' : 'Training Load History'}</h3>
+                  <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Carga UC (RPE × Minutos)' : 'UC Load (RPE × Minutes)'}</h3>
                 </div>
                 
                 {athleteLoad.length > 0 || comparisonIds.length > 0 ? (
@@ -2146,6 +2158,118 @@ function IndividualView({
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                     <Dumbbell className="h-12 w-12 mb-3 opacity-20" />
                     <p>{locale === 'es' ? 'No hay registros de carga para este atleta' : 'No training load records for this athlete'}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* GPS Load Section */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-6">
+                  <MapPin className="h-5 w-5 text-emerald-600" />
+                  <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Carga GPS por sesión' : 'GPS Load per Session'}</h3>
+                </div>
+
+                {athleteGpsSessions.length > 0 ? (
+                  <div className="space-y-6">
+                    {/* Distance chart */}
+                    {athleteGpsSessions.some(({ row }) => row["Distance - Distance\n(m)"] !== undefined || row["Distance - Distance (m)"] !== undefined) && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                          {locale === 'es' ? 'Distancia por sesión (m)' : 'Distance per session (m)'}
+                        </p>
+                        <div className="h-56">
+                          <ResponsiveContainer width="99.9%" height="100%" debounce={100}>
+                            <BarChart data={athleteGpsSessions.map(({ session, row }) => ({
+                              date: formatDate(session.date),
+                              dist: Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0),
+                              hsr:  Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0),
+                            }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} />
+                              <YAxis fontSize={10} axisLine={false} tickLine={false} />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(v: any) => [`${formatNumber(Number(v), 0)} m`]} />
+                              <Legend verticalAlign="top" align="right" />
+                              <Bar dataKey="dist" name={locale === 'es' ? 'Distancia total' : 'Total distance'} fill="#6ee7b7" radius={[4,4,0,0]} />
+                              <Bar dataKey="hsr"  name="HSR" fill="#10b981" radius={[4,4,0,0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* KPI summary cards */}
+                    {(() => {
+                      const allDist   = athleteGpsSessions.map(({ row }) => Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0)).filter(v => v > 0);
+                      const allHsr    = athleteGpsSessions.map(({ row }) => Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0)).filter(v => v > 0);
+                      const allSpeed  = athleteGpsSessions.map(({ row }) => Number(row["Sprints - Max Speed (km/h)"] ?? 0)).filter(v => v > 0);
+                      const avgDist   = allDist.length  ? allDist.reduce((a,b)=>a+b,0)  / allDist.length  : null;
+                      const avgHsr    = allHsr.length   ? allHsr.reduce((a,b)=>a+b,0)   / allHsr.length   : null;
+                      const maxSpeed  = allSpeed.length ? Math.max(...allSpeed) : null;
+                      return (
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          {avgDist !== null && (
+                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-center">
+                              <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">{locale === 'es' ? 'Dist. media / sesión' : 'Avg dist / session'}</p>
+                              <p className="text-3xl font-bold text-emerald-900">{formatNumber(avgDist / 1000, 2)} km</p>
+                            </div>
+                          )}
+                          {avgHsr !== null && (
+                            <div className="p-4 bg-teal-50 rounded-2xl border border-teal-100 text-center">
+                              <p className="text-xs font-bold text-teal-600 uppercase tracking-wider mb-1">{locale === 'es' ? 'HSR media / sesión' : 'Avg HSR / session'}</p>
+                              <p className="text-3xl font-bold text-teal-900">{formatNumber(avgHsr / 1000, 2)} km</p>
+                            </div>
+                          )}
+                          {maxSpeed !== null && (
+                            <div className="p-4 bg-sky-50 rounded-2xl border border-sky-100 text-center">
+                              <p className="text-xs font-bold text-sky-600 uppercase tracking-wider mb-1">{locale === 'es' ? 'Vel. máx registrada' : 'Max speed recorded'}</p>
+                              <p className="text-3xl font-bold text-sky-900">{formatNumber(maxSpeed, 1)} km/h</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Session table */}
+                    <div className="overflow-hidden rounded-xl border border-slate-100">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 font-medium">
+                            <th className="px-4 py-3">{locale === 'es' ? 'Fecha' : 'Date'}</th>
+                            <th className="px-4 py-3">{locale === 'es' ? 'Tipo' : 'Type'}</th>
+                            <th className="px-4 py-3 text-right">{locale === 'es' ? 'Distancia' : 'Distance'}</th>
+                            <th className="px-4 py-3 text-right">HSR</th>
+                            <th className="px-4 py-3 text-right">{locale === 'es' ? 'Vel. máx' : 'Max speed'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {athleteGpsSessions.map(({ session, row }, i) => {
+                            const dist  = Number(row["Distance - Distance\n(m)"] ?? row["Distance - Distance (m)"] ?? 0);
+                            const hsr   = Number(row["Distance - Abs HSR\n(m)"]  ?? row["Distance - Abs HSR (m)"]  ?? 0);
+                            const speed = Number(row["Sprints - Max Speed (km/h)"] ?? 0);
+                            return (
+                              <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-4 py-3">{formatDate(session.date)}</td>
+                                <td className="px-4 py-3 capitalize">
+                                  <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold",
+                                    session.sessionType === "match" ? "bg-violet-100 text-violet-700" : "bg-emerald-100 text-emerald-700")}>
+                                    {session.sessionType === "match" ? <Trophy className="h-3 w-3" /> : <Dumbbell className="h-3 w-3" />}
+                                    {session.sessionType}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-medium">{dist > 0 ? `${formatNumber(dist / 1000, 2)} km` : "—"}</td>
+                                <td className="px-4 py-3 text-right">{hsr > 0 ? `${formatNumber(hsr / 1000, 2)} km` : "—"}</td>
+                                <td className="px-4 py-3 text-right font-bold text-sky-600">{speed > 0 ? `${formatNumber(speed, 1)} km/h` : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <MapPin className="h-12 w-12 mb-3 opacity-20" />
+                    <p>{locale === 'es' ? 'No hay sesiones GPS para este atleta' : 'No GPS sessions for this athlete'}</p>
                   </div>
                 )}
               </div>

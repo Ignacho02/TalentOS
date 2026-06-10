@@ -1326,6 +1326,16 @@ export function PerformanceSection({
                 const tl  = totalLoadForDate(ds);
                 const isSel   = selectedDate === ds;
                 const isToday = ds === new Date().toISOString().split("T")[0];
+                const hasAny  = ens.length > 0 || gpsSess.length > 0;
+
+                // Load bar color (bottom strip)
+                const loadBarColor =
+                  tl === 0   ? "" :
+                  tl < 200   ? "bg-emerald-400" :
+                  tl < 400   ? "bg-yellow-400" :
+                  tl < 600   ? "bg-orange-400" :
+                               "bg-red-400";
+
                 return (
                   <div
                     key={ds}
@@ -1334,20 +1344,27 @@ export function PerformanceSection({
                       else { setSelectedDate(ds); setTlDate(ds); setTlShowPanel(false); }
                     }}
                     className={cn(
-                      "min-h-20 border-b border-r border-line/30 p-1.5 cursor-pointer transition hover:bg-white/80 select-none",
-                      loadColor(tl),
-                      isSel && "ring-2 ring-accent ring-inset",
-                      isToday && "bg-accent/5"
+                      "relative min-h-20 border-b border-r border-line/30 p-1.5 cursor-pointer transition select-none overflow-hidden",
+                      hasAny ? "bg-white hover:bg-zinc-50" : "bg-white/40 hover:bg-white/70",
+                      isToday && "bg-accent/5 hover:bg-accent/10",
+                      isSel && "ring-2 ring-inset ring-accent"
                     )}
                   >
-                    <div className="flex items-start justify-between">
-                      <span className={cn("text-sm font-semibold leading-none", isToday ? "text-accent" : "text-zinc-700")}>{day}</span>
-                      {tl > 0 && <span className="text-[10px] font-bold text-zinc-500">{tl}</span>}
+                    {/* Day number + load value */}
+                    <div className="flex items-start justify-between mb-1">
+                      <span className={cn(
+                        "text-sm font-semibold leading-none",
+                        isToday ? "text-accent" : "text-zinc-700"
+                      )}>{day}</span>
+                      {tl > 0 && (
+                        <span className="text-[9px] font-bold text-zinc-400 leading-none">{tl}</span>
+                      )}
                     </div>
-                    <div className="mt-1 flex flex-col gap-0.5">
-                      {/* UC session badges */}
+
+                    {/* Badges */}
+                    <div className="flex flex-col gap-0.5">
+                      {/* UC badges — one per unique sessionType+team */}
                       {(() => {
-                        // group entries by sessionType+teamId to get distinct sessions
                         const seen = new Map<string, { type: "training"|"match"; teamName: string }>();
                         ens.forEach(e => {
                           const ath = state.athletes.find(a => a.id === e.athleteId);
@@ -1357,36 +1374,50 @@ export function PerformanceSection({
                         });
                         return Array.from(seen.values()).map(({ type, teamName }) => (
                           <div key={`${type}::${teamName}`}
-                            className={cn("flex items-center gap-0.5 rounded-full px-1.5 py-0.5 w-fit",
-                              type === "match" ? "bg-purple-50" : "bg-blue-50")}>
+                            className={cn(
+                              "flex items-center gap-0.5 rounded-md px-1 py-0.5 w-fit",
+                              type === "match"
+                                ? "bg-violet-100 text-violet-700"
+                                : "bg-sky-100 text-sky-700"
+                            )}>
                             {type === "match"
-                              ? <Trophy className={cn("h-2.5 w-2.5 shrink-0 text-purple-500")} />
-                              : <Dumbbell className={cn("h-2.5 w-2.5 shrink-0 text-blue-500")} />}
+                              ? <Trophy className="h-2.5 w-2.5 shrink-0" />
+                              : <Dumbbell className="h-2.5 w-2.5 shrink-0" />}
                             {teamName && (
-                              <span className={cn("text-[8px] font-semibold truncate max-w-[52px]",
-                                type === "match" ? "text-purple-600" : "text-blue-600")}>
+                              <span className="text-[8px] font-semibold truncate max-w-[48px]">
                                 {teamName}
                               </span>
                             )}
                           </div>
                         ));
                       })()}
-                      {/* GPS session badges */}
+
+                      {/* GPS badges */}
                       {gpsSess.map(session => (
                         <div key={session.id}
-                          className={cn("flex items-center gap-0.5 rounded-full px-1.5 py-0.5 w-fit",
-                            session.sessionType === "match" ? "bg-purple-50" : "bg-emerald-50")}>
-                          <MapPin className={cn("h-2.5 w-2.5 shrink-0",
-                            session.sessionType === "match" ? "text-purple-500" : "text-emerald-500")} />
+                          className={cn(
+                            "flex items-center gap-0.5 rounded-md px-1 py-0.5 w-fit",
+                            session.sessionType === "match"
+                              ? "bg-violet-100 text-violet-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          )}>
+                          <MapPin className="h-2.5 w-2.5 shrink-0" />
                           {session.teamName && (
-                            <span className={cn("text-[8px] font-semibold truncate max-w-[52px]",
-                              session.sessionType === "match" ? "text-purple-600" : "text-emerald-600")}>
+                            <span className="text-[8px] font-semibold truncate max-w-[48px]">
                               {session.teamName}
                             </span>
                           )}
                         </div>
                       ))}
                     </div>
+
+                    {/* Load intensity bar at bottom */}
+                    {tl > 0 && (
+                      <div className={cn(
+                        "absolute bottom-0 left-0 right-0 h-0.5",
+                        loadBarColor
+                      )} />
+                    )}
                   </div>
                 );
               })}
