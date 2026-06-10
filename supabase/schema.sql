@@ -200,3 +200,53 @@ drop policy if exists "club isolation" on performance_definitions;
 create policy "club isolation" on performance_definitions
   for all using (club_id = my_club_id())
   with check (club_id = my_club_id());
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- GPS Sessions
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists gps_sessions (
+  id            uuid        primary key default gen_random_uuid(),
+  club_id       uuid        not null references clubs(id) on delete cascade,
+  team_id       uuid        references teams(id) on delete set null,
+  date          date        not null,
+  session_type  text        not null check (session_type in ('training','match')),
+  file_name     text        not null,
+  imported_at   timestamptz not null default now(),
+  notes         text,
+  summary       jsonb       not null default '{}',
+  raw_columns   jsonb       not null default '[]',
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists gps_sessions_club_date_idx on gps_sessions(club_id, date);
+create index if not exists gps_sessions_team_id_idx   on gps_sessions(team_id);
+
+alter table gps_sessions enable row level security;
+
+drop policy if exists "club isolation" on gps_sessions;
+create policy "club isolation" on gps_sessions
+  for all using  (club_id = my_club_id())
+  with check     (club_id = my_club_id());
+
+create table if not exists gps_session_rows (
+  id            uuid  primary key default gen_random_uuid(),
+  session_id    uuid  not null references gps_sessions(id) on delete cascade,
+  athlete_id    uuid  references athletes(id) on delete set null,
+  athlete_name  text,
+  data          jsonb not null default '{}'
+);
+
+create index if not exists gps_session_rows_session_idx on gps_session_rows(session_id);
+create index if not exists gps_session_rows_athlete_idx on gps_session_rows(athlete_id);
+
+alter table gps_session_rows enable row level security;
+
+drop policy if exists "club isolation" on gps_session_rows;
+create policy "club isolation" on gps_session_rows
+  for all using (
+    session_id in (select id from gps_sessions where club_id = my_club_id())
+  )
+  with check (
+    session_id in (select id from gps_sessions where club_id = my_club_id())
+  );
