@@ -5,9 +5,10 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, ResponsiveContainer,
   ReferenceLine, Scatter, ScatterChart, Tooltip, XAxis, YAxis, Legend,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import {
-  AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Filter,
+  AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
   ArrowLeft, ArrowRight, Info, X, Menu, Maximize2
@@ -1316,7 +1317,7 @@ function IndividualView({
                 (() => {
                   const usesPAH = selectedLatestProfile.bioBandingStrategy === 'pah';
                   const aphv = selectedLatestProfile.aphv;
-                  const chronoAge = selectedLatest.inputs.chronologicalAge;
+                  const chronoAge = selectedLatest.derivedMetrics.chronologicalAge;
                   const offset = selectedLatestProfile.offset;
                   const currentBand = selectedLatestProfile.maturityBand;
 
@@ -1846,6 +1847,97 @@ function IndividualView({
                     })}
                   </div>
                 </div>
+              )}
+
+              {/* STAR / RADAR CHART: Performance profile by area vs comparison group */}
+              {performancePercentileStrips.length >= 3 && (
+                (() => {
+                  // Build one data point per area: average percentile of all tests in that area
+                  const areaAverages = performanceAreaOrder
+                    .map((area) => {
+                      const strips = performancePercentileStrips.filter((s) => s.area === area);
+                      if (strips.length === 0) return null;
+                      const avg = Math.round(strips.reduce((sum, s) => sum + s.percentile, 0) / strips.length);
+                      return { area, label: getAreaLabel(area), percentile: avg, count: strips.length };
+                    })
+                    .filter((d): d is { area: PerformanceArea; label: string; percentile: number; count: number } => d !== null);
+
+                  if (areaAverages.length < 3) return null;
+
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Zap className="h-5 w-5 text-amber-500" />
+                        <h3 className="font-bold text-slate-900">
+                          {locale === 'es' ? 'Perfil de Rendimiento (Gráfico Estrella)' : 'Performance Profile (Star Chart)'}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-400 mb-4 ml-7">
+                        {locale === 'es'
+                          ? `Percentil medio por área respecto al grupo comparativo`
+                          : `Average percentile per area vs comparison group`}
+                      </p>
+                      <ResponsiveContainer width="99.9%" height={300} minWidth={0} debounce={100}>
+                        <RadarChart data={areaAverages} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+                          <PolarGrid stroke="#e2e8f0" />
+                          <PolarAngleAxis
+                            dataKey="label"
+                            tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                          />
+                          <PolarRadiusAxis
+                            angle={90}
+                            domain={[0, 100]}
+                            tick={{ fontSize: 9, fill: '#94a3b8' }}
+                            tickCount={5}
+                          />
+                          {/* Reference area: median (50th percentile) */}
+                          <Radar
+                            name={locale === 'es' ? 'Media grupo' : 'Group median'}
+                            dataKey={() => 50}
+                            stroke="#94a3b8"
+                            fill="#94a3b8"
+                            fillOpacity={0.08}
+                            strokeDasharray="4 3"
+                            strokeWidth={1}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                          {/* Athlete profile */}
+                          <Radar
+                            name={selectedLatest?.inputs.athleteName ?? (locale === 'es' ? 'Atleta' : 'Athlete')}
+                            dataKey="percentile"
+                            stroke="#0d9488"
+                            fill="#0d9488"
+                            fillOpacity={0.25}
+                            strokeWidth={2}
+                            dot={{ r: 4, fill: '#0d9488', strokeWidth: 0 }}
+                          />
+                          <Tooltip
+                            formatter={(value: any, name: any) => [`${value ?? '—'}º percentile`, name] as [string, string]}
+                            contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
+                          />
+                          <Legend
+                            iconSize={10}
+                            wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                      {/* Mini legend: test count per area */}
+                      <div className="mt-2 flex flex-wrap justify-center gap-3">
+                        {areaAverages.map((d) => {
+                          const style = performanceAreaStyles[d.area] ?? performanceAreaStyles.physical;
+                          return (
+                            <span key={d.area} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${style.chipIdle}`}>
+                              {d.label}
+                              <span className="opacity-60">({d.count} {locale === 'es' ? 'test' : 'test'}{d.count !== 1 ? 's' : ''})</span>
+                              <span className="font-bold">{d.percentile}º</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()
               )}
 
               {false && filteredAthletePerformance.length > 0 && (
@@ -2452,6 +2544,79 @@ function IndividualView({
 // ---------------------------------------------------------------------------
 // COLLECTIVE TAB
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Helper: compute group stats from a list of assessed athletes
+// ---------------------------------------------------------------------------
+function computeGroupStats(
+  groupData: (MaturationResult & { zScore?: number })[],
+  groupLabel: string,
+  performanceEntries: PerformanceEntry[],
+) {
+  if (groupData.length === 0) return null;
+  const offsets = groupData.map((a) => a.classification.primaryOffset);
+  const meanOff = offsets.reduce((s, v) => s + v, 0) / offsets.length;
+  const sdOff = offsets.length > 1
+    ? Math.sqrt(offsets.reduce((s, v) => s + (v - meanOff) ** 2, 0) / offsets.length)
+    : 0;
+  const bandCounts: Record<MaturityBand, number> = { "Pre-PHV": 0, "Mid-PHV": 0, "Post-PHV": 0 };
+  groupData.forEach((a) => { if (a.classification.maturityBand) bandCounts[a.classification.maturityBand]++; });
+  const sorted = [...groupData].sort((a, b) => a.classification.primaryOffset - b.classification.primaryOffset);
+
+  const athleteIds = new Set(groupData.map((a) => a.inputs.athleteId));
+  const latestPsychMap = new Map<string, PerformanceEntry>();
+  performanceEntries
+    .filter((e) => e.area === "psychological" && athleteIds.has(e.athleteId))
+    .forEach((e) => {
+      const key = `${e.athleteId}-${e.testName}`;
+      const existing = latestPsychMap.get(key);
+      if (!existing || e.measurementDate > existing.measurementDate) latestPsychMap.set(key, e);
+    });
+  const psychAverages = Array.from(latestPsychMap.values()).reduce(
+    (acc: Record<string, { total: number; count: number }>, e) => {
+      if (!acc[e.testName]) acc[e.testName] = { total: 0, count: 0 };
+      acc[e.testName].total += e.value; acc[e.testName].count += 1; return acc;
+    }, {}
+  );
+  const psychScores = Object.entries(psychAverages).map(([name, d]) => ({
+    name, value: Number((d.total / d.count).toFixed(2)),
+  }));
+
+  // Per-area performance averages (latest entry per athlete per test)
+  const areaTestMap = new Map<string, { total: number; count: number; area: PerformanceArea }>();
+  performanceEntries
+    .filter((e) => athleteIds.has(e.athleteId) && e.area !== "psychological")
+    .sort((a, b) => b.measurementDate.localeCompare(a.measurementDate))
+    .forEach((e) => {
+      const key = `${e.athleteId}-${e.testName}`;
+      if (!areaTestMap.has(`seen-${key}`)) {
+        areaTestMap.set(`seen-${key}`, { total: 0, count: 0, area: e.area });
+        const agg = areaTestMap.get(e.testName) ?? { total: 0, count: 0, area: e.area };
+        agg.total += e.value; agg.count += 1;
+        areaTestMap.set(e.testName, agg);
+      }
+    });
+
+  return {
+    label: groupLabel,
+    athletes: groupData.map((a) => ({
+      ...a,
+      zScore: sdOff === 0 ? 0 : (a.classification.primaryOffset - meanOff) / sdOff,
+    })),
+    meanOffset: meanOff,
+    meanAge: groupData.reduce((s, a) => s + a.derivedMetrics.chronologicalAge, 0) / groupData.length,
+    meanStature: groupData.reduce((s, a) => s + a.inputs.statureCm, 0) / groupData.length,
+    meanWeight: groupData.reduce((s, a) => s + a.inputs.bodyMassKg, 0) / groupData.length,
+    bandCounts,
+    sdOffset: sdOff,
+    earliest: sorted[0],
+    latest: sorted[sorted.length - 1],
+    maturitySpread: sorted.length > 1 ? sorted[sorted.length - 1].classification.primaryOffset - sorted[0].classification.primaryOffset : 0,
+    psychScores,
+  };
+}
+
+type CollectiveGroupMode = "team" | "maturityBand";
+
 function CollectiveView({
   assessments,
   state,
@@ -2463,31 +2628,30 @@ function CollectiveView({
   t: (k: string) => string;
   locale: string;
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
 
-  const teams = useMemo(
-    () => getUniqueAthleteTeams(state.athletes),
-    [state.athletes],
-  );
+  const teams = useMemo(() => getUniqueAthleteTeams(state.athletes), [state.athletes]);
 
-  const [selectedTeam, setSelectedTeam] = usePersistentState<string>(
+  // Group mode: by team or by maturity band
+  const [groupMode, setGroupMode] = useState<CollectiveGroupMode>("team");
+
+  // Primary group selector (team or band)
+  const [primaryGroup, setPrimaryGroup] = usePersistentState<string>(
     "analysis_collective_team",
     teams[0] ?? ""
   );
 
+  // Secondary group for comparison (optional)
+  const [compareGroup, setCompareGroup] = useState<string>("");
+
   // Initialize with the first team if none has been persisted yet
   useEffect(() => {
-    if (!selectedTeam && teams.length > 0) {
-      setSelectedTeam(teams[0]);
-    }
-  }, [teams, selectedTeam, setSelectedTeam]);
+    if (!primaryGroup && teams.length > 0) setPrimaryGroup(teams[0]);
+  }, [teams, primaryGroup, setPrimaryGroup]);
 
-  // Apply the active engine's unified profile so classification.primaryOffset
-  // and classification.maturityBand reflect the user-selected engine, not the
-  // default combined engine.
+  // Reset compare group when mode or primary changes
+  useEffect(() => { setCompareGroup(""); }, [groupMode, primaryGroup]);
+
   const latestByAthlete = useMemo(
     () => getLatestAssessmentsByAthlete(assessments).map((assessment) => {
       const athleteSex = resolveAssessmentSex(assessment, state.athletes);
@@ -2504,97 +2668,51 @@ function CollectiveView({
     [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
-  const teamStats = useMemo(() => {
-    if (!selectedTeam) return null;
-    const teamData = latestByAthlete.filter((a) => a.inputs.teamName === selectedTeam);
-    if (teamData.length === 0) return null;
+  // Available groups depending on mode
+  const availableGroups = useMemo(() => {
+    if (groupMode === "team") return teams;
+    const bands = new Set<string>();
+    latestByAthlete.forEach((a) => { if (a.classification.maturityBand) bands.add(a.classification.maturityBand); });
+    return (["Pre-PHV", "Mid-PHV", "Post-PHV"] as MaturityBand[]).filter((b) => bands.has(b));
+  }, [groupMode, teams, latestByAthlete]);
 
-    const offsets = teamData.map((a) => a.classification.primaryOffset);
-    const meanOff = offsets.reduce((s, v) => s + v, 0) / offsets.length;
-    const sdOff = offsets.length > 1 ? Math.sqrt(offsets.reduce((s, v) => s + (v - meanOff) ** 2, 0) / offsets.length) : 0;
+  // Filter athletes for a given group key
+  const getGroupAthletes = (key: string) =>
+    groupMode === "team"
+      ? latestByAthlete.filter((a) => a.inputs.teamName === key)
+      : latestByAthlete.filter((a) => a.classification.maturityBand === key);
 
-    const bandCounts: Record<MaturityBand, number> = { "Pre-PHV": 0, "Mid-PHV": 0, "Post-PHV": 0 };
-    teamData.forEach((a) => { if (a.classification.maturityBand) bandCounts[a.classification.maturityBand]++; });
+  const primaryStats = useMemo(() => {
+    if (!primaryGroup) return null;
+    return computeGroupStats(getGroupAthletes(primaryGroup), primaryGroup, state.performanceEntries);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestByAthlete, primaryGroup, groupMode, state.performanceEntries]);
 
-    const sorted = [...teamData].sort((a, b) => a.classification.primaryOffset - b.classification.primaryOffset);
+  const compareStats = useMemo(() => {
+    if (!compareGroup) return null;
+    return computeGroupStats(getGroupAthletes(compareGroup), compareGroup, state.performanceEntries);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestByAthlete, compareGroup, groupMode, state.performanceEntries]);
 
-    // Psychological preparation for the team (Only latest per athlete)
-    const teamAthleteIds = new Set(teamData.map(a => a.inputs.athleteId));
-    
-    const latestPsychMap = new Map<string, PerformanceEntry>();
-    state.performanceEntries
-      .filter(e => e.area === "psychological" && teamAthleteIds.has(e.athleteId))
-      .forEach(e => {
-        const key = `${e.athleteId}-${e.testName}`;
-        const existing = latestPsychMap.get(key);
-        if (!existing || e.measurementDate > existing.measurementDate) {
-          latestPsychMap.set(key, e);
-        }
-      });
-    
-    const psychEntries = Array.from(latestPsychMap.values());
-    
-    // Average psych scores
-    const psychAverages = psychEntries.reduce((acc: Record<string, { total: number; count: number }>, e: PerformanceEntry) => {
-      if (!acc[e.testName]) acc[e.testName] = { total: 0, count: 0 };
-      acc[e.testName].total += e.value;
-      acc[e.testName].count += 1;
-      return acc;
-    }, {} as Record<string, { total: number; count: number }>);
-
-    const psychScores = Object.entries(psychAverages).map(([name, data]) => ({
-      name,
-      value: Number((data.total / data.count).toFixed(2))
-    }));
-
-    return {
-      athletes: teamData.map((a) => ({
-        ...a,
-        zScore: sdOff === 0 ? 0 : (a.classification.primaryOffset - meanOff) / sdOff,
-      })),
-      meanOffset: meanOff,
-      meanAge: teamData.reduce((s: number, a: MaturationResult) => s + a.derivedMetrics.chronologicalAge, 0) / teamData.length,
-      meanStature: teamData.reduce((s: number, a: MaturationResult) => s + a.inputs.statureCm, 0) / teamData.length,
-      meanWeight: teamData.reduce((s: number, a: MaturationResult) => s + a.inputs.bodyMassKg, 0) / teamData.length,
-      bandCounts,
-      sdOffset: sdOff,
-      earliest: sorted[0],
-      latest: sorted[sorted.length - 1],
-      maturitySpread: sorted.length > 1 ? sorted[sorted.length - 1].classification.primaryOffset - sorted[0].classification.primaryOffset : 0,
-      psychScores,
-    };
-  }, [latestByAthlete, selectedTeam, state.performanceEntries]);
-
-  // Hack to force Recharts to re-measure after animations/tab switches
+  // Force Recharts to re-measure after tab/group changes
   useEffect(() => {
-    const timer = setTimeout(() => {
-      window.dispatchEvent(new Event('resize'));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [selectedTeam]);
+    const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 300);
+    return () => clearTimeout(t);
+  }, [primaryGroup, compareGroup, groupMode]);
 
-  const distributionData = teamStats
-    ? [{
-        name: selectedTeam,
-        "Pre-PHV": teamStats.bandCounts["Pre-PHV"],
-        "Mid-PHV": teamStats.bandCounts["Mid-PHV"],
-        "Post-PHV": teamStats.bandCounts["Post-PHV"],
-      }]
-    : [];
-
-  const offsetData = teamStats
-    ? teamStats.athletes
+  // ---- Derived chart data ----
+  const offsetData = primaryStats
+    ? primaryStats.athletes
         .map((a) => ({
           name: a.inputs.athleteName,
           offset: Number(a.classification.primaryOffset.toFixed(2)),
-          zScore: Number(a.zScore.toFixed(2)),
           band: a.classification.maturityBand,
         }))
         .sort((a, b) => a.offset - b.offset)
     : [];
 
-  const maturityScatterData = teamStats
-    ? teamStats.athletes.map((a) => ({
+  const scatterPrimary = primaryStats
+    ? primaryStats.athletes.map((a) => ({
         age: Number(a.derivedMetrics.chronologicalAge.toFixed(2)),
         offset: Number(a.classification.primaryOffset.toFixed(2)),
         name: a.inputs.athleteName,
@@ -2602,300 +2720,447 @@ function CollectiveView({
       }))
     : [];
 
-  const handleExportPDF = () => {
-    window.print();
+  const scatterCompare = compareStats
+    ? compareStats.athletes.map((a) => ({
+        age: Number(a.derivedMetrics.chronologicalAge.toFixed(2)),
+        offset: Number(a.classification.primaryOffset.toFixed(2)),
+        name: a.inputs.athleteName,
+        band: a.classification.maturityBand,
+      }))
+    : [];
+
+  // Comparison bar data: key metrics side-by-side
+  const comparisonMetrics = (primaryStats && compareStats)
+    ? [
+        { label: locale === 'es' ? 'Offset medio' : 'Mean offset', primary: Number(primaryStats.meanOffset.toFixed(2)), compare: Number(compareStats.meanOffset.toFixed(2)) },
+        { label: locale === 'es' ? 'Edad media' : 'Mean age', primary: Number(primaryStats.meanAge.toFixed(2)), compare: Number(compareStats.meanAge.toFixed(2)) },
+        { label: locale === 'es' ? 'Talla media (cm)' : 'Mean stature (cm)', primary: Number(primaryStats.meanStature.toFixed(1)), compare: Number(compareStats.meanStature.toFixed(1)) },
+        { label: locale === 'es' ? 'Masa media (kg)' : 'Mean mass (kg)', primary: Number(primaryStats.meanWeight.toFixed(1)), compare: Number(compareStats.meanWeight.toFixed(1)) },
+        { label: locale === 'es' ? 'Dispersión maduración' : 'Maturity spread', primary: Number(primaryStats.maturitySpread.toFixed(2)), compare: Number(compareStats.maturitySpread.toFixed(2)) },
+      ]
+    : [];
+
+  const bandLabels: Record<MaturityBand, string> = {
+    "Pre-PHV": locale === 'es' ? 'Pre-PHV' : 'Pre-PHV',
+    "Mid-PHV": locale === 'es' ? 'En-PHV' : 'Mid-PHV',
+    "Post-PHV": locale === 'es' ? 'Post-PHV' : 'Post-PHV',
   };
 
-  const getTeamAdvice = () => {
-    if (!teamStats) return [];
+  const getBandStyle = (band: string | null) => {
+    if (band === "Pre-PHV") return "bg-teal-100 text-teal-800 border-teal-200";
+    if (band === "Mid-PHV") return "bg-amber-100 text-amber-800 border-amber-200";
+    if (band === "Post-PHV") return "bg-slate-200 text-slate-700 border-slate-300";
+    return "bg-slate-100 text-slate-500";
+  };
+
+  const getTeamAdvice = (stats: ReturnType<typeof computeGroupStats>) => {
+    if (!stats) return [];
     const advice = [];
-    
-    // Maturation-based advice
-    const { bandCounts } = teamStats;
-    const total = teamStats.athletes.length;
-    
-    if (bandCounts["Mid-PHV"] / total > 0.4) {
-      advice.push({
-        title: t("analysis.collective.adviceHighMidPHVTitle"),
-        text: t("analysis.collective.adviceHighMidPHVText"),
-        type: "warning"
-      });
-    } else if (bandCounts["Pre-PHV"] / total > 0.6) {
-      advice.push({
-        title: t("analysis.collective.adviceHighPrePHVTitle"),
-        text: t("analysis.collective.adviceHighPrePHVText"),
-        type: "info"
-      });
-    } else if (bandCounts["Post-PHV"] / total > 0.6) {
-      advice.push({
-        title: t("analysis.collective.adviceHighPostPHVTitle"),
-        text: t("analysis.collective.adviceHighPostPHVText"),
-        type: "success"
-      });
-    }
-
-    // Psychological-based advice
-    const lowPsych = teamStats.psychScores.filter(s => s.value < 6); // Assuming 1-10 scale
-    if (lowPsych.length > 0) {
-      advice.push({
-        title: t("analysis.collective.advicePsychTitle"),
-        text: t("analysis.collective.advicePsychText").replace("{metrics}", lowPsych.map(s => s.name).join(", ")),
-        type: "warning"
-      });
-    }
-
+    const { bandCounts } = stats;
+    const total = stats.athletes.length;
+    if (bandCounts["Mid-PHV"] / total > 0.4) advice.push({ title: t("analysis.collective.adviceHighMidPHVTitle"), text: t("analysis.collective.adviceHighMidPHVText"), type: "warning" });
+    else if (bandCounts["Pre-PHV"] / total > 0.6) advice.push({ title: t("analysis.collective.adviceHighPrePHVTitle"), text: t("analysis.collective.adviceHighPrePHVText"), type: "info" });
+    else if (bandCounts["Post-PHV"] / total > 0.6) advice.push({ title: t("analysis.collective.adviceHighPostPHVTitle"), text: t("analysis.collective.adviceHighPostPHVText"), type: "success" });
+    const lowPsych = stats.psychScores.filter((s) => s.value < 6);
+    if (lowPsych.length > 0) advice.push({ title: t("analysis.collective.advicePsychTitle"), text: t("analysis.collective.advicePsychText").replace("{metrics}", lowPsych.map((s) => s.name).join(", ")), type: "warning" });
     return advice;
   };
 
+  // Stacked band distribution for multi-group comparison
+  const bandDistributionData = useMemo(() => {
+    return availableGroups.map((g) => {
+      const athletes = getGroupAthletes(g);
+      const pre = athletes.filter((a) => a.classification.maturityBand === "Pre-PHV").length;
+      const mid = athletes.filter((a) => a.classification.maturityBand === "Mid-PHV").length;
+      const post = athletes.filter((a) => a.classification.maturityBand === "Post-PHV").length;
+      return { name: g, "Pre-PHV": pre, "Mid-PHV": mid, "Post-PHV": post, total: athletes.length };
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableGroups, latestByAthlete, groupMode]);
+
+  const COMPARE_COLOR = "#6366f1";
+  const PRIMARY_COLOR = "#0d9488";
+
   return (
     <div className="space-y-6">
-      {/* Team selector */}
-      <div className="flex items-center justify-between no-print">
+
+      {/* ── TOOLBAR ── */}
+      <div className="flex flex-wrap items-center gap-3 no-print">
+        {/* Mode toggle */}
+        <div className="flex rounded-xl border border-slate-200 bg-white overflow-hidden text-sm font-semibold shadow-sm">
+          <button
+            type="button"
+            onClick={() => setGroupMode("team")}
+            className={`px-4 py-2 transition-colors ${groupMode === "team" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            <span className="flex items-center gap-1.5"><Users className="h-4 w-4" />{locale === 'es' ? 'Por equipo' : 'By team'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setGroupMode("maturityBand")}
+            className={`px-4 py-2 transition-colors ${groupMode === "maturityBand" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            <span className="flex items-center gap-1.5"><Activity className="h-4 w-4" />{locale === 'es' ? 'Por maduración' : 'By maturity'}</span>
+          </button>
+        </div>
+
+        {/* Primary group */}
         <select
-          value={selectedTeam}
-          onChange={(e) => setSelectedTeam(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm"
+          value={primaryGroup}
+          onChange={(e) => setPrimaryGroup(e.target.value)}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/10"
         >
-          <option value="">{t("analysis.collective.selectTeam")}</option>
-          {teams.map((team) => (
-            <option key={team} value={team}>{team}</option>
-          ))}
+          <option value="">{locale === 'es' ? '— Grupo principal —' : '— Primary group —'}</option>
+          {availableGroups.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        <button 
-          onClick={handleExportPDF}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
+
+        {/* Compare group (optional) */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{locale === 'es' ? 'vs' : 'vs'}</span>
+          <select
+            value={compareGroup}
+            onChange={(e) => setCompareGroup(e.target.value)}
+            className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10"
+          >
+            <option value="">{locale === 'es' ? '— Sin comparativa —' : '— No comparison —'}</option>
+            {availableGroups.filter((g) => g !== primaryGroup).map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+          {compareGroup && (
+            <button type="button" onClick={() => setCompareGroup("")} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={() => window.print()}
+          className="ml-auto flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-colors shadow-sm"
         >
-          <Download className="h-4 w-4" />
-          {t("common.export")} PDF
+          <Download className="h-4 w-4" />PDF
         </button>
       </div>
 
-      {!teamStats ? (
+      {/* ── OVERVIEW: all groups band distribution ── */}
+      {bandDistributionData.length > 1 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Group className="h-5 w-5 text-slate-600" />
+            <h3 className="font-bold text-slate-900">{locale === 'es' ? 'Distribución madurativa — todos los grupos' : 'Maturity distribution — all groups'}</h3>
+          </div>
+          <ResponsiveContainer width="99.9%" height={180} minWidth={0} debounce={100}>
+            <BarChart data={bandDistributionData} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={(val: any, name: any) => [formatNumber(Number(val), 0), name]} contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,.1)", fontSize: 12 }} />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="Pre-PHV" stackId="a" fill={bandColors["Pre-PHV"]} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="Mid-PHV" stackId="a" fill={bandColors["Mid-PHV"]} />
+              <Bar dataKey="Post-PHV" stackId="a" fill={bandColors["Post-PHV"]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {!primaryStats ? (
         <div className="h-48 flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
           <p>{t("analysis.collective.noData")}</p>
         </div>
       ) : (
         <div className="space-y-6 print:space-y-8">
           <div className="hidden print:block border-b pb-4 mb-4">
-            <h1 className="text-2xl font-bold">{t("analysis.collective.reportTitle")}: {selectedTeam}</h1>
+            <h1 className="text-2xl font-bold">{t("analysis.collective.reportTitle")}: {primaryGroup}{compareGroup ? ` vs ${compareGroup}` : ""}</h1>
             <p className="text-slate-500">{formatDate(new Date().toISOString())}</p>
           </div>
 
-          {/* Advice Section */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-4">
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-teal-600" />
-                {t("analysis.collective.strategicAdvice")}
-              </h3>
-              <div className="space-y-3">
-                {getTeamAdvice().map((a, i) => (
-                  <div key={i} className={`p-4 rounded-xl border ${
-                    a.type === "warning" ? "bg-amber-50 border-amber-200" :
-                    a.type === "success" ? "bg-emerald-50 border-emerald-200" : "bg-blue-50 border-blue-200"
-                  }`}>
-                    <h4 className="font-bold text-sm mb-1">{a.title}</h4>
-                    <p className="text-sm opacity-90">{a.text}</p>
+          {/* ── KPI CARDS: primary (and compare) ── */}
+          <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+            {[
+              { label: t("analysis.collective.avgOffset"), val: primaryStats.meanOffset, cval: compareStats?.meanOffset, explain: t("analysis.collective.avgOffsetExplanation"), suffix: "" },
+              { label: t("analysis.collective.avgAge"), val: primaryStats.meanAge, cval: compareStats?.meanAge, explain: t("analysis.collective.avgAgeExplanation"), suffix: ` ${t("analysis.collective.years")}` },
+              { label: t("analysis.collective.avgStature"), val: primaryStats.meanStature, cval: compareStats?.meanStature, explain: t("analysis.collective.avgStatureExplanation"), suffix: " cm" },
+              { label: t("analysis.collective.avgWeight"), val: primaryStats.meanWeight, cval: compareStats?.meanWeight, explain: t("analysis.collective.avgWeightExplanation"), suffix: " kg" },
+            ].map(({ label, val, cval, explain, suffix }) => (
+              <div key={label} className="metric-card rounded-[1.75rem] p-5 relative group">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-ink-soft">{label}</p>
+                  <div className="relative group/tooltip">
+                    <Info className="h-3.5 w-3.5 text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
+                    <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-10 shadow-xl pointer-events-none font-normal">
+                      {explain}
+                      <div className="absolute top-full right-1.5 border-4 border-transparent border-t-slate-800"></div>
+                    </div>
                   </div>
-                ))}
-                {getTeamAdvice().length === 0 && (
-                  <p className="text-sm text-slate-500 italic">{t("analysis.collective.noAdvice")}</p>
+                </div>
+                <p suppressHydrationWarning className="mt-1 text-2xl font-bold" style={{ color: PRIMARY_COLOR }}>{formatNumber(val, 2)}{suffix}</p>
+                {cval !== undefined && (
+                  <p suppressHydrationWarning className="text-sm font-semibold mt-0.5" style={{ color: COMPARE_COLOR }}>
+                    {formatNumber(cval, 2)}{suffix}
+                    <span className={`ml-1.5 text-xs font-bold ${val - cval > 0 ? "text-emerald-600" : val - cval < 0 ? "text-rose-600" : "text-slate-400"}`}>
+                      {val - cval > 0 ? "▲" : val - cval < 0 ? "▼" : "="}{formatNumber(Math.abs(val - cval), 2)}
+                    </span>
+                  </p>
+                )}
+                {cval === undefined && (
+                  <div className="mt-2 h-1 rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.min(100, Math.max(0, ((val + 5) / 10) * 100))}%` }} />
+                  </div>
                 )}
               </div>
-            </div>
-
-            <div className="panel rounded-[1.75rem] p-6">
-              <h2 className="mb-4 text-lg font-semibold">{t("analysis.collective.distributionTitle")}</h2>
-              <div className="h-56 w-full relative">
-                <ResponsiveContainer width="99.9%" height={224} minWidth={0} debounce={100}>
-                  <BarChart layout="vertical" data={distributionData} margin={{ left: 24, right: 24 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" hide />
-                    <Tooltip formatter={(val: any) => [formatNumber(Number(val), 0), t("analysisExtra.count")]} />
-                    <Legend />
-                    <Bar dataKey="Pre-PHV" stackId="a" fill={bandColors["Pre-PHV"]} />
-                    <Bar dataKey="Mid-PHV" stackId="a" fill={bandColors["Mid-PHV"]} />
-                    <Bar dataKey="Post-PHV" stackId="a" fill={bandColors["Post-PHV"]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            ))}
           </div>
 
-          {/* Stats cards */}
-          <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-            <div className="metric-card rounded-[1.75rem] p-5 relative group">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm text-ink-soft">{t("analysis.collective.avgOffset")}</p>
-                <div className="relative group/tooltip">
-                  <Info className="h-3.5 w-3.5 text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
-                  <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-10 shadow-xl pointer-events-none font-normal">
-                    {t("analysis.collective.avgOffsetExplanation")}
-                    <div className="absolute top-full right-1.5 border-4 border-transparent border-t-slate-800"></div>
-                  </div>
-                </div>
-              </div>
-              <p suppressHydrationWarning className="mt-2 text-3xl font-semibold">{formatNumber(teamStats.meanOffset, 2)}</p>
-            </div>
-            <div className="metric-card rounded-[1.75rem] p-5 relative group">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm text-ink-soft">{t("analysis.collective.avgAge")}</p>
-                <div className="relative group/tooltip">
-                  <Info className="h-3.5 w-3.5 text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
-                  <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-10 shadow-xl pointer-events-none font-normal">
-                    {t("analysis.collective.avgAgeExplanation")}
-                    <div className="absolute top-full right-1.5 border-4 border-transparent border-t-slate-800"></div>
-                  </div>
-                </div>
-              </div>
-              <p suppressHydrationWarning className="mt-2 text-3xl font-semibold">{formatNumber(teamStats.meanAge, 2)} {t("analysis.collective.years")}</p>
-            </div>
-            <div className="metric-card rounded-[1.75rem] p-5 relative group">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm text-ink-soft">{t("analysis.collective.avgStature")}</p>
-                <div className="relative group/tooltip">
-                  <Info className="h-3.5 w-3.5 text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
-                  <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-10 shadow-xl pointer-events-none font-normal">
-                    {t("analysis.collective.avgStatureExplanation")}
-                    <div className="absolute top-full right-1.5 border-4 border-transparent border-t-slate-800"></div>
-                  </div>
-                </div>
-              </div>
-              <p suppressHydrationWarning className="mt-2 text-3xl font-semibold">{formatNumber(teamStats.meanStature, 2)} cm</p>
-            </div>
-            <div className="metric-card rounded-[1.75rem] p-5 relative group">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm text-ink-soft">{t("analysis.collective.avgWeight")}</p>
-                <div className="relative group/tooltip">
-                  <Info className="h-3.5 w-3.5 text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
-                  <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-10 shadow-xl pointer-events-none font-normal">
-                    {t("analysis.collective.avgWeightExplanation")}
-                    <div className="absolute top-full right-1.5 border-4 border-transparent border-t-slate-800"></div>
-                  </div>
-                </div>
-              </div>
-              <p suppressHydrationWarning className="mt-2 text-3xl font-semibold">{formatNumber(teamStats.meanWeight, 2)} kg</p>
-            </div>
-          </div>
-
-          {/* Extra stats */}
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-sm text-slate-500">{t("analysis.collective.earliestMaturity")}</p>
-              <p className="mt-1 font-semibold">{teamStats.earliest.inputs.athleteName}</p>
-              <p className="text-sm text-teal-600">{formatNumber(teamStats.earliest.classification.primaryOffset, 2)}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-sm text-slate-500">{t("analysis.collective.latestMaturity")}</p>
-              <p className="mt-1 font-semibold">{teamStats.latest.inputs.athleteName}</p>
-              <p className="text-sm text-blue-600">{formatNumber(teamStats.latest.classification.primaryOffset, 2)}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-sm text-slate-500">{t("analysis.collective.maturitySpread")}</p>
-              <p className="mt-1 font-semibold">{formatNumber(teamStats.maturitySpread, 2)} {t("analysis.collective.years")}</p>
-              <p className="text-xs text-slate-400">{t("analysis.collective.sd")}: {formatNumber(teamStats.sdOffset, 2)}</p>
-            </div>
-          </div>
-
+          {/* ── BAND BREAKDOWN CARDS ── */}
           <div className="grid gap-4 md:grid-cols-2">
+            {/* Primary band pills */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Shield className="h-4 w-4 text-teal-600" />
+                <h3 className="font-bold text-sm text-slate-900">{primaryGroup} — {locale === 'es' ? 'Distribución por banda' : 'Band breakdown'}</h3>
+              </div>
+              <div className="space-y-3">
+                {(["Pre-PHV", "Mid-PHV", "Post-PHV"] as MaturityBand[]).map((band) => {
+                  const count = primaryStats.bandCounts[band];
+                  const total = primaryStats.athletes.length;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={band}>
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] ${getBandStyle(band)}`}>{bandLabels[band]}</span>
+                        <span className="text-slate-500">{count} {locale === 'es' ? 'atleta' : 'athlete'}{count !== 1 ? 's' : ''} · {pct}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: bandColors[band] }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-slate-400">
+                <div><span className="block text-base font-bold text-slate-700">{formatNumber(primaryStats.maturitySpread, 2)}</span>{locale === 'es' ? 'Dispersión' : 'Spread'}</div>
+                <div><span className="block text-base font-bold text-slate-700">{formatNumber(primaryStats.sdOffset, 2)}</span>SD offset</div>
+                <div><span className="block text-base font-bold text-slate-700">{primaryStats.athletes.length}</span>{locale === 'es' ? 'Atletas' : 'Athletes'}</div>
+              </div>
+            </div>
+
+            {/* Compare band pills or advice */}
+            {compareStats ? (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Shield className="h-4 w-4 text-indigo-500" />
+                  <h3 className="font-bold text-sm text-slate-900">{compareGroup} — {locale === 'es' ? 'Distribución por banda' : 'Band breakdown'}</h3>
+                </div>
+                <div className="space-y-3">
+                  {(["Pre-PHV", "Mid-PHV", "Post-PHV"] as MaturityBand[]).map((band) => {
+                    const count = compareStats.bandCounts[band];
+                    const total = compareStats.athletes.length;
+                    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                    return (
+                      <div key={band}>
+                        <div className="flex justify-between text-xs font-semibold mb-1">
+                          <span className={`px-2 py-0.5 rounded-full border text-[10px] ${getBandStyle(band)}`}>{bandLabels[band]}</span>
+                          <span className="text-slate-500">{count} {locale === 'es' ? 'atleta' : 'athlete'}{count !== 1 ? 's' : ''} · {pct}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: bandColors[band] }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-slate-400">
+                  <div><span className="block text-base font-bold text-slate-700">{formatNumber(compareStats.maturitySpread, 2)}</span>{locale === 'es' ? 'Dispersión' : 'Spread'}</div>
+                  <div><span className="block text-base font-bold text-slate-700">{formatNumber(compareStats.sdOffset, 2)}</span>SD offset</div>
+                  <div><span className="block text-base font-bold text-slate-700">{compareStats.athletes.length}</span>{locale === 'es' ? 'Atletas' : 'Athletes'}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertCircle className="h-4 w-4 text-teal-600" />
+                  <h3 className="font-bold text-sm text-slate-900">{t("analysis.collective.strategicAdvice")}</h3>
+                </div>
+                <div className="space-y-3">
+                  {getTeamAdvice(primaryStats).map((a, i) => (
+                    <div key={i} className={`p-3 rounded-xl border text-sm ${a.type === "warning" ? "bg-amber-50 border-amber-200" : a.type === "success" ? "bg-emerald-50 border-emerald-200" : "bg-blue-50 border-blue-200"}`}>
+                      <p className="font-bold mb-0.5">{a.title}</p>
+                      <p className="opacity-80 text-xs">{a.text}</p>
+                    </div>
+                  ))}
+                  {getTeamAdvice(primaryStats).length === 0 && <p className="text-sm text-slate-500 italic">{t("analysis.collective.noAdvice")}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── COMPARISON METRIC BAR CHART ── */}
+          {comparisonMetrics.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="h-5 w-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-900">{locale === 'es' ? `Comparativa: ${primaryGroup} vs ${compareGroup}` : `Comparison: ${primaryGroup} vs ${compareGroup}`}</h3>
+              </div>
+              <ResponsiveContainer width="99.9%" height={220} minWidth={0} debounce={100}>
+                <BarChart data={comparisonMetrics} layout="vertical" margin={{ left: 140, right: 32, top: 4, bottom: 4 }}>
+                  <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={140} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,.1)", fontSize: 12 }} />
+                  <Legend iconSize={10} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Bar dataKey="primary" name={primaryGroup} fill={PRIMARY_COLOR} radius={[0, 4, 4, 0]} barSize={14} />
+                  <Bar dataKey="compare" name={compareGroup} fill={COMPARE_COLOR} radius={[0, 4, 4, 0]} barSize={14} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── OFFSET WATERFALL + SCATTER ── */}
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Offset bar by athlete */}
             <div className="panel rounded-[1.75rem] p-6">
-              <h2 className="mb-4 text-lg font-semibold">{t("analysis.collective.offsetsTitle")}</h2>
+              <h2 className="mb-4 text-base font-semibold flex items-center gap-2">
+                <Activity className="h-4 w-4 text-slate-500" />
+                {t("analysis.collective.offsetsTitle")} — {primaryGroup}
+              </h2>
               <div className="h-64 w-full relative">
                 <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
-                  <BarChart data={offsetData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(30,41,59,0.08)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" height={60} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("datahub.offset")]} />
-                    <Bar dataKey="offset" radius={[6, 6, 0, 0]} barSize={24}>
+                  <BarChart data={offsetData} margin={{ top: 4, right: 8, left: 0, bottom: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(30,41,59,0.06)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-35} textAnchor="end" height={60} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
+                    <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("datahub.offset")]} contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,.1)", fontSize: 12 }} />
+                    <Bar dataKey="offset" radius={[4, 4, 0, 0]} barSize={20}>
                       {offsetData.map((entry, i) => (
-                        <Cell key={i} fill={bandColors[entry.band as keyof typeof bandColors]} />
+                        <Cell key={i} fill={bandColors[entry.band as keyof typeof bandColors] ?? "#94a3b8"} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
 
-          <div className="panel rounded-[1.75rem] p-6">
-            <h2 className="mb-4 text-lg font-semibold">{locale === 'es' ? 'Edad cronológica vs Offset PHV' : 'Chronological age vs PHV offset'}</h2>
-            <div className="h-72 w-full relative">
-              <ResponsiveContainer width="99.9%" height={288} minWidth={0} debounce={100}>
-                <ScatterChart margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="age" type="number" tick={{ fontSize: 10 }} unit={locale === 'es' ? 'años' : 'yrs'} name={locale === 'es' ? 'Edad' : 'Age'} />
-                  <YAxis dataKey="offset" type="number" tick={{ fontSize: 10 }} name={t("datahub.offset")} />
-                  <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(value: any) => [formatNumber(Number(value), 2), '']} />
-                  <Scatter data={maturityScatterData}>
-                    {maturityScatterData.map((entry, idx) => (
-                      <Cell key={`scatter-${idx}`} fill={bandColors[entry.band as keyof typeof bandColors]} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
+            {/* Age vs Offset scatter */}
+            <div className="panel rounded-[1.75rem] p-6">
+              <h2 className="mb-4 text-base font-semibold flex items-center gap-2">
+                <Target className="h-4 w-4 text-slate-500" />
+                {locale === 'es' ? 'Edad vs Offset PHV' : 'Age vs PHV Offset'}
+              </h2>
+              <div className="h-64 w-full relative">
+                <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
+                  <ScatterChart margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="age" type="number" tick={{ fontSize: 10 }} unit={locale === 'es' ? 'a' : 'y'} name={locale === 'es' ? 'Edad' : 'Age'} axisLine={false} tickLine={false} />
+                    <YAxis dataKey="offset" type="number" tick={{ fontSize: 10 }} name="Offset" axisLine={false} tickLine={false} />
+                    <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 2" />
+                    <Tooltip
+                      cursor={{ strokeDasharray: "3 3" }}
+                      content={({ payload }: any) => {
+                        if (!payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div className="rounded-xl bg-white p-3 shadow-lg border border-slate-100 text-xs">
+                            <p className="font-bold text-slate-800 mb-1">{d?.name}</p>
+                            <p className="text-slate-500">{locale === 'es' ? 'Edad' : 'Age'}: <span className="font-semibold text-slate-700">{d?.age}</span></p>
+                            <p className="text-slate-500">Offset: <span className="font-semibold text-teal-600">{d?.offset}</span></p>
+                            {d?.band && <span className={`mt-1 inline-block px-1.5 py-0.5 rounded-full border text-[10px] font-bold ${getBandStyle(d.band)}`}>{d.band}</span>}
+                          </div>
+                        );
+                      }}
+                    />
+                    {/* Primary group */}
+                    <Scatter name={primaryGroup} data={scatterPrimary} fill={PRIMARY_COLOR}>
+                      {scatterPrimary.map((entry, idx) => (
+                        <Cell key={`p-${idx}`} fill={bandColors[entry.band as keyof typeof bandColors] ?? PRIMARY_COLOR} />
+                      ))}
+                    </Scatter>
+                    {/* Compare group */}
+                    {scatterCompare.length > 0 && (
+                      <Scatter name={compareGroup} data={scatterCompare} fill={COMPARE_COLOR} shape="triangle">
+                        {scatterCompare.map((_, idx) => <Cell key={`c-${idx}`} fill={COMPARE_COLOR} />)}
+                      </Scatter>
+                    )}
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+              {compareStats && (
+                <div className="mt-2 flex gap-4 text-[11px] text-slate-500 justify-center">
+                  <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full" style={{ background: PRIMARY_COLOR }} />{primaryGroup}</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: COMPARE_COLOR }} />{compareGroup}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="panel rounded-[1.75rem] p-6">
-              <h2 className="mb-4 text-lg font-semibold">{t("analysis.collective.psychologicalProfile")}</h2>
-              <div className="h-64 w-full relative">
-                {teamStats.psychScores.length > 0 ? (
-                  <ResponsiveContainer width="99.9%" height={256} minWidth={0} debounce={100}>
-                    <BarChart layout="vertical" data={teamStats.psychScores} margin={{ left: 120, right: 16 }}>
-                      <XAxis type="number" domain={[0, 10]} hide />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={120} />
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(15, 23, 42, 0.08)" />
-                      <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), t("analysis.collective.teamMean")]} />
-                      <Bar dataKey="value" fill="#0f766e" radius={[0, 4, 4, 0]} barSize={16} />
+          {/* ── PSYCHOLOGICAL PROFILE ── */}
+          {primaryStats.psychScores.length > 0 && (
+            <div className="panel rounded-[1.75rem] p-6">
+              <h2 className="mb-4 text-base font-semibold flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                {t("analysis.collective.psychologicalProfile")}
+                {compareStats && compareStats.psychScores.length > 0 && ` — ${locale === 'es' ? 'comparativa' : 'comparison'}`}
+              </h2>
+              {(() => {
+                const allTests = Array.from(new Set([
+                  ...primaryStats.psychScores.map((s) => s.name),
+                  ...(compareStats?.psychScores.map((s) => s.name) ?? []),
+                ]));
+                const merged = allTests.map((name) => ({
+                  name,
+                  [primaryGroup]: primaryStats.psychScores.find((s) => s.name === name)?.value ?? 0,
+                  ...(compareStats ? { [compareGroup]: compareStats.psychScores.find((s) => s.name === name)?.value ?? 0 } : {}),
+                }));
+                return (
+                  <ResponsiveContainer width="99.9%" height={Math.max(180, merged.length * 38)} minWidth={0} debounce={100}>
+                    <BarChart layout="vertical" data={merged} margin={{ left: 130, right: 32, top: 4, bottom: 4 }}>
+                      <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} axisLine={false} tickLine={false} />
+                      <CartesianGrid vertical={true} horizontal={false} strokeDasharray="3 3" stroke="rgba(15,23,42,0.05)" />
+                      <ReferenceLine x={6} stroke="#fbbf24" strokeDasharray="4 2" label={{ value: "6", fontSize: 9, fill: "#fbbf24" }} />
+                      <Tooltip formatter={(val: any) => [formatNumber(Number(val), 2), ""]} contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,.1)", fontSize: 12 }} />
+                      <Legend iconSize={10} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                      <Bar dataKey={primaryGroup} fill={PRIMARY_COLOR} radius={[0, 4, 4, 0]} barSize={compareStats ? 10 : 16} />
+                      {compareStats && <Bar dataKey={compareGroup} fill={COMPARE_COLOR} radius={[0, 4, 4, 0]} barSize={10} />}
                     </BarChart>
                   </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-                    {t("analysis.collective.noPsychological")}
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
+          )}
 
-          {/* Full athlete table */}
+          {/* ── ATHLETE TABLE ── */}
           <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="p-5 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold">{selectedTeam} — {t("analysis.collective.bandCounts")}</h3>
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900">{primaryGroup} — {t("analysis.collective.bandCounts")}</h3>
+              <span className="text-xs text-slate-400 font-semibold">{primaryStats.athletes.length} {locale === 'es' ? 'atletas' : 'athletes'}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                   <tr>
-                    <th className="px-6 py-3 font-semibold">{t("datahub.player")}</th>
-                    <th className="px-6 py-3 font-semibold">{t("datahub.age")}</th>
-                    <th className="px-6 py-3 font-semibold">{t("datahub.stature")}</th>
-                    <th className="px-6 py-3 font-semibold">{t("datahub.offset")}</th>
-                    <th className="px-6 py-3 font-semibold">Z-Score</th>
-                    <th className="px-6 py-3 font-semibold">{t("analysisExtra.maturityBand")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("datahub.player")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("datahub.age")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("datahub.stature")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("datahub.offset")}</th>
+                    <th className="px-5 py-3 font-semibold">Z-Score</th>
+                    <th className="px-5 py-3 font-semibold">{t("analysisExtra.maturityBand")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {teamStats.athletes.map((a) => (
-                    <tr key={a.inputs.athleteId} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-3 font-medium">{a.inputs.athleteName}</td>
-                      <td className="px-6 py-3">{formatNumber(a.derivedMetrics.chronologicalAge, 2)}</td>
-                      <td className="px-6 py-3">{formatNumber(a.inputs.statureCm, 2)} cm</td>
-                      <td suppressHydrationWarning className="px-6 py-3 font-medium text-teal-600">{formatNumber(a.classification.primaryOffset, 2)}</td>
-                      <td suppressHydrationWarning className="px-6 py-3">
-                        <span className={`font-semibold ${
-                          a.zScore > 1 ? "text-amber-600" : a.zScore < -1 ? "text-blue-600" : "text-slate-600"
-                        }`}>
+                  {primaryStats.athletes.map((a) => (
+                    <tr key={a.inputs.athleteId} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-5 py-3 font-semibold text-slate-800">{a.inputs.athleteName}</td>
+                      <td className="px-5 py-3 text-slate-600">{formatNumber(a.derivedMetrics.chronologicalAge, 2)}</td>
+                      <td className="px-5 py-3 text-slate-600">{formatNumber(a.inputs.statureCm, 1)} cm</td>
+                      <td suppressHydrationWarning className="px-5 py-3 font-bold text-teal-600">{formatNumber(a.classification.primaryOffset, 2)}</td>
+                      <td suppressHydrationWarning className="px-5 py-3">
+                        <span className={`font-semibold ${a.zScore > 1 ? "text-amber-600" : a.zScore < -1 ? "text-blue-600" : "text-slate-500"}`}>
                           {formatNumber(a.zScore, 2)}
                         </span>
                       </td>
-                      <td className="px-6 py-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          a.classification.maturityBand === "Pre-PHV" ? "bg-teal-100 text-teal-700" :
-                          a.classification.maturityBand === "Mid-PHV" ? "bg-amber-100 text-amber-700" :
-                          "bg-slate-200 text-slate-700"
-                        }`}>
-                          {a.classification.maturityBand ?? "—"}
+                      <td className="px-5 py-3">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandStyle(a.classification.maturityBand)}`}>
+                          {a.classification.maturityBand ? bandLabels[a.classification.maturityBand] : "—"}
                         </span>
                       </td>
                     </tr>
@@ -2904,6 +3169,50 @@ function CollectiveView({
               </table>
             </div>
           </div>
+
+          {/* ── COMPARE GROUP TABLE (when active) ── */}
+          {compareStats && (
+            <div className="rounded-2xl border border-indigo-100 overflow-hidden shadow-sm">
+              <div className="p-5 border-b border-indigo-100 bg-indigo-50/60 flex items-center justify-between">
+                <h3 className="font-bold text-indigo-900">{compareGroup} — {t("analysis.collective.bandCounts")}</h3>
+                <span className="text-xs text-indigo-400 font-semibold">{compareStats.athletes.length} {locale === 'es' ? 'atletas' : 'athletes'}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-indigo-50/40 text-slate-500 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-5 py-3 font-semibold">{t("datahub.player")}</th>
+                      <th className="px-5 py-3 font-semibold">{t("datahub.age")}</th>
+                      <th className="px-5 py-3 font-semibold">{t("datahub.stature")}</th>
+                      <th className="px-5 py-3 font-semibold">{t("datahub.offset")}</th>
+                      <th className="px-5 py-3 font-semibold">Z-Score</th>
+                      <th className="px-5 py-3 font-semibold">{t("analysisExtra.maturityBand")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-indigo-50">
+                    {compareStats.athletes.map((a) => (
+                      <tr key={a.inputs.athleteId} className="hover:bg-indigo-50/40 transition-colors">
+                        <td className="px-5 py-3 font-semibold text-slate-800">{a.inputs.athleteName}</td>
+                        <td className="px-5 py-3 text-slate-600">{formatNumber(a.derivedMetrics.chronologicalAge, 2)}</td>
+                        <td className="px-5 py-3 text-slate-600">{formatNumber(a.inputs.statureCm, 1)} cm</td>
+                        <td suppressHydrationWarning className="px-5 py-3 font-bold text-indigo-600">{formatNumber(a.classification.primaryOffset, 2)}</td>
+                        <td suppressHydrationWarning className="px-5 py-3">
+                          <span className={`font-semibold ${a.zScore > 1 ? "text-amber-600" : a.zScore < -1 ? "text-blue-600" : "text-slate-500"}`}>
+                            {formatNumber(a.zScore, 2)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandStyle(a.classification.maturityBand)}`}>
+                            {a.classification.maturityBand ? bandLabels[a.classification.maturityBand] : "—"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2911,8 +3220,77 @@ function CollectiveView({
 }
 
 // ---------------------------------------------------------------------------
-// ASSISTANT TAB
+// ASSISTANT TAB — Mascot + Alerts + Recommendations
 // ---------------------------------------------------------------------------
+
+/** SVG mascot: a friendly coach figure */
+function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral" }) {
+  const faceColor = mood === "happy" ? "#0d9488" : mood === "alert" ? "#dc2626" : mood === "warning" ? "#d97706" : "#475569";
+  const bodyColor = mood === "happy" ? "#ccfbf1" : mood === "alert" ? "#fee2e2" : mood === "warning" ? "#fef3c7" : "#f1f5f9";
+  const shirtColor = mood === "happy" ? "#0d9488" : mood === "alert" ? "#dc2626" : mood === "warning" ? "#d97706" : "#64748b";
+
+  return (
+    <svg viewBox="0 0 120 160" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      {/* Body / shirt */}
+      <rect x="28" y="80" width="64" height="56" rx="12" fill={shirtColor} />
+      {/* Arms */}
+      <rect x="8" y="82" width="22" height="12" rx="6" fill={shirtColor} />
+      <rect x="90" y="82" width="22" height="12" rx="6" fill={shirtColor} />
+      {/* Clipboard in right hand */}
+      <rect x="94" y="88" width="20" height="26" rx="3" fill="#fff" stroke={faceColor} strokeWidth="1.5" />
+      <rect x="97" y="92" width="14" height="2" rx="1" fill={faceColor} opacity="0.4" />
+      <rect x="97" y="96" width="10" height="2" rx="1" fill={faceColor} opacity="0.4" />
+      <rect x="97" y="100" width="12" height="2" rx="1" fill={faceColor} opacity="0.4" />
+      {/* Neck */}
+      <rect x="50" y="68" width="20" height="14" rx="4" fill="#fcd9b6" />
+      {/* Head */}
+      <circle cx="60" cy="52" r="28" fill="#fcd9b6" />
+      {/* Hair */}
+      <path d="M32 44 Q60 20 88 44" fill="#92400e" />
+      {/* Eyes */}
+      {mood === "happy" && (
+        <>
+          <path d="M48 50 Q51 46 54 50" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" fill="none" />
+          <path d="M66 50 Q69 46 72 50" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" fill="none" />
+        </>
+      )}
+      {(mood === "alert" || mood === "warning") && (
+        <>
+          <ellipse cx="51" cy="50" rx="4" ry="4.5" fill="#1e293b" />
+          <ellipse cx="69" cy="50" rx="4" ry="4.5" fill="#1e293b" />
+          <circle cx="52.5" cy="48.5" r="1.2" fill="white" />
+          <circle cx="70.5" cy="48.5" r="1.2" fill="white" />
+          {/* Worried brow */}
+          <path d="M46 44 Q51 41 56 44" stroke="#92400e" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+          <path d="M64 44 Q69 41 74 44" stroke="#92400e" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        </>
+      )}
+      {mood === "neutral" && (
+        <>
+          <ellipse cx="51" cy="50" rx="4" ry="4.5" fill="#1e293b" />
+          <ellipse cx="69" cy="50" rx="4" ry="4.5" fill="#1e293b" />
+          <circle cx="52.5" cy="48.5" r="1.2" fill="white" />
+          <circle cx="70.5" cy="48.5" r="1.2" fill="white" />
+        </>
+      )}
+      {/* Mouth */}
+      {mood === "happy" && <path d="M50 61 Q60 68 70 61" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" fill="none" />}
+      {mood === "alert" && <path d="M50 63 Q60 59 70 63" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" fill="none" />}
+      {mood === "warning" && <path d="M50 62 Q60 60 70 62" stroke="#1e293b" strokeWidth="2" strokeLinecap="round" fill="none" />}
+      {mood === "neutral" && <path d="M50 62 Q60 65 70 62" stroke="#1e293b" strokeWidth="1.5" strokeLinecap="round" fill="none" />}
+      {/* Legs */}
+      <rect x="36" y="132" width="18" height="20" rx="6" fill="#1e293b" />
+      <rect x="66" y="132" width="18" height="20" rx="6" fill="#1e293b" />
+      {/* Shoes */}
+      <rect x="32" y="148" width="26" height="10" rx="5" fill="#0f172a" />
+      <rect x="62" y="148" width="26" height="10" rx="5" fill="#0f172a" />
+      {/* Whistle */}
+      <circle cx="60" cy="90" r="5" fill="#fbbf24" />
+      <rect x="58" y="85" width="4" height="6" rx="1" fill="#fbbf24" />
+    </svg>
+  );
+}
+
 function AssistantView({
   assessments,
   state,
@@ -2925,10 +3303,10 @@ function AssistantView({
   locale: string;
 }) {
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
+  const [teamFilter, setTeamFilter] = useState<string>("");
+  const [bandFilter, setBandFilter] = useState<string>("");
+  const [activeSection, setActiveSection] = useState<"alerts" | "recommendations">("alerts");
 
-  // Resolve latest assessments with the active engine so that primaryOffset and
-  // maturityBand in classification reflect the user's selected engine — not the
-  // default "combined" offset produced by calculations.ts.
   const latestEngineResolved = useMemo(
     () =>
       getLatestAssessmentsByAthlete(assessments).map((assessment) => {
@@ -2946,147 +3324,464 @@ function AssistantView({
     [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
-  const alerts = useMemo(() => buildAlerts(latestEngineResolved), [latestEngineResolved]);
-  const rapidGrowth = useMemo(() => detectRapidGrowth(assessments), [assessments]);
+  const alertItems = useMemo(() => buildAlerts(latestEngineResolved), [latestEngineResolved]);
+  const rapidGrowthItems = useMemo(() => detectRapidGrowth(assessments), [assessments]);
 
-  // Combine and deduplicate alerts by athlete for the assistant view
-  const athleteStatus = useMemo(() => {
-    const map = new Map<string, { 
-      name: string; 
-      team?: string; 
-      band: MaturityBand | null; 
-      alerts: AlertItem[]; 
-      advice: string[] 
+  const allTeams = useMemo(() => Array.from(new Set(latestEngineResolved.map((a) => a.inputs.teamName).filter(Boolean))), [latestEngineResolved]);
+
+  // Build full athlete status map (all athletes, not just those with alerts)
+  const allAthleteStatus = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      team?: string;
+      band: MaturityBand | null;
+      offset: number;
+      age: number;
+      alerts: AlertItem[];
+      advice: { text: string; priority: "high" | "medium" | "low" }[];
     }>();
 
-    // latestEngineResolved already has maturityBand and primaryOffset resolved
-    // from the active engine — no need to call createUnifiedProfile again.
     latestEngineResolved.forEach((a) => {
       const band = a.classification.maturityBand;
+      const advice: { text: string; priority: "high" | "medium" | "low" }[] = [];
 
-      const advice: string[] = [];
       if (band === "Mid-PHV") {
-        advice.push(t("analysis.assistant.growthSpurtAdvice"));
+        advice.push({ text: t("analysis.assistant.growthSpurtAdvice"), priority: "high" });
+        advice.push({
+          text: locale === 'es'
+            ? "Reducir cargas de impacto y monitorizar dolor articular semanalmente."
+            : "Reduce impact loads and monitor joint pain weekly.",
+          priority: "high",
+        });
+        advice.push({
+          text: locale === 'es'
+            ? "Priorizar trabajo técnico y coordinativo frente a fuerza máxima."
+            : "Prioritise technical and coordination work over maximum strength.",
+          priority: "medium",
+        });
       } else if (band === "Pre-PHV") {
-        advice.push(t("analysis.assistant.prePHVAdvice"));
-      } else {
-        advice.push(t("analysis.assistant.postPHVAdvice"));
+        advice.push({ text: t("analysis.assistant.prePHVAdvice"), priority: "medium" });
+        advice.push({
+          text: locale === 'es'
+            ? "Ventana óptima para desarrollar habilidades motoras y coordinación multilateral."
+            : "Optimal window to develop motor skills and multilateral coordination.",
+          priority: "medium",
+        });
+      } else if (band === "Post-PHV") {
+        advice.push({ text: t("analysis.assistant.postPHVAdvice"), priority: "low" });
+        advice.push({
+          text: locale === 'es'
+            ? "Aumentar progresivamente cargas de fuerza e introducir trabajo de potencia."
+            : "Progressively increase strength loads and introduce power work.",
+          priority: "medium",
+        });
       }
 
       map.set(a.inputs.athleteId, {
+        id: a.inputs.athleteId,
         name: a.inputs.athleteName,
         team: a.inputs.teamName,
         band,
-        alerts: alerts.filter(al => al.athleteName === a.inputs.athleteName),
+        offset: a.classification.primaryOffset,
+        age: a.derivedMetrics.chronologicalAge,
+        alerts: alertItems.filter((al) => al.athleteName === a.inputs.athleteName),
         advice,
       });
     });
 
-        rapidGrowth.forEach(rg => {
-          const entry = map.get(rg.athleteId);
-          if (entry) {
-            entry.alerts.push({
-              id: rg.id,
-              severity: "warning",
-              athleteName: rg.athleteName,
-              teamName: rg.teamName,
-              category: "rapidGrowth",
-              message: t("analysis.assistant.rapidGrowth") + `: +${formatNumber(rg.statureGain, 2)}cm`,
-              detail: t("analysis.assistant.rapidGrowthDetail").replace("{rate}", formatNumber(rg.monthlyRate, 2))
-            });
-          }
+    rapidGrowthItems.forEach((rg) => {
+      const entry = map.get(rg.athleteId);
+      if (entry) {
+        entry.alerts.push({
+          id: rg.id,
+          severity: "warning",
+          athleteName: rg.athleteName,
+          teamName: rg.teamName,
+          category: "rapidGrowth",
+          message: t("analysis.assistant.rapidGrowth") + `: +${formatNumber(rg.statureGain, 2)}cm`,
+          detail: t("analysis.assistant.rapidGrowthDetail").replace("{rate}", formatNumber(rg.monthlyRate, 2)),
         });
+        entry.advice.unshift({
+          text: locale === 'es'
+            ? "⚡ Crecimiento acelerado detectado — revisar cargas de entrenamiento de inmediato."
+            : "⚡ Rapid growth detected — review training loads immediately.",
+          priority: "high",
+        });
+      }
+    });
 
-    return Array.from(map.values()).filter(a => a.alerts.length > 0 || a.band === "Mid-PHV");
-  }, [latestEngineResolved, alerts, rapidGrowth, t]);
+    return Array.from(map.values());
+  }, [latestEngineResolved, alertItems, rapidGrowthItems, t, locale]);
 
-  const handleExportPDF = () => {
-    window.print();
+  // Filtered athletes
+  const filteredStatus = useMemo(() => {
+    return allAthleteStatus.filter((a) => {
+      if (teamFilter && a.team !== teamFilter) return false;
+      if (bandFilter && a.band !== bandFilter) return false;
+      if (activeSection === "alerts") return a.alerts.length > 0 || a.band === "Mid-PHV";
+      return true;
+    });
+  }, [allAthleteStatus, teamFilter, bandFilter, activeSection]);
+
+  // Summary counts for mascot mood + speech bubble
+  const criticalCount = allAthleteStatus.reduce((s, a) => s + a.alerts.filter((al) => al.severity === "critical").length, 0);
+  const warningCount = allAthleteStatus.reduce((s, a) => s + a.alerts.filter((al) => al.severity === "warning").length, 0);
+  const midPHVCount = allAthleteStatus.filter((a) => a.band === "Mid-PHV").length;
+
+  const mascotMood = criticalCount > 0 ? "alert" : warningCount > 2 || midPHVCount > 3 ? "warning" : allAthleteStatus.length > 0 ? "happy" : "neutral";
+
+  const mascotMessage = (() => {
+    if (criticalCount > 0) return locale === 'es'
+      ? `¡Atención! ${criticalCount} alerta${criticalCount > 1 ? 's' : ''} crítica${criticalCount > 1 ? 's' : ''} requieren acción inmediata.`
+      : `Attention! ${criticalCount} critical alert${criticalCount > 1 ? 's' : ''} require immediate action.`;
+    if (warningCount > 0 || midPHVCount > 0) return locale === 'es'
+      ? `${warningCount} avisos activos · ${midPHVCount} atleta${midPHVCount !== 1 ? 's' : ''} en pico de crecimiento. Revisa las recomendaciones.`
+      : `${warningCount} active warnings · ${midPHVCount} athlete${midPHVCount !== 1 ? 's' : ''} at peak growth. Check the recommendations.`;
+    if (allAthleteStatus.length === 0) return locale === 'es'
+      ? "No hay datos suficientes todavía. ¡Añade evaluaciones para comenzar!"
+      : "Not enough data yet. Add assessments to get started!";
+    return locale === 'es'
+      ? `Todo en orden 👍 ${allAthleteStatus.length} atletas evaluados, sin alertas críticas.`
+      : `All good 👍 ${allAthleteStatus.length} athletes assessed, no critical alerts.`;
+  })();
+
+  const getBandChip = (band: MaturityBand | null) => {
+    if (band === "Pre-PHV") return "bg-teal-100 text-teal-800 border-teal-200";
+    if (band === "Mid-PHV") return "bg-amber-100 text-amber-800 border-amber-200";
+    if (band === "Post-PHV") return "bg-slate-200 text-slate-700 border-slate-300";
+    return "bg-slate-100 text-slate-500";
+  };
+
+  const priorityStyle = (p: "high" | "medium" | "low") =>
+    p === "high" ? "border-l-4 border-rose-400 bg-rose-50"
+    : p === "medium" ? "border-l-4 border-amber-400 bg-amber-50"
+    : "border-l-4 border-teal-400 bg-teal-50";
+
+  const bandLabel = (band: MaturityBand | null, loc: string) => {
+    if (!band) return "—";
+    if (loc === 'es') return band === "Mid-PHV" ? "En-PHV" : band;
+    return band;
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between no-print">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800">{t("analysis.assistant.title")}</h2>
-          <p className="text-sm text-slate-500">{t("analysis.assistant.subtitle")}</p>
+
+      {/* ── MASCOT HERO ── */}
+      <div className="relative flex items-end gap-6 rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 shadow-sm overflow-hidden no-print">
+        {/* Background blobs */}
+        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full opacity-10"
+          style={{ background: mascotMood === "happy" ? "#0d9488" : mascotMood === "alert" ? "#dc2626" : mascotMood === "warning" ? "#d97706" : "#64748b" }} />
+
+        {/* Mascot */}
+        <div className="relative z-10 flex-shrink-0 w-28 h-36 drop-shadow-sm">
+          <CoachMascot mood={mascotMood} />
         </div>
-        <button 
-          onClick={handleExportPDF}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
+
+        {/* Speech bubble */}
+        <div className="relative z-10 flex-1 min-w-0">
+          {/* Bubble tail */}
+          <div className="absolute left-[-10px] bottom-6 w-0 h-0"
+            style={{ borderTop: "10px solid transparent", borderBottom: "10px solid transparent", borderRight: `10px solid ${mascotMood === "alert" ? "#fee2e2" : mascotMood === "warning" ? "#fef3c7" : "#f0fdf4"}` }} />
+          <div
+            className={`rounded-2xl px-5 py-4 shadow-sm border text-sm leading-relaxed font-medium ${
+              mascotMood === "alert" ? "bg-red-50 border-red-200 text-red-800"
+              : mascotMood === "warning" ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-emerald-50 border-emerald-200 text-emerald-800"
+            }`}
+          >
+            {mascotMessage}
+          </div>
+
+          {/* Summary pills row */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+              <AlertTriangle className="h-3 w-3" />
+              {criticalCount} {locale === 'es' ? 'crítica' : 'critical'}{criticalCount !== 1 ? 's' : ''}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+              <AlertCircle className="h-3 w-3" />
+              {warningCount} {locale === 'es' ? 'aviso' : 'warning'}{warningCount !== 1 ? 's' : ''}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+              <Zap className="h-3 w-3" />
+              {midPHVCount} Mid-PHV
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 border border-teal-200 px-2.5 py-1 text-[11px] font-bold text-teal-700">
+              <Users className="h-3 w-3" />
+              {allAthleteStatus.length} {locale === 'es' ? 'atletas' : 'athletes'}
+            </span>
+          </div>
+        </div>
+
+        {/* PDF export */}
+        <button
+          onClick={() => window.print()}
+          className="absolute top-5 right-5 flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors"
         >
-          <Download className="h-4 w-4" />
-          {t("common.export")} PDF
+          <Download className="h-3.5 w-3.5" />PDF
         </button>
       </div>
 
-      <div className="hidden print:block border-b pb-4 mb-6">
-        <h1 className="text-2xl font-bold">{t("analysis.assistant.reportTitle")}</h1>
-        <p className="text-slate-500">{t("analysis.assistant.reportTitle")} · {formatDate(new Date().toISOString())}</p>
+      {/* ── FILTERS + SECTION TOGGLE ── */}
+      <div className="flex flex-wrap items-center gap-3 no-print">
+        {/* Section tabs */}
+        <div className="flex rounded-xl border border-slate-200 bg-white overflow-hidden text-sm font-semibold shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveSection("alerts")}
+            className={`flex items-center gap-1.5 px-4 py-2 transition-colors ${activeSection === "alerts" ? "bg-rose-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            {locale === 'es' ? 'Alertas' : 'Alerts'}
+            {(criticalCount + warningCount) > 0 && (
+              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${activeSection === "alerts" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700"}`}>
+                {criticalCount + warningCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection("recommendations")}
+            className={`flex items-center gap-1.5 px-4 py-2 transition-colors ${activeSection === "recommendations" ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {locale === 'es' ? 'Recomendaciones' : 'Recommendations'}
+          </button>
+        </div>
+
+        {/* Team filter */}
+        {allTeams.length > 1 && (
+          <select
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-teal-400"
+          >
+            <option value="">{locale === 'es' ? 'Todos los equipos' : 'All teams'}</option>
+            {allTeams.map((team) => <option key={team} value={team}>{team}</option>)}
+          </select>
+        )}
+
+        {/* Band filter */}
+        <select
+          value={bandFilter}
+          onChange={(e) => setBandFilter(e.target.value)}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-teal-400"
+        >
+          <option value="">{locale === 'es' ? 'Todas las bandas' : 'All bands'}</option>
+          <option value="Pre-PHV">Pre-PHV</option>
+          <option value="Mid-PHV">Mid-PHV</option>
+          <option value="Post-PHV">Post-PHV</option>
+        </select>
+
+        {(teamFilter || bandFilter) && (
+          <button type="button" onClick={() => { setTeamFilter(""); setBandFilter(""); }}
+            className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200 transition">
+            <X className="h-3 w-3" />{locale === 'es' ? 'Limpiar' : 'Clear'}
+          </button>
+        )}
+
+        <span className="ml-auto text-xs text-slate-400 font-semibold">{filteredStatus.length} {locale === 'es' ? 'atleta' : 'athlete'}{filteredStatus.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {athleteStatus.length === 0 ? (
-        <div className="h-64 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
-          <Shield size={48} className="mb-4 opacity-20" />
-          <p>{t("analysis.assistant.noAlerts")}</p>
-        </div>
-      ) : (
-        <div className="grid gap-6">
-          {athleteStatus.map((status, i) => (
-            <div key={i} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm print:break-inside-avoid">
-              <div className="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-lg">{status.name}</h3>
-                  <p className="text-xs text-slate-500">{status.team} · <span suppressHydrationWarning className={`font-semibold ${
-                    status.band === "Mid-PHV" ? "text-amber-600" : status.band === "Pre-PHV" ? "text-teal-600" : "text-slate-600"
-                  }`}>{status.band}</span></p>
-                </div>
-                {status.band === "Mid-PHV" && (
-                  <div suppressHydrationWarning className="flex items-center gap-1 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-bold">
-                    <Zap size={14} />
-                    {t("analysis.assistant.growthSpurt")}
-                  </div>
-                )}
-              </div>
-              
-              <div className="p-5 grid gap-6 md:grid-cols-2">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-                    <AlertTriangle size={14} className="text-amber-500" />
-                    {t("analysis.assistant.injuryRisk")} / Alertas
-                  </h4>
-                  <div className="space-y-3">
-                    {status.alerts.map((alert, j) => (
-                      <div key={j} className={`p-3 rounded-xl border-l-4 ${
-                        alert.severity === "critical" ? "bg-red-50 border-red-500" : "bg-amber-50 border-amber-500"
-                      }`}>
-                        <p className="text-sm font-bold">{alert.message}</p>
-                        {alert.detail && <p className="text-xs text-slate-600 mt-1">{alert.detail}</p>}
-                      </div>
-                    ))}
-                    {status.alerts.length === 0 && (
-                      <p className="text-sm text-slate-400 italic">{t("analysis.assistant.noSpecificAlerts")}</p>
-                    )}
-                  </div>
-                </div>
+      {/* print header */}
+      <div className="hidden print:block border-b pb-4 mb-6">
+        <h1 className="text-2xl font-bold">{t("analysis.assistant.reportTitle")}</h1>
+        <p className="text-slate-500">{formatDate(new Date().toISOString())}</p>
+      </div>
 
+      {/* ── ALERTS SECTION ── */}
+      {activeSection === "alerts" && (
+        <>
+          {filteredStatus.length === 0 ? (
+            <div className="h-56 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-3">
+              <Shield size={40} className="opacity-20" />
+              <p className="font-medium">{t("analysis.assistant.noAlerts")}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Critical alerts first */}
+              {filteredStatus.some((s) => s.alerts.some((a) => a.severity === "critical")) && (
                 <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-                    <CheckCircle2 size={14} className="text-teal-500" />
-                    {t("analysis.assistant.trainingAdvice")}
-                  </h4>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-rose-600">{locale === 'es' ? 'Alertas críticas' : 'Critical alerts'}</h3>
+                  </div>
                   <div className="space-y-3">
-                    {status.advice.map((adv, j) => (
-                      <div key={j} className="p-3 bg-teal-50 rounded-xl border border-teal-100">
-                        <p className="text-sm text-teal-800 leading-relaxed">{adv}</p>
-                      </div>
-                    ))}
+                    {filteredStatus
+                      .filter((s) => s.alerts.some((a) => a.severity === "critical"))
+                      .map((status) => (
+                        <div key={status.id} className="rounded-2xl border border-rose-200 bg-rose-50 overflow-hidden shadow-sm print:break-inside-avoid">
+                          <div className="flex items-center justify-between px-5 py-3 border-b border-rose-100 bg-rose-100/60">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-200 text-rose-700 text-sm font-black">
+                                {status.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{status.name}</p>
+                                <p className="text-[11px] text-rose-600">{status.team}</p>
+                              </div>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandChip(status.band)}`}>
+                              {bandLabel(status.band, locale)}
+                            </span>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            {status.alerts.filter((a) => a.severity === "critical").map((alert, j) => (
+                              <div key={j} className="flex gap-3 items-start">
+                                <AlertTriangle className="h-4 w-4 text-rose-500 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-bold text-rose-800">{alert.message}</p>
+                                  {alert.detail && <p className="text-xs text-rose-600 mt-0.5">{alert.detail}</p>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Warnings */}
+              {filteredStatus.some((s) => s.alerts.some((a) => a.severity === "warning") || s.band === "Mid-PHV") && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="h-2 w-2 rounded-full bg-amber-400" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-amber-600">{locale === 'es' ? 'Avisos y seguimiento' : 'Warnings & monitoring'}</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {filteredStatus
+                      .filter((s) => s.alerts.some((a) => a.severity === "warning") || s.band === "Mid-PHV")
+                      .map((status) => (
+                        <div key={status.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 overflow-hidden shadow-sm print:break-inside-avoid">
+                          <div className="flex items-center justify-between px-5 py-3 border-b border-amber-100">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-200 text-amber-800 text-sm font-black">
+                                {status.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{status.name}</p>
+                                <p className="text-[11px] text-slate-500">{status.team} · {locale === 'es' ? 'Edad' : 'Age'}: {formatNumber(status.age, 1)}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {status.band === "Mid-PHV" && (
+                                <span className="flex items-center gap-1 bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                  <Zap className="h-3 w-3" />{locale === 'es' ? 'Pico crecimiento' : 'Peak growth'}
+                                </span>
+                              )}
+                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandChip(status.band)}`}>
+                                {bandLabel(status.band, locale)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            {status.alerts.filter((a) => a.severity === "warning").map((alert, j) => (
+                              <div key={j} className="flex gap-3 items-start">
+                                <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-semibold text-amber-900">{alert.message}</p>
+                                  {alert.detail && <p className="text-xs text-amber-700 mt-0.5">{alert.detail}</p>}
+                                </div>
+                              </div>
+                            ))}
+                            {status.band === "Mid-PHV" && status.alerts.filter((a) => a.severity !== "critical").length === 0 && (
+                              <div className="flex gap-3 items-start">
+                                <Zap className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                                <p className="text-sm text-amber-800">{t("analysis.assistant.growthSpurt")}: {locale === 'es' ? 'monitorizar cargas de entrenamiento.' : 'monitor training loads.'}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+          )}
+        </>
+      )}
+
+      {/* ── RECOMMENDATIONS SECTION ── */}
+      {activeSection === "recommendations" && (
+        <>
+          {filteredStatus.length === 0 ? (
+            <div className="h-56 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-3">
+              <CheckCircle2 size={40} className="opacity-20" />
+              <p className="font-medium">{locale === 'es' ? 'No hay atletas para mostrar' : 'No athletes to display'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Group by band */}
+              {(["Mid-PHV", "Pre-PHV", "Post-PHV"] as MaturityBand[]).map((band) => {
+                const group = filteredStatus.filter((s) => s.band === band);
+                if (group.length === 0) return null;
+                const bandAdvice = group[0].advice;
+                return (
+                  <div key={band} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    {/* Band header */}
+                    <div className={`flex items-center gap-3 px-5 py-4 border-b ${
+                      band === "Mid-PHV" ? "bg-amber-50 border-amber-100" : band === "Pre-PHV" ? "bg-teal-50 border-teal-100" : "bg-slate-50 border-slate-100"
+                    }`}>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getBandChip(band)}`}>{bandLabel(band, locale)}</span>
+                      <span className="text-sm font-semibold text-slate-700">{group.length} {locale === 'es' ? 'atleta' : 'athlete'}{group.length !== 1 ? 's' : ''}</span>
+                      <div className="ml-auto flex flex-wrap gap-1">
+                        {group.map((s) => (
+                          <span key={s.id} className="inline-block h-6 w-6 rounded-full bg-white border border-slate-200 text-[10px] font-bold text-slate-600 flex items-center justify-center shadow-sm" title={s.name}>
+                            {s.name.charAt(0)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Recommendations for this band */}
+                    <div className="p-5 space-y-3">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                        {locale === 'es' ? 'Recomendaciones de entrenamiento' : 'Training recommendations'}
+                      </h4>
+                      {bandAdvice.map((adv, i) => (
+                        <div key={i} className={`flex gap-3 items-start rounded-xl p-3 ${priorityStyle(adv.priority)}`}>
+                          <div className={`mt-0.5 flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-black text-white ${
+                            adv.priority === "high" ? "bg-rose-500" : adv.priority === "medium" ? "bg-amber-500" : "bg-teal-500"
+                          }`}>
+                            {adv.priority === "high" ? "!" : adv.priority === "medium" ? "~" : "✓"}
+                          </div>
+                          <p className="text-sm leading-relaxed text-slate-700">{adv.text}</p>
+                        </div>
+                      ))}
+
+                      {/* Athlete list for this band */}
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-slate-400 hover:text-slate-600 transition list-none flex items-center gap-1.5">
+                          <ChevronRight className="h-3.5 w-3.5" />
+                          {locale === 'es' ? `Ver ${group.length} atleta${group.length !== 1 ? 's' : ''}` : `View ${group.length} athlete${group.length !== 1 ? 's' : ''}`}
+                        </summary>
+                        <div className="mt-3 space-y-1.5">
+                          {group.map((s) => (
+                            <div key={s.id} className="flex items-center justify-between rounded-lg bg-white border border-slate-100 px-3 py-2 text-sm">
+                              <span className="font-semibold text-slate-800">{s.name}</span>
+                              <div className="flex items-center gap-3 text-xs text-slate-400">
+                                <span>{s.team}</span>
+                                <span>{formatNumber(s.age, 1)} {locale === 'es' ? 'a' : 'y'}</span>
+                                <span className="font-bold text-slate-600">{formatNumber(s.offset, 2)}</span>
+                                {s.alerts.length > 0 && (
+                                  <span className="rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 font-bold">
+                                    {s.alerts.length}⚠
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
