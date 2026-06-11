@@ -3220,10 +3220,10 @@ function CollectiveView({
 }
 
 // ---------------------------------------------------------------------------
-// ASSISTANT TAB — Mascot + Alerts + Recommendations
+// ASSISTANT TAB — Smart Alerts with team/player drill-down
 // ---------------------------------------------------------------------------
 
-/** SVG mascot: a friendly coach figure */
+/** @deprecated — mascot removed in redesign */
 function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral" }) {
   const faceColor = mood === "happy" ? "#0d9488" : mood === "alert" ? "#dc2626" : mood === "warning" ? "#d97706" : "#475569";
   const bodyColor = mood === "happy" ? "#ccfbf1" : mood === "alert" ? "#fee2e2" : mood === "warning" ? "#fef3c7" : "#f1f5f9";
@@ -3291,6 +3291,362 @@ function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral"
   );
 }
 
+// ── helpers shared across SmartAlerts sub-components ─────────────────────────
+
+type UrgencyLevel = "critical" | "warning" | "monitoring" | "ok";
+
+function getUrgencyLevel(alerts: AlertItem[], band: MaturityBand | null): UrgencyLevel {
+  if (alerts.some((a) => a.severity === "critical")) return "critical";
+  if (alerts.some((a) => a.severity === "warning")) return "warning";
+  if (band === "Mid-PHV") return "monitoring";
+  return "ok";
+}
+
+function urgencyOrder(u: UrgencyLevel) {
+  return u === "critical" ? 0 : u === "warning" ? 1 : u === "monitoring" ? 2 : 3;
+}
+
+function getBandChipSA(band: MaturityBand | null) {
+  if (band === "Pre-PHV") return "bg-teal-100 text-teal-800 border-teal-200";
+  if (band === "Mid-PHV") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (band === "Post-PHV") return "bg-slate-200 text-slate-700 border-slate-300";
+  return "bg-slate-100 text-slate-500 border-slate-200";
+}
+
+function bandLabelSA(band: MaturityBand | null, loc: string) {
+  if (!band) return "—";
+  if (loc === "es") return band === "Mid-PHV" ? "En-PHV" : band;
+  return band;
+}
+
+// ── enriched signal: derives contextual insights from performance + load data ─
+
+type InsightSignal = {
+  kind: "perfDrop" | "perfTrend" | "loadSpike" | "loadHighVsTeam" | "growthJustified" | "recommendationHint";
+  severity: "critical" | "warning" | "info";
+  message: string;
+};
+
+function buildEnrichedSignals(
+  athleteId: string,
+  band: MaturityBand | null,
+  offset: number | null,
+  state: ReturnType<typeof useAppState>["state"],
+  locale: string,
+): InsightSignal[] {
+  const es = locale === "es";
+  const signals: InsightSignal[] = [];
+
+  // ─ Performance entries for this athlete ──────────────────────────────────
+  const perfEntries = state.performanceEntries.filter((e) => e.athleteId === athleteId);
+  const loadEntries = state.trainingLoadEntries.filter((e) => e.athleteId === athleteId);
+
+  // ─ Training load analysis ────────────────────────────────────────────────
+  if (loadEntries.length >= 2) {
+    // Sort by date
+    const sorted = [...loadEntries].sort((a, b) => a.date.localeCompare(b.date));
+    const last4 = sorted.slice(-4);
+    const prev4 = sorted.slice(-8, -4);
+
+    if (last4.length > 0 && prev4.length > 0) {
+      const avgLast = last4.reduce((s, e) => s + e.load, 0) / last4.length;
+      const avgPrev = prev4.reduce((s, e) => s + e.load, 0) / prev4.length;
+      const ratio = avgPrev > 0 ? avgLast / avgPrev : 1;
+
+      if (ratio > 1.35) {
+        signals.push({
+          kind: "loadSpike",
+          severity: band === "Mid-PHV" ? "critical" : "warning",
+          message: es
+            ? `Carga reciente +${Math.round((ratio - 1) * 100)}% sobre las 4 semanas previas${band === "Mid-PHV" ? " — alto riesgo en pico de crecimiento" : ""}.`
+            : `Recent load +${Math.round((ratio - 1) * 100)}% above prior 4-week average${band === "Mid-PHV" ? " — elevated risk at peak growth" : ""}.`,
+        });
+      } else if (ratio < 0.6 && last4.length >= 3) {
+        signals.push({
+          kind: "loadSpike",
+          severity: "info",
+          message: es
+            ? `Carga reciente inusualmente baja (−${Math.round((1 - ratio) * 100)}%): ¿lesión o baja voluntaria?`
+            : `Recent load unusually low (−${Math.round((1 - ratio) * 100)}%): injury or intentional reduction?`,
+        });
+      }
+    }
+
+    // ─ Compare load with team average ──────────────────────────────────────
+    const teamId = state.athletes.find((a) => a.id === athleteId)?.teamId;
+    if (teamId) {
+      const teammates = state.athletes.filter((a) => a.teamId === teamId && a.id !== athleteId).map((a) => a.id);
+      const recentDates = new Set(loadEntries.slice(-4).map((e) => e.date));
+      const teamLoads = state.trainingLoadEntries.filter(
+        (e) => teammates.includes(e.athleteId) && recentDates.has(e.date),
+      );
+      if (teamLoads.length > 2) {
+        const athleteAvg = loadEntries.filter((e) => recentDates.has(e.date)).reduce((s, e) => s + e.load, 0) /
+          Math.max(1, loadEntries.filter((e) => recentDates.has(e.date)).length);
+        const teamAvg = teamLoads.reduce((s, e) => s + e.load, 0) / teamLoads.length;
+        const vsTeam = teamAvg > 0 ? athleteAvg / teamAvg : 1;
+        if (vsTeam > 1.3) {
+          signals.push({
+            kind: "loadHighVsTeam",
+            severity: band === "Mid-PHV" ? "warning" : "info",
+            message: es
+              ? `Carga ${Math.round((vsTeam - 1) * 100)}% superior a la media del equipo en las últimas sesiones.`
+              : `Load ${Math.round((vsTeam - 1) * 100)}% above team average over recent sessions.`,
+          });
+        }
+      }
+    }
+  }
+
+  // ─ Performance trend analysis ────────────────────────────────────────────
+  const testGroups = new Map<string, typeof perfEntries>();
+  perfEntries.forEach((e) => {
+    const g = testGroups.get(e.testName) ?? [];
+    g.push(e);
+    testGroups.set(e.testName, g);
+  });
+
+  testGroups.forEach((entries, testName) => {
+    if (entries.length < 2) return;
+    const sorted = [...entries].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
+    const recent = sorted.slice(-2);
+    const prev = recent[0].value;
+    const curr = recent[1].value;
+    if (prev === 0) return;
+    const drop = (prev - curr) / Math.abs(prev);
+
+    if (drop > 0.1) {
+      // Perf drop detected — check maturation context
+      const isNearAPHV = band === "Mid-PHV" || (typeof offset === "number" && Math.abs(offset) < 0.5);
+      if (isNearAPHV) {
+        signals.push({
+          kind: "growthJustified",
+          severity: "info",
+          message: es
+            ? `Bajada de rendimiento en "${testName}" (−${Math.round(drop * 100)}%) — probable impacto del pico de crecimiento. Esperable en esta fase madurativa.`
+            : `Performance drop in "${testName}" (−${Math.round(drop * 100)}%) — likely growth-spurt effect. Expected at this maturational stage.`,
+        });
+      } else {
+        signals.push({
+          kind: "perfDrop",
+          severity: drop > 0.2 ? "warning" : "info",
+          message: es
+            ? `Bajada de rendimiento en "${testName}": −${Math.round(drop * 100)}% respecto a la medición anterior.`
+            : `Performance drop in "${testName}": −${Math.round(drop * 100)}% vs. prior measurement.`,
+        });
+      }
+    } else if (drop < -0.1) {
+      signals.push({
+        kind: "perfTrend",
+        severity: "info",
+        message: es
+          ? `Mejora en "${testName}": +${Math.round(Math.abs(drop) * 100)}% respecto a la medición anterior.`
+          : `Improvement in "${testName}": +${Math.round(Math.abs(drop) * 100)}% vs. prior measurement.`,
+      });
+    }
+  });
+
+  // ─ Maturation-based recommendation hints ────────────────────────────────
+  if (band === "Mid-PHV") {
+    signals.push({
+      kind: "recommendationHint",
+      severity: "info",
+      message: es
+        ? "Fase de pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto."
+        : "Peak growth phase: prioritise technique and coordination, limit impact loads.",
+    });
+  } else if (band === "Pre-PHV") {
+    signals.push({
+      kind: "recommendationHint",
+      severity: "info",
+      message: es
+        ? "Ventana sensible para habilidades motoras y coordinación multilateral."
+        : "Sensitive window for motor skills and multilateral coordination.",
+    });
+  } else if (band === "Post-PHV") {
+    signals.push({
+      kind: "recommendationHint",
+      severity: "info",
+      message: es
+        ? "Introducir progresivamente cargas de fuerza y trabajo de potencia."
+        : "Progressively introduce strength and power loads.",
+    });
+  }
+
+  return signals;
+}
+
+// ── Athlete card inside SmartAlertsView ──────────────────────────────────────
+
+function SmartAthleteCard({
+  status,
+  signals,
+  locale,
+  urgency,
+}: {
+  status: {
+    id: string;
+    name: string;
+    team?: string;
+    band: MaturityBand | null;
+    offset: number;
+    age: number;
+    alerts: AlertItem[];
+  };
+  signals: InsightSignal[];
+  locale: string;
+  urgency: UrgencyLevel;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const es = locale === "es";
+
+  const urgencyBorderColor =
+    urgency === "critical" ? "border-rose-300 bg-rose-50/40"
+    : urgency === "warning" ? "border-amber-300 bg-amber-50/40"
+    : urgency === "monitoring" ? "border-amber-200 bg-amber-50/20"
+    : "border-slate-200 bg-white";
+
+  const urgencyDot =
+    urgency === "critical" ? "bg-rose-500 animate-pulse"
+    : urgency === "warning" ? "bg-amber-400"
+    : urgency === "monitoring" ? "bg-amber-300"
+    : "bg-teal-400";
+
+  const criticalAlerts = status.alerts.filter((a) => a.severity === "critical");
+  const warningAlerts = status.alerts.filter((a) => a.severity === "warning");
+  const critSignals = signals.filter((s) => s.severity === "critical");
+  const warnSignals = signals.filter((s) => s.severity === "warning");
+  const infoSignals = signals.filter((s) => s.severity === "info");
+
+  const topIssues = [...criticalAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "critical" as const })),
+    ...warningAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "warning" as const })),
+    ...critSignals.map((s) => ({ text: s.message, detail: undefined, sev: "critical" as const })),
+    ...warnSignals.map((s) => ({ text: s.message, detail: undefined, sev: "warning" as const })),
+  ];
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden shadow-sm transition-all ${urgencyBorderColor}`}>
+      {/* Header row */}
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-black/[0.02] transition"
+      >
+        {/* Urgency dot */}
+        <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
+
+        {/* Avatar */}
+        <span className={`flex-shrink-0 h-8 w-8 rounded-full text-sm font-black flex items-center justify-center ${
+          urgency === "critical" ? "bg-rose-200 text-rose-800"
+          : urgency === "warning" ? "bg-amber-200 text-amber-800"
+          : "bg-slate-200 text-slate-700"
+        }`}>
+          {status.name.charAt(0).toUpperCase()}
+        </span>
+
+        {/* Name + team */}
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-slate-900 text-sm truncate">{status.name}</p>
+          <p className="text-[11px] text-slate-500 truncate">{status.team} · {formatNumber(status.age, 1)} {es ? "a" : "y"}</p>
+        </div>
+
+        {/* Tags */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {status.band && (
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getBandChipSA(status.band)}`}>
+              {bandLabelSA(status.band, locale)}
+            </span>
+          )}
+          {topIssues.length > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              urgency === "critical" ? "bg-rose-100 text-rose-700"
+              : "bg-amber-100 text-amber-700"
+            }`}>
+              {topIssues.length} {es ? "señal" : "signal"}{topIssues.length !== 1 ? "es" : ""}
+            </span>
+          )}
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-slate-100 divide-y divide-slate-100">
+
+          {/* Top issues (critical + warning) */}
+          {topIssues.length > 0 && (
+            <div className="px-4 py-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                {es ? "Alertas activas" : "Active alerts"}
+              </p>
+              {topIssues.map((issue, i) => (
+                <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 ${
+                  issue.sev === "critical" ? "bg-rose-50 border border-rose-100" : "bg-amber-50 border border-amber-100"
+                }`}>
+                  {issue.sev === "critical"
+                    ? <AlertTriangle className="h-3.5 w-3.5 text-rose-500 mt-0.5 flex-shrink-0" />
+                    : <AlertCircle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+                  }
+                  <div>
+                    <p className={`text-xs font-semibold ${issue.sev === "critical" ? "text-rose-800" : "text-amber-900"}`}>{issue.text}</p>
+                    {issue.detail && <p className={`text-[11px] mt-0.5 ${issue.sev === "critical" ? "text-rose-600" : "text-amber-700"}`}>{issue.detail}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Info signals (perf trend, load, growth context, recommendations) */}
+          {infoSignals.length > 0 && (
+            <div className="px-4 py-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                {es ? "Contexto y tendencias" : "Context & trends"}
+              </p>
+              {infoSignals.map((sig, i) => {
+                const isGrowthJustified = sig.kind === "growthJustified";
+                const isImprovement = sig.kind === "perfTrend";
+                const isRec = sig.kind === "recommendationHint";
+                return (
+                  <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 ${
+                    isGrowthJustified ? "bg-blue-50 border border-blue-100"
+                    : isImprovement ? "bg-teal-50 border border-teal-100"
+                    : isRec ? "bg-slate-50 border border-slate-200"
+                    : "bg-slate-50 border border-slate-200"
+                  }`}>
+                    {isGrowthJustified
+                      ? <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                      : isImprovement
+                      ? <TrendingUp className="h-3.5 w-3.5 text-teal-500 mt-0.5 flex-shrink-0" />
+                      : isRec
+                      ? <Target className="h-3.5 w-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
+                      : <Activity className="h-3.5 w-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                    }
+                    <p className={`text-xs leading-relaxed ${
+                      isGrowthJustified ? "text-blue-800"
+                      : isImprovement ? "text-teal-800"
+                      : "text-slate-700"
+                    }`}>{sig.message}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* No signals at all */}
+          {topIssues.length === 0 && infoSignals.length === 0 && (
+            <div className="px-4 py-3 flex items-center gap-2 text-xs text-slate-400">
+              <CheckCircle2 className="h-4 w-4 text-teal-400" />
+              {es ? "Sin señales activas en este momento." : "No active signals at this time."}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main AssistantView (new design) ─────────────────────────────────────────
+
 function AssistantView({
   assessments,
   state,
@@ -3302,11 +3658,16 @@ function AssistantView({
   t: (k: string) => string;
   locale: string;
 }) {
+  const es = locale === "es";
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
-  const [teamFilter, setTeamFilter] = useState<string>("");
-  const [bandFilter, setBandFilter] = useState<string>("");
-  const [activeSection, setActiveSection] = useState<"alerts" | "recommendations">("alerts");
 
+  // Navigation state: null = team list, string = selected team
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
+  // Urgency filter
+  type UrgencyFilter = "all" | "critical" | "warning" | "monitoring";
+  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+
+  // Resolve latest assessments with engine profiles
   const latestEngineResolved = useMemo(
     () =>
       getLatestAssessmentsByAthlete(assessments).map((assessment) => {
@@ -3327,66 +3688,29 @@ function AssistantView({
   const alertItems = useMemo(() => buildAlerts(latestEngineResolved), [latestEngineResolved]);
   const rapidGrowthItems = useMemo(() => detectRapidGrowth(assessments), [assessments]);
 
-  const allTeams = useMemo(() => Array.from(new Set(latestEngineResolved.map((a) => a.inputs.teamName).filter(Boolean))), [latestEngineResolved]);
-
-  // Build full athlete status map (all athletes, not just those with alerts)
+  // Build athlete status map
   const allAthleteStatus = useMemo(() => {
     const map = new Map<string, {
       id: string;
       name: string;
-      team?: string;
+      team: string;
       band: MaturityBand | null;
       offset: number;
       age: number;
       alerts: AlertItem[];
-      advice: { text: string; priority: "high" | "medium" | "low" }[];
     }>();
 
     latestEngineResolved.forEach((a) => {
       const band = a.classification.maturityBand;
-      const advice: { text: string; priority: "high" | "medium" | "low" }[] = [];
-
-      if (band === "Mid-PHV") {
-        advice.push({ text: t("analysis.assistant.growthSpurtAdvice"), priority: "high" });
-        advice.push({
-          text: locale === 'es'
-            ? "Reducir cargas de impacto y monitorizar dolor articular semanalmente."
-            : "Reduce impact loads and monitor joint pain weekly.",
-          priority: "high",
-        });
-        advice.push({
-          text: locale === 'es'
-            ? "Priorizar trabajo técnico y coordinativo frente a fuerza máxima."
-            : "Prioritise technical and coordination work over maximum strength.",
-          priority: "medium",
-        });
-      } else if (band === "Pre-PHV") {
-        advice.push({ text: t("analysis.assistant.prePHVAdvice"), priority: "medium" });
-        advice.push({
-          text: locale === 'es'
-            ? "Ventana óptima para desarrollar habilidades motoras y coordinación multilateral."
-            : "Optimal window to develop motor skills and multilateral coordination.",
-          priority: "medium",
-        });
-      } else if (band === "Post-PHV") {
-        advice.push({ text: t("analysis.assistant.postPHVAdvice"), priority: "low" });
-        advice.push({
-          text: locale === 'es'
-            ? "Aumentar progresivamente cargas de fuerza e introducir trabajo de potencia."
-            : "Progressively increase strength loads and introduce power work.",
-          priority: "medium",
-        });
-      }
-
+      const baseAlerts = alertItems.filter((al) => al.athleteName === a.inputs.athleteName);
       map.set(a.inputs.athleteId, {
         id: a.inputs.athleteId,
         name: a.inputs.athleteName,
-        team: a.inputs.teamName,
+        team: a.inputs.teamName ?? "",
         band,
         offset: a.classification.primaryOffset,
         age: a.derivedMetrics.chronologicalAge,
-        alerts: alertItems.filter((al) => al.athleteName === a.inputs.athleteName),
-        advice,
+        alerts: [...baseAlerts],
       });
     });
 
@@ -3402,386 +3726,222 @@ function AssistantView({
           message: t("analysis.assistant.rapidGrowth") + `: +${formatNumber(rg.statureGain, 2)}cm`,
           detail: t("analysis.assistant.rapidGrowthDetail").replace("{rate}", formatNumber(rg.monthlyRate, 2)),
         });
-        entry.advice.unshift({
-          text: locale === 'es'
-            ? "⚡ Crecimiento acelerado detectado — revisar cargas de entrenamiento de inmediato."
-            : "⚡ Rapid growth detected — review training loads immediately.",
-          priority: "high",
-        });
       }
     });
 
     return Array.from(map.values());
-  }, [latestEngineResolved, alertItems, rapidGrowthItems, t, locale]);
+  }, [latestEngineResolved, alertItems, rapidGrowthItems, t]);
 
-  // Filtered athletes
-  const filteredStatus = useMemo(() => {
-    return allAthleteStatus.filter((a) => {
-      if (teamFilter && a.team !== teamFilter) return false;
-      if (bandFilter && a.band !== bandFilter) return false;
-      if (activeSection === "alerts") return a.alerts.length > 0 || a.band === "Mid-PHV";
-      return true;
+  // Teams list
+  const allTeams = useMemo(() => {
+    const teams = new Map<string, { name: string; count: number; critCount: number; warnCount: number }>();
+    allAthleteStatus.forEach((a) => {
+      const key = a.team || (es ? "Sin equipo" : "No team");
+      const existing = teams.get(key) ?? { name: key, count: 0, critCount: 0, warnCount: 0 };
+      existing.count++;
+      const urgency = getUrgencyLevel(a.alerts, a.band);
+      if (urgency === "critical") existing.critCount++;
+      else if (urgency === "warning" || urgency === "monitoring") existing.warnCount++;
+      teams.set(key, existing);
     });
-  }, [allAthleteStatus, teamFilter, bandFilter, activeSection]);
+    return Array.from(teams.values()).sort((a, b) => b.critCount - a.critCount || b.warnCount - a.warnCount);
+  }, [allAthleteStatus, es]);
 
-  // Summary counts for mascot mood + speech bubble
+  // Athletes in selected team, filtered + sorted
+  const teamAthletes = useMemo(() => {
+    const athletes = selectedTeam
+      ? allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam)
+      : allAthleteStatus;
+
+    return athletes
+      .filter((a) => {
+        if (urgencyFilter === "all") return true;
+        const u = getUrgencyLevel(a.alerts, a.band);
+        return u === urgencyFilter;
+      })
+      .sort((a, b) => urgencyOrder(getUrgencyLevel(a.alerts, a.band)) - urgencyOrder(getUrgencyLevel(b.alerts, b.band)));
+  }, [allAthleteStatus, selectedTeam, urgencyFilter, es]);
+
+  // Summary counts
   const criticalCount = allAthleteStatus.reduce((s, a) => s + a.alerts.filter((al) => al.severity === "critical").length, 0);
-  const warningCount = allAthleteStatus.reduce((s, a) => s + a.alerts.filter((al) => al.severity === "warning").length, 0);
-  const midPHVCount = allAthleteStatus.filter((a) => a.band === "Mid-PHV").length;
+  const warningCount = allAthleteStatus.filter((a) => getUrgencyLevel(a.alerts, a.band) === "warning").length;
+  const monitoringCount = allAthleteStatus.filter((a) => getUrgencyLevel(a.alerts, a.band) === "monitoring").length;
 
-  const mascotMood = criticalCount > 0 ? "alert" : warningCount > 2 || midPHVCount > 3 ? "warning" : allAthleteStatus.length > 0 ? "happy" : "neutral";
-
-  const mascotMessage = (() => {
-    if (criticalCount > 0) return locale === 'es'
-      ? `¡Atención! ${criticalCount} alerta${criticalCount > 1 ? 's' : ''} crítica${criticalCount > 1 ? 's' : ''} requieren acción inmediata.`
-      : `Attention! ${criticalCount} critical alert${criticalCount > 1 ? 's' : ''} require immediate action.`;
-    if (warningCount > 0 || midPHVCount > 0) return locale === 'es'
-      ? `${warningCount} avisos activos · ${midPHVCount} atleta${midPHVCount !== 1 ? 's' : ''} en pico de crecimiento. Revisa las recomendaciones.`
-      : `${warningCount} active warnings · ${midPHVCount} athlete${midPHVCount !== 1 ? 's' : ''} at peak growth. Check the recommendations.`;
-    if (allAthleteStatus.length === 0) return locale === 'es'
-      ? "No hay datos suficientes todavía. ¡Añade evaluaciones para comenzar!"
-      : "Not enough data yet. Add assessments to get started!";
-    return locale === 'es'
-      ? `Todo en orden 👍 ${allAthleteStatus.length} atletas evaluados, sin alertas críticas.`
-      : `All good 👍 ${allAthleteStatus.length} athletes assessed, no critical alerts.`;
-  })();
-
-  const getBandChip = (band: MaturityBand | null) => {
-    if (band === "Pre-PHV") return "bg-teal-100 text-teal-800 border-teal-200";
-    if (band === "Mid-PHV") return "bg-amber-100 text-amber-800 border-amber-200";
-    if (band === "Post-PHV") return "bg-slate-200 text-slate-700 border-slate-300";
-    return "bg-slate-100 text-slate-500";
-  };
-
-  const priorityStyle = (p: "high" | "medium" | "low") =>
-    p === "high" ? "border-l-4 border-rose-400 bg-rose-50"
-    : p === "medium" ? "border-l-4 border-amber-400 bg-amber-50"
-    : "border-l-4 border-teal-400 bg-teal-50";
-
-  const bandLabel = (band: MaturityBand | null, loc: string) => {
-    if (!band) return "—";
-    if (loc === 'es') return band === "Mid-PHV" ? "En-PHV" : band;
-    return band;
+  const urgencyLabels: Record<UrgencyFilter, string> = {
+    all: es ? "Todos" : "All",
+    critical: es ? "Crítico" : "Critical",
+    warning: es ? "Aviso" : "Warning",
+    monitoring: es ? "Seguimiento" : "Monitoring",
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
-      {/* ── MASCOT HERO ── */}
-      <div className="relative flex items-end gap-6 rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 shadow-sm overflow-hidden no-print">
-        {/* Background blobs */}
-        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full opacity-10"
-          style={{ background: mascotMood === "happy" ? "#0d9488" : mascotMood === "alert" ? "#dc2626" : mascotMood === "warning" ? "#d97706" : "#64748b" }} />
-
-        {/* Mascot */}
-        <div className="relative z-10 flex-shrink-0 w-28 h-36 drop-shadow-sm">
-          <CoachMascot mood={mascotMood} />
+      {/* ── SUMMARY BANNER ── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-slate-800">
+            {allAthleteStatus.length === 0
+              ? (es ? "Sin atletas evaluados todavía." : "No athletes assessed yet.")
+              : criticalCount > 0
+              ? (es ? `${criticalCount} alerta${criticalCount > 1 ? "s" : ""} crítica${criticalCount > 1 ? "s" : ""} — revisión inmediata necesaria.` : `${criticalCount} critical alert${criticalCount > 1 ? "s" : ""} — immediate review required.`)
+              : warningCount > 0 || monitoringCount > 0
+              ? (es ? `${warningCount} aviso${warningCount !== 1 ? "s" : ""} activo${warningCount !== 1 ? "s" : ""} · ${monitoringCount} en seguimiento.` : `${warningCount} active warning${warningCount !== 1 ? "s" : ""} · ${monitoringCount} under monitoring.`)
+              : (es ? `Todo en orden · ${allAthleteStatus.length} atletas evaluados.` : `All clear · ${allAthleteStatus.length} athletes assessed.`)}
+          </p>
         </div>
-
-        {/* Speech bubble */}
-        <div className="relative z-10 flex-1 min-w-0">
-          {/* Bubble tail */}
-          <div className="absolute left-[-10px] bottom-6 w-0 h-0"
-            style={{ borderTop: "10px solid transparent", borderBottom: "10px solid transparent", borderRight: `10px solid ${mascotMood === "alert" ? "#fee2e2" : mascotMood === "warning" ? "#fef3c7" : "#f0fdf4"}` }} />
-          <div
-            className={`rounded-2xl px-5 py-4 shadow-sm border text-sm leading-relaxed font-medium ${
-              mascotMood === "alert" ? "bg-red-50 border-red-200 text-red-800"
-              : mascotMood === "warning" ? "bg-amber-50 border-amber-200 text-amber-800"
-              : "bg-emerald-50 border-emerald-200 text-emerald-800"
-            }`}
-          >
-            {mascotMessage}
-          </div>
-
-          {/* Summary pills row */}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
-              <AlertTriangle className="h-3 w-3" />
-              {criticalCount} {locale === 'es' ? 'crítica' : 'critical'}{criticalCount !== 1 ? 's' : ''}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-              <AlertCircle className="h-3 w-3" />
-              {warningCount} {locale === 'es' ? 'aviso' : 'warning'}{warningCount !== 1 ? 's' : ''}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-800">
-              <Zap className="h-3 w-3" />
-              {midPHVCount} Mid-PHV
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 border border-teal-200 px-2.5 py-1 text-[11px] font-bold text-teal-700">
-              <Users className="h-3 w-3" />
-              {allAthleteStatus.length} {locale === 'es' ? 'atletas' : 'athletes'}
-            </span>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+            <AlertTriangle className="h-3 w-3" />{criticalCount} {es ? "crítico" : "critical"}{criticalCount !== 1 ? "s" : ""}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+            <AlertCircle className="h-3 w-3" />{warningCount} {es ? "aviso" : "warning"}{warningCount !== 1 ? "s" : ""}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-600">
+            <Zap className="h-3 w-3" />{monitoringCount} {es ? "seguim." : "monitor"}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600">
+            <Users className="h-3 w-3" />{allAthleteStatus.length} {es ? "atletas" : "athletes"}
+          </span>
         </div>
-
-        {/* PDF export */}
         <button
           onClick={() => window.print()}
-          className="absolute top-5 right-5 flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors no-print"
         >
           <Download className="h-3.5 w-3.5" />PDF
         </button>
       </div>
 
-      {/* ── FILTERS + SECTION TOGGLE ── */}
-      <div className="flex flex-wrap items-center gap-3 no-print">
-        {/* Section tabs */}
-        <div className="flex rounded-xl border border-slate-200 bg-white overflow-hidden text-sm font-semibold shadow-sm">
-          <button
-            type="button"
-            onClick={() => setActiveSection("alerts")}
-            className={`flex items-center gap-1.5 px-4 py-2 transition-colors ${activeSection === "alerts" ? "bg-rose-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-          >
-            <AlertTriangle className="h-4 w-4" />
-            {locale === 'es' ? 'Alertas' : 'Alerts'}
-            {(criticalCount + warningCount) > 0 && (
-              <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${activeSection === "alerts" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700"}`}>
-                {criticalCount + warningCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSection("recommendations")}
-            className={`flex items-center gap-1.5 px-4 py-2 transition-colors ${activeSection === "recommendations" ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {locale === 'es' ? 'Recomendaciones' : 'Recommendations'}
-          </button>
-        </div>
-
-        {/* Team filter */}
-        {allTeams.length > 1 && (
-          <select
-            value={teamFilter}
-            onChange={(e) => setTeamFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-teal-400"
-          >
-            <option value="">{locale === 'es' ? 'Todos los equipos' : 'All teams'}</option>
-            {allTeams.map((team) => <option key={team} value={team}>{team}</option>)}
-          </select>
-        )}
-
-        {/* Band filter */}
-        <select
-          value={bandFilter}
-          onChange={(e) => setBandFilter(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-teal-400"
-        >
-          <option value="">{locale === 'es' ? 'Todas las bandas' : 'All bands'}</option>
-          <option value="Pre-PHV">Pre-PHV</option>
-          <option value="Mid-PHV">Mid-PHV</option>
-          <option value="Post-PHV">Post-PHV</option>
-        </select>
-
-        {(teamFilter || bandFilter) && (
-          <button type="button" onClick={() => { setTeamFilter(""); setBandFilter(""); }}
-            className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200 transition">
-            <X className="h-3 w-3" />{locale === 'es' ? 'Limpiar' : 'Clear'}
-          </button>
-        )}
-
-        <span className="ml-auto text-xs text-slate-400 font-semibold">{filteredStatus.length} {locale === 'es' ? 'atleta' : 'athlete'}{filteredStatus.length !== 1 ? 's' : ''}</span>
-      </div>
-
-      {/* print header */}
-      <div className="hidden print:block border-b pb-4 mb-6">
-        <h1 className="text-2xl font-bold">{t("analysis.assistant.reportTitle")}</h1>
-        <p className="text-slate-500">{formatDate(new Date().toISOString())}</p>
-      </div>
-
-      {/* ── ALERTS SECTION ── */}
-      {activeSection === "alerts" && (
-        <>
-          {filteredStatus.length === 0 ? (
-            <div className="h-56 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-3">
-              <Shield size={40} className="opacity-20" />
-              <p className="font-medium">{t("analysis.assistant.noAlerts")}</p>
+      {/* ── TEAM LIST (if no team selected) ── */}
+      {selectedTeam === null ? (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 px-1">
+            {es ? "Selecciona un equipo o grupo" : "Select a team or group"}
+          </h2>
+          {allTeams.length === 0 ? (
+            <div className="h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-2">
+              <Users size={32} className="opacity-20" />
+              <p className="text-sm font-medium">{es ? "Sin datos disponibles." : "No data available."}</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Critical alerts first */}
-              {filteredStatus.some((s) => s.alerts.some((a) => a.severity === "critical")) && (
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-rose-600">{locale === 'es' ? 'Alertas críticas' : 'Critical alerts'}</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {filteredStatus
-                      .filter((s) => s.alerts.some((a) => a.severity === "critical"))
-                      .map((status) => (
-                        <div key={status.id} className="rounded-2xl border border-rose-200 bg-rose-50 overflow-hidden shadow-sm print:break-inside-avoid">
-                          <div className="flex items-center justify-between px-5 py-3 border-b border-rose-100 bg-rose-100/60">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-200 text-rose-700 text-sm font-black">
-                                {status.name.charAt(0)}
-                              </div>
-                              <div>
-                                <p className="font-bold text-slate-900">{status.name}</p>
-                                <p className="text-[11px] text-rose-600">{status.team}</p>
-                              </div>
-                            </div>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandChip(status.band)}`}>
-                              {bandLabel(status.band, locale)}
-                            </span>
-                          </div>
-                          <div className="p-4 space-y-2">
-                            {status.alerts.filter((a) => a.severity === "critical").map((alert, j) => (
-                              <div key={j} className="flex gap-3 items-start">
-                                <AlertTriangle className="h-4 w-4 text-rose-500 mt-0.5 flex-shrink-0" />
-                                <div>
-                                  <p className="text-sm font-bold text-rose-800">{alert.message}</p>
-                                  {alert.detail && <p className="text-xs text-rose-600 mt-0.5">{alert.detail}</p>}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+            allTeams.map((team) => (
+              <button
+                key={team.name}
+                type="button"
+                onClick={() => setSelectedTeam(team.name)}
+                className="w-full flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+              >
+                <div className={`flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center ${
+                  team.critCount > 0 ? "bg-rose-100 text-rose-700" : team.warnCount > 0 ? "bg-amber-100 text-amber-700" : "bg-teal-100 text-teal-700"
+                }`}>
+                  <Users className="h-5 w-5" />
                 </div>
-              )}
-
-              {/* Warnings */}
-              {filteredStatus.some((s) => s.alerts.some((a) => a.severity === "warning") || s.band === "Mid-PHV") && (
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="h-2 w-2 rounded-full bg-amber-400" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-amber-600">{locale === 'es' ? 'Avisos y seguimiento' : 'Warnings & monitoring'}</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {filteredStatus
-                      .filter((s) => s.alerts.some((a) => a.severity === "warning") || s.band === "Mid-PHV")
-                      .map((status) => (
-                        <div key={status.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 overflow-hidden shadow-sm print:break-inside-avoid">
-                          <div className="flex items-center justify-between px-5 py-3 border-b border-amber-100">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-200 text-amber-800 text-sm font-black">
-                                {status.name.charAt(0)}
-                              </div>
-                              <div>
-                                <p className="font-bold text-slate-900">{status.name}</p>
-                                <p className="text-[11px] text-slate-500">{status.team} · {locale === 'es' ? 'Edad' : 'Age'}: {formatNumber(status.age, 1)}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {status.band === "Mid-PHV" && (
-                                <span className="flex items-center gap-1 bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                                  <Zap className="h-3 w-3" />{locale === 'es' ? 'Pico crecimiento' : 'Peak growth'}
-                                </span>
-                              )}
-                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandChip(status.band)}`}>
-                                {bandLabel(status.band, locale)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="p-4 space-y-2">
-                            {status.alerts.filter((a) => a.severity === "warning").map((alert, j) => (
-                              <div key={j} className="flex gap-3 items-start">
-                                <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                                <div>
-                                  <p className="text-sm font-semibold text-amber-900">{alert.message}</p>
-                                  {alert.detail && <p className="text-xs text-amber-700 mt-0.5">{alert.detail}</p>}
-                                </div>
-                              </div>
-                            ))}
-                            {status.band === "Mid-PHV" && status.alerts.filter((a) => a.severity !== "critical").length === 0 && (
-                              <div className="flex gap-3 items-start">
-                                <Zap className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                                <p className="text-sm text-amber-800">{t("analysis.assistant.growthSpurt")}: {locale === 'es' ? 'monitorizar cargas de entrenamiento.' : 'monitor training loads.'}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-900 group-hover:text-teal-700 transition-colors">{team.name}</p>
+                  <p className="text-xs text-slate-400">{team.count} {es ? "atleta" : "athlete"}{team.count !== 1 ? "s" : ""}</p>
                 </div>
-              )}
-            </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {team.critCount > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-rose-100 text-rose-700 px-2 py-0.5 text-[11px] font-bold">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse inline-block" />
+                      {team.critCount}
+                    </span>
+                  )}
+                  {team.warnCount > 0 && (
+                    <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-bold">
+                      {team.warnCount}⚠
+                    </span>
+                  )}
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                </div>
+              </button>
+            ))
           )}
-        </>
-      )}
+        </div>
+      ) : (
+        /* ── PLAYER LIST for selected team ── */
+        <div className="space-y-4">
 
-      {/* ── RECOMMENDATIONS SECTION ── */}
-      {activeSection === "recommendations" && (
-        <>
-          {filteredStatus.length === 0 ? (
-            <div className="h-56 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-3">
-              <CheckCircle2 size={40} className="opacity-20" />
-              <p className="font-medium">{locale === 'es' ? 'No hay atletas para mostrar' : 'No athletes to display'}</p>
+          {/* Back + team header */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { setSelectedTeam(null); setUrgencyFilter("all"); }}
+              className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors no-print"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {es ? "Equipos" : "Teams"}
+            </button>
+            <span className="text-slate-300">/</span>
+            <span className="text-sm font-bold text-slate-800">{selectedTeam}</span>
+            <span className="ml-1 text-xs text-slate-400">
+              {teamAthletes.length} {es ? "jugador" : "player"}{teamAthletes.length !== 1 ? "es" : ""}
+            </span>
+          </div>
+
+          {/* Urgency filter bar */}
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <span className="text-xs font-semibold text-slate-400">{es ? "Filtrar por urgencia:" : "Filter by urgency:"}</span>
+            {(["all", "critical", "warning", "monitoring"] as UrgencyFilter[]).map((level) => {
+              const counts: Record<UrgencyFilter, number> = {
+                all: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam).length,
+                critical: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "critical").length,
+                warning: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "warning").length,
+                monitoring: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "monitoring").length,
+              };
+              const active = urgencyFilter === level;
+              const colorActive =
+                level === "critical" ? "bg-rose-600 text-white border-rose-600"
+                : level === "warning" ? "bg-amber-500 text-white border-amber-500"
+                : level === "monitoring" ? "bg-amber-200 text-amber-800 border-amber-300"
+                : "bg-teal-600 text-white border-teal-600";
+              const colorIdle =
+                level === "critical" ? "border-rose-200 text-rose-700 hover:bg-rose-50"
+                : level === "warning" ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                : level === "monitoring" ? "border-amber-200 text-amber-600 hover:bg-amber-50"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50";
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => setUrgencyFilter(level)}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold transition-colors ${active ? colorActive : `bg-white ${colorIdle}`}`}
+                >
+                  {urgencyLabels[level]}
+                  <span className={`rounded-full px-1.5 py-0 text-[10px] font-black ${active ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
+                    {counts[level]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Athlete cards */}
+          {teamAthletes.length === 0 ? (
+            <div className="h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-2">
+              <Shield size={32} className="opacity-20" />
+              <p className="text-sm font-medium">
+                {es ? "Ningún jugador coincide con este filtro." : "No players match this filter."}
+              </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {/* Group by band */}
-              {(["Mid-PHV", "Pre-PHV", "Post-PHV"] as MaturityBand[]).map((band) => {
-                const group = filteredStatus.filter((s) => s.band === band);
-                if (group.length === 0) return null;
-                const bandAdvice = group[0].advice;
+            <div className="space-y-2">
+              {teamAthletes.map((athlete) => {
+                const urgency = getUrgencyLevel(athlete.alerts, athlete.band);
+                const signals = buildEnrichedSignals(athlete.id, athlete.band, athlete.offset, state, locale);
                 return (
-                  <div key={band} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-                    {/* Band header */}
-                    <div className={`flex items-center gap-3 px-5 py-4 border-b ${
-                      band === "Mid-PHV" ? "bg-amber-50 border-amber-100" : band === "Pre-PHV" ? "bg-teal-50 border-teal-100" : "bg-slate-50 border-slate-100"
-                    }`}>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getBandChip(band)}`}>{bandLabel(band, locale)}</span>
-                      <span className="text-sm font-semibold text-slate-700">{group.length} {locale === 'es' ? 'atleta' : 'athlete'}{group.length !== 1 ? 's' : ''}</span>
-                      <div className="ml-auto flex flex-wrap gap-1">
-                        {group.map((s) => (
-                          <span key={s.id} className="inline-block h-6 w-6 rounded-full bg-white border border-slate-200 text-[10px] font-bold text-slate-600 flex items-center justify-center shadow-sm" title={s.name}>
-                            {s.name.charAt(0)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Recommendations for this band */}
-                    <div className="p-5 space-y-3">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                        {locale === 'es' ? 'Recomendaciones de entrenamiento' : 'Training recommendations'}
-                      </h4>
-                      {bandAdvice.map((adv, i) => (
-                        <div key={i} className={`flex gap-3 items-start rounded-xl p-3 ${priorityStyle(adv.priority)}`}>
-                          <div className={`mt-0.5 flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-black text-white ${
-                            adv.priority === "high" ? "bg-rose-500" : adv.priority === "medium" ? "bg-amber-500" : "bg-teal-500"
-                          }`}>
-                            {adv.priority === "high" ? "!" : adv.priority === "medium" ? "~" : "✓"}
-                          </div>
-                          <p className="text-sm leading-relaxed text-slate-700">{adv.text}</p>
-                        </div>
-                      ))}
-
-                      {/* Athlete list for this band */}
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs font-semibold text-slate-400 hover:text-slate-600 transition list-none flex items-center gap-1.5">
-                          <ChevronRight className="h-3.5 w-3.5" />
-                          {locale === 'es' ? `Ver ${group.length} atleta${group.length !== 1 ? 's' : ''}` : `View ${group.length} athlete${group.length !== 1 ? 's' : ''}`}
-                        </summary>
-                        <div className="mt-3 space-y-1.5">
-                          {group.map((s) => (
-                            <div key={s.id} className="flex items-center justify-between rounded-lg bg-white border border-slate-100 px-3 py-2 text-sm">
-                              <span className="font-semibold text-slate-800">{s.name}</span>
-                              <div className="flex items-center gap-3 text-xs text-slate-400">
-                                <span>{s.team}</span>
-                                <span>{formatNumber(s.age, 1)} {locale === 'es' ? 'a' : 'y'}</span>
-                                <span className="font-bold text-slate-600">{formatNumber(s.offset, 2)}</span>
-                                {s.alerts.length > 0 && (
-                                  <span className="rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 font-bold">
-                                    {s.alerts.length}⚠
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    </div>
-                  </div>
+                  <SmartAthleteCard
+                    key={athlete.id}
+                    status={athlete}
+                    signals={signals}
+                    locale={locale}
+                    urgency={urgency}
+                  />
                 );
               })}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
