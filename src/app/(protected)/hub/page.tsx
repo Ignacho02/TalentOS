@@ -13,11 +13,17 @@ import {
   TrendingUp,
   Users,
   Zap,
+  Timer,
+  MapPin,
+  Ruler,
 } from "lucide-react";
 
 import { useLocale } from "@/lib/i18n/locale-context";
+import { useAppState } from "@/lib/store/app-state";
 import type { ModuleStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// ─── Module definitions ───────────────────────────────────────────────────────
 
 const modules: Array<{
   href: string;
@@ -62,91 +68,171 @@ const statusColor: Record<ModuleStatus, string> = {
   coming_soon: "bg-zinc-400",
 };
 
-const executiveMetrics = [
-  {
-    title: "Jugadores evaluados",
-    value: "186",
-    detail: "+12 esta semana",
-    icon: Activity,
-  },
-  {
-    title: "Alertas activas",
-    value: "7",
-    detail: "2 prioritarias",
-    icon: AlertTriangle,
-  },
-  {
-    title: "Sesiones registradas",
-    value: "24",
-    detail: "Últimos 7 días",
-    icon: CalendarDays,
-  },
-  {
-    title: "Rendimiento medio",
-    value: "82",
-    detail: "+3 este mes",
-    icon: TrendingUp,
-  },
-];
+// ─── Helper: format date as relative "hace X días" ────────────────────────────
 
-const actions = [
-  {
-    title: "Revisar jugadores en pico de crecimiento",
-    text: "Dos perfiles muestran una aceleración significativa en su maduración biológica.",
-  },
-  {
-    title: "Validar informes pendientes",
-    text: "Hay cinco informes preparados para revisión técnica.",
-  },
-  {
-    title: "Programar evaluaciones semanales",
-    text: "Doce jugadores aún no tienen evaluación asignada.",
-  },
-];
+function daysAgo(isoDate: string): string {
+  const diff = Math.floor(
+    (Date.now() - new Date(isoDate).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (diff === 0) return "hoy";
+  if (diff === 1) return "ayer";
+  return `hace ${diff} días`;
+}
 
-const categories = [
-  {
-    name: "Sub-13",
-    players: 32,
-    score: 79,
-  },
-  {
-    name: "Sub-15",
-    players: 28,
-    score: 83,
-  },
-  {
-    name: "Sub-17",
-    players: 25,
-    score: 81,
-  },
-  {
-    name: "Primer Equipo",
-    players: 23,
-    score: 88,
-  },
-];
-
-const activityFeed = [
-  "Informe de maduración completado para 14 jugadores.",
-  "Nueva evaluación antropométrica registrada.",
-  "Actualización de rendimiento del Sub-17 disponible.",
-  "Sincronización de entrenamientos completada.",
-  "Análisis comparativo generado para la academia.",
-];
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HubPage() {
   const { t } = useLocale();
+  const { state, assessments } = useAppState();
+
+  const { athletes, teams, records, gpsSessions, trainingLoadEntries, club } =
+    state;
+
+  // ── KPI calculations ────────────────────────────────────────────────────────
+
+  const totalAthletes = athletes.length;
+  const totalTeams = teams.length;
+
+  // Registros antropométricos: los 7 días más recientes
+  const now = Date.now();
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  const recentRecords = records.filter(
+    (r) => now - new Date(r.createdAt).getTime() < sevenDays
+  );
+
+  // Sesiones GPS más recientes
+  const recentGps = [...gpsSessions]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
+
+  const lastGpsDate =
+    gpsSessions.length > 0
+      ? [...gpsSessions].sort((a, b) => b.date.localeCompare(a.date))[0].date
+      : null;
+
+  // Alertas de maduración: jugadores en zona Mid-PHV o sin datos recientes
+  const midPhvCount = assessments.filter(
+    (a) => a.classification.maturityBand === "Mid-PHV"
+  ).length;
+
+  // Carga media de los últimos 7 días (training load)
+  const recentLoad = trainingLoadEntries.filter(
+    (e) => now - new Date(e.date).getTime() < sevenDays
+  );
+  const avgLoad =
+    recentLoad.length > 0
+      ? Math.round(
+          recentLoad.reduce((s, e) => s + e.load, 0) / recentLoad.length
+        )
+      : null;
+
+  // Resumen por equipo (jugadores + última evaluación)
+  const teamSummaries = teams.map((team) => {
+    const teamAthletes = athletes.filter((a) => a.teamId === team.id);
+    const teamRecords = records
+      .filter((r) =>
+        teamAthletes.some((a) => a.id === r.athleteId)
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const lastEval = teamRecords[0]?.createdAt ?? null;
+    return { team, count: teamAthletes.length, lastEval };
+  });
+
+  // Feed de actividad reciente: mezcla de registros, GPS y cargas
+  type FeedItem = { label: string; date: string; icon: ComponentType<{ className?: string }> };
+  const feedItems: FeedItem[] = [
+    ...recentRecords.slice(0, 3).map((r) => ({
+      label: `Evaluación antropométrica — ${r.athleteName}`,
+      date: r.createdAt,
+      icon: Ruler,
+    })),
+    ...recentGps.slice(0, 2).map((g) => ({
+      label: `Sesión GPS importada (${g.teamName ?? "equipo"}) — ${g.sessionType === "match" ? "partido" : "entrenamiento"}`,
+      date: g.date,
+      icon: MapPin,
+    })),
+    ...recentLoad.slice(0, 2).map((e) => ({
+      label: `Carga registrada — RPE ${e.rpe}, ${e.minutesPlayed} min`,
+      date: e.date,
+      icon: Timer,
+    })),
+  ]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 6);
+
+  // ── Metric cards ─────────────────────────────────────────────────────────────
+
+  const executiveMetrics = [
+    {
+      title: "Jugadores",
+      value: totalAthletes.toString(),
+      detail: `${totalTeams} equipo${totalTeams !== 1 ? "s" : ""}`,
+      icon: Users,
+    },
+    {
+      title: "Alertas PHV",
+      value: midPhvCount.toString(),
+      detail: "Jugadores en Mid-PHV",
+      icon: AlertTriangle,
+    },
+    {
+      title: "Evaluaciones",
+      value: recentRecords.length.toString(),
+      detail: "Últimos 7 días",
+      icon: Activity,
+    },
+    {
+      title: avgLoad !== null ? `${avgLoad} UA` : "—",
+      detail: avgLoad !== null ? "Carga media semanal" : "Sin datos de carga",
+      icon: TrendingUp,
+      title2: "Carga media",
+    },
+  ] as Array<{
+    title: string;
+    title2?: string;
+    value?: string;
+    detail: string;
+    icon: ComponentType<{ className?: string }>;
+  }>;
+
+  // Normalize metric cards so they all have a display value
+  const kpiCards = [
+    {
+      label: "Jugadores",
+      value: totalAthletes.toString(),
+      detail: `${totalTeams} equipo${totalTeams !== 1 ? "s" : ""}`,
+      icon: Users,
+    },
+    {
+      label: "Alertas PHV",
+      value: midPhvCount.toString(),
+      detail: "Jugadores en Mid-PHV",
+      icon: AlertTriangle,
+    },
+    {
+      label: "Evaluaciones",
+      value: recentRecords.length.toString(),
+      detail: "Últimos 7 días",
+      icon: CalendarDays,
+    },
+    {
+      label: "Carga media",
+      value: avgLoad !== null ? `${avgLoad}` : "—",
+      detail: avgLoad !== null ? "UA · últimos 7 días" : "Sin datos",
+      icon: TrendingUp,
+    },
+  ];
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-8">
       {/* HERO */}
-
       <section className="overflow-hidden rounded-[2rem] border border-line bg-[linear-gradient(135deg,rgba(12,36,59,1),rgba(17,94,89,.92))] p-8 text-white">
         <div className="grid gap-8 xl:grid-cols-[1.4fr_0.9fr]">
           <div>
             <p className="mb-3 text-xs uppercase tracking-[0.35em] text-white/60">
-              TalentOS
+              TalentOS · {club.name}
             </p>
 
             <h1 className="max-w-4xl text-4xl font-semibold leading-tight md:text-6xl">
@@ -176,28 +262,21 @@ export default function HubPage() {
             </div>
           </div>
 
+          {/* KPI cards — datos reales */}
           <div className="grid grid-cols-2 gap-3">
-            {executiveMetrics.map((item) => {
+            {kpiCards.map((item) => {
               const Icon = item.icon;
-
               return (
                 <div
-                  key={item.title}
+                  key={item.label}
                   className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                 >
                   <div className="mb-4 flex items-center justify-between">
                     <Icon className="h-4 w-4 text-white/70" />
-
-                    <span className="text-xs text-white/60">
-                      {item.detail}
-                    </span>
+                    <span className="text-xs text-white/60">{item.detail}</span>
                   </div>
-
                   <div className="text-3xl font-semibold">{item.value}</div>
-
-                  <div className="mt-1 text-sm text-white/70">
-                    {item.title}
-                  </div>
+                  <div className="mt-1 text-sm text-white/70">{item.label}</div>
                 </div>
               );
             })}
@@ -205,57 +284,10 @@ export default function HubPage() {
         </div>
       </section>
 
-      {/* PRIORIDADES */}
-
-      <section className="rounded-[2rem] border border-line bg-white p-6">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold">
-              Acciones prioritarias
-            </h2>
-
-            <p className="mt-1 text-sm text-ink-soft">
-              Elementos que requieren atención inmediata.
-            </p>
-          </div>
-
-          <div className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-            3 pendientes
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          {actions.map((action) => (
-            <div
-              key={action.title}
-              className="rounded-2xl border border-line p-5"
-            >
-              <div className="mb-3 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" />
-
-                <span className="text-xs font-medium uppercase tracking-wide text-amber-700">
-                  Atención
-                </span>
-              </div>
-
-              <h3 className="font-semibold">{action.title}</h3>
-
-              <p className="mt-2 text-sm leading-6 text-ink-soft">
-                {action.text}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* MÓDULOS */}
-
       <section>
         <div className="mb-5">
-          <h2 className="text-2xl font-semibold">
-            Áreas de trabajo
-          </h2>
-
+          <h2 className="text-2xl font-semibold">Áreas de trabajo</h2>
           <p className="mt-1 text-sm text-ink-soft">
             Acceso rápido a los módulos principales de TalentOS.
           </p>
@@ -264,7 +296,6 @@ export default function HubPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {modules.map((module, index) => {
             const Icon = module.icon;
-
             return (
               <Link
                 key={module.href}
@@ -279,12 +310,8 @@ export default function HubPage() {
 
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/50 bg-white/60 px-3 py-1 text-xs text-zinc-700">
                     <span
-                      className={cn(
-                        "status-dot",
-                        statusColor[module.status]
-                      )}
+                      className={cn("status-dot", statusColor[module.status])}
                     />
-
                     {t(
                       `common.${
                         module.status === "coming_soon"
@@ -295,9 +322,7 @@ export default function HubPage() {
                   </div>
                 </div>
 
-                <h3 className="text-xl font-semibold">
-                  {t(module.key)}
-                </h3>
+                <h3 className="text-xl font-semibold">{t(module.key)}</h3>
 
                 <p className="mt-3 text-sm leading-6 text-ink-soft">
                   {t(module.bodyKey)}
@@ -313,105 +338,132 @@ export default function HubPage() {
         </div>
       </section>
 
-      {/* CATEGORÍAS */}
-
-      <section>
-        <div className="mb-5">
-          <h2 className="text-2xl font-semibold">
-            Resumen deportivo
-          </h2>
-
-          <p className="mt-1 text-sm text-ink-soft">
-            Estado actual de las categorías del club.
-          </p>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-4">
-          {categories.map((team) => (
-            <div
-              key={team.name}
-              className="rounded-[1.8rem] border border-line bg-white p-6"
-            >
-              <div className="text-sm text-ink-soft">{team.name}</div>
-
-              <div className="mt-4 text-4xl font-semibold">
-                {team.score}
-              </div>
-
-              <div className="text-sm text-ink-soft">
-                Índice de rendimiento
-              </div>
-
-              <div className="mt-5 border-t border-line pt-4 text-sm text-ink-soft">
-                {team.players} jugadores registrados
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* TENDENCIAS + ACTIVIDAD */}
-
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-[2rem] border border-line bg-white p-6">
-          <h2 className="text-2xl font-semibold">
-            Tendencias de la semana
-          </h2>
-
-          <div className="mt-6 space-y-5">
-            <div>
-              <div className="mb-2 flex justify-between text-sm">
-                <span>Rendimiento global</span>
-                <span>82%</span>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-                <div className="h-full w-[82%] rounded-full bg-accent" />
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex justify-between text-sm">
-                <span>Maduración registrada</span>
-                <span>74%</span>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-                <div className="h-full w-[74%] rounded-full bg-accent" />
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex justify-between text-sm">
-                <span>Cobertura de evaluaciones</span>
-                <span>91%</span>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-                <div className="h-full w-[91%] rounded-full bg-accent" />
-              </div>
-            </div>
+      {/* RESUMEN POR EQUIPO */}
+      {teamSummaries.length > 0 && (
+        <section>
+          <div className="mb-5">
+            <h2 className="text-2xl font-semibold">Resumen deportivo</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Estado actual de los equipos del club.
+            </p>
           </div>
-        </div>
 
-        <div className="rounded-[2rem] border border-line bg-white p-6">
-          <h2 className="text-2xl font-semibold">
-            Actividad reciente
-          </h2>
-
-          <div className="mt-6 space-y-4">
-            {activityFeed.map((item) => (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {teamSummaries.map(({ team, count, lastEval }) => (
               <div
-                key={item}
-                className="flex gap-3 border-b border-line pb-4 last:border-0"
+                key={team.id}
+                className="rounded-[1.8rem] border border-line bg-white p-6"
               >
-                <div className="mt-2 h-2 w-2 rounded-full bg-accent" />
+                <div className="text-sm font-medium">{team.name}</div>
 
-                <p className="text-sm leading-6 text-ink-soft">
-                  {item}
-                </p>
+                <div className="mt-4 text-4xl font-semibold">{count}</div>
+                <div className="text-sm text-ink-soft">
+                  jugador{count !== 1 ? "es" : ""}
+                </div>
+
+                <div className="mt-5 border-t border-line pt-4 text-sm text-ink-soft">
+                  {lastEval
+                    ? `Última eval. ${daysAgo(lastEval)}`
+                    : "Sin evaluaciones"}
+                </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* ESTADO + ACTIVIDAD */}
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        {/* Maduración rápida */}
+        <div className="rounded-[2rem] border border-line bg-white p-6">
+          <h2 className="text-2xl font-semibold">Estado de maduración</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Distribución actual de bandas biológicas.
+          </p>
+
+          {assessments.length === 0 ? (
+            <p className="mt-6 text-sm text-ink-soft">
+              No hay evaluaciones calculadas aún.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-5">
+              {(
+                [
+                  { band: "Pre-PHV", color: "bg-blue-400" },
+                  { band: "Mid-PHV", color: "bg-amber-400" },
+                  { band: "Post-PHV", color: "bg-green-500" },
+                ] as const
+              ).map(({ band, color }) => {
+                const n = assessments.filter(
+                  (a) => a.classification.maturityBand === band
+                ).length;
+                const pct =
+                  assessments.length > 0
+                    ? Math.round((n / assessments.length) * 100)
+                    : 0;
+                return (
+                  <div key={band}>
+                    <div className="mb-2 flex justify-between text-sm">
+                      <span>{band}</span>
+                      <span>
+                        {n} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
+                      <div
+                        className={cn("h-full rounded-full", color)}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Sesiones GPS recientes */}
+              {lastGpsDate && (
+                <div className="mt-4 border-t border-line pt-4 text-sm text-ink-soft">
+                  Última sesión GPS:{" "}
+                  <span className="font-medium text-ink">
+                    {daysAgo(lastGpsDate)}
+                  </span>{" "}
+                  · {gpsSessions.length} sesión
+                  {gpsSessions.length !== 1 ? "es" : ""} totales
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Feed de actividad real */}
+        <div className="rounded-[2rem] border border-line bg-white p-6">
+          <h2 className="text-2xl font-semibold">Actividad reciente</h2>
+
+          <div className="mt-6 space-y-4">
+            {feedItems.length === 0 ? (
+              <p className="text-sm text-ink-soft">
+                Sin actividad registrada en los últimos 7 días.
+              </p>
+            ) : (
+              feedItems.map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={i}
+                    className="flex gap-3 border-b border-line pb-4 last:border-0"
+                  >
+                    <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                    <div>
+                      <p className="text-sm leading-6 text-ink-soft">
+                        {item.label}
+                      </p>
+                      <p className="text-xs text-ink-soft/60">
+                        {daysAgo(item.date)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </section>
