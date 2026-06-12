@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -160,16 +161,16 @@ export function Navbar() {
 
             {/* ── Logo ── */}
             <Link href="/hub" className="flex items-center gap-2 sm:gap-3 min-w-0 flex-shrink-0">
-              {state.club.badgeUrl && (
-                <div suppressHydrationWarning className="flex-shrink-0">
-                  <img
-                    src={state.club.badgeUrl}
-                    alt={`${state.club.name} badge`}
-                    className="h-8 w-8 sm:h-10 sm:w-10 object-contain rounded"
-                    suppressHydrationWarning
-                  />
-                </div>
-              )}
+              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:h-10 sm:w-10">
+                <Image
+                  src="/talentos-mark.png"
+                  alt="TalentOS logo"
+                  width={40}
+                  height={40}
+                  className="h-full w-full object-cover"
+                  priority
+                />
+              </div>
               <p className="font-bold tracking-wide leading-none">
                 <span className="text-lg text-zinc-900">Talent</span><span className="text-xl text-accent">OS</span>
               </p>

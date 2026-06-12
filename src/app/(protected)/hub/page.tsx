@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   Activity,
@@ -227,6 +228,35 @@ export default function HubPage() {
                   <span className="text-xs font-medium tracking-widest text-white/60 uppercase">
                     {club.name}
                   </span>
+                </div>
+
+                <div className="mb-6 inline-flex items-center gap-3 rounded-2xl border border-white/12 bg-white/8 px-4 py-3 backdrop-blur-sm">
+                  <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/10">
+                    {club.badgeUrl ? (
+                      <img
+                        src={club.badgeUrl}
+                        alt={`${club.name} badge`}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <Image
+                        src="/talentos-mark.png"
+                        alt="TalentOS logo"
+                        width={56}
+                        height={56}
+                        className="h-full w-full object-cover opacity-80"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+                      {es ? "Resumen del club" : "Club summary"}
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-white">{club.name}</p>
+                    <p className="mt-0.5 text-sm text-white/60">
+                      {club.region || (es ? "Sin región definida" : "No region defined")}
+                    </p>
+                  </div>
                 </div>
 
                 <h1 className="max-w-xl text-[clamp(2rem,4vw,3.5rem)] font-semibold leading-[1.1] tracking-tight text-white">
