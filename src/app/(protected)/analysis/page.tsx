@@ -11,7 +11,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
-  ArrowLeft, ArrowRight, Info, X, Menu, Maximize2
+  ArrowLeft, ArrowRight, Info, X, Menu, Maximize2, BarChart2
 } from "lucide-react";
 import { buildInsights } from "@/lib/maturation/insights";
 import { useAppState } from "@/lib/store/app-state";
@@ -3295,9 +3295,11 @@ function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral"
 
 type UrgencyLevel = "critical" | "warning" | "monitoring" | "ok";
 
-function getUrgencyLevel(alerts: AlertItem[], band: MaturityBand | null): UrgencyLevel {
+function getUrgencyLevel(alerts: AlertItem[], band: MaturityBand | null, enrichedSignals?: InsightSignal[]): UrgencyLevel {
   if (alerts.some((a) => a.severity === "critical")) return "critical";
+  if (enrichedSignals?.some((s) => s.severity === "critical")) return "critical";
   if (alerts.some((a) => a.severity === "warning")) return "warning";
+  if (enrichedSignals?.some((s) => s.severity === "warning")) return "warning";
   if (band === "Mid-PHV") return "monitoring";
   return "ok";
 }
@@ -3322,10 +3324,42 @@ function bandLabelSA(band: MaturityBand | null, loc: string) {
 // ── enriched signal: derives contextual insights from performance + load data ─
 
 type InsightSignal = {
-  kind: "perfDrop" | "perfTrend" | "loadSpike" | "loadHighVsTeam" | "growthJustified" | "recommendationHint";
+  kind:
+    | "perfDrop"
+    | "perfTrend"
+    | "perfTrendSeries"    // NEW: trend over full series (linear regression)
+    | "perfPercentile"     // NEW: vs same maturity band
+    | "loadSpike"
+    | "loadHighVsTeam"
+    | "loadACWR"           // NEW: acute:chronic workload ratio
+    | "loadMonotony"       // NEW: RPE variability / monotony
+    | "growthJustified"
+    | "growthVelocity"     // NEW: cm/month growth rate
+    | "offsetTrend"        // NEW: offset trending toward PHV
+    | "recommendationHint";
   severity: "critical" | "warning" | "info";
+  pilar: "maturation" | "performance" | "load" | "recommendation";
   message: string;
+  detail?: string;
 };
+
+// ── Linear regression helper (returns slope normalised per step) ────────────
+function linearTrendSlope(values: number[]): number {
+  const n = values.length;
+  if (n < 2) return 0;
+  const meanX = (n - 1) / 2;
+  const meanY = values.reduce((s, v) => s + v, 0) / n;
+  let num = 0, den = 0;
+  values.forEach((v, i) => { num += (i - meanX) * (v - meanY); den += (i - meanX) ** 2; });
+  return den === 0 ? 0 : num / den;
+}
+
+// ── Percentile rank of value within array (0–100) ───────────────────────────
+function percentileRank(value: number, population: number[]): number {
+  if (population.length === 0) return 50;
+  const below = population.filter((v) => v < value).length;
+  return Math.round((below / population.length) * 100);
+}
 
 function buildEnrichedSignals(
   athleteId: string,
@@ -3333,72 +3367,80 @@ function buildEnrichedSignals(
   offset: number | null,
   state: ReturnType<typeof useAppState>["state"],
   locale: string,
+  allLatestAssessments?: { athleteId: string; band: MaturityBand | null; offset: number | null }[],
 ): InsightSignal[] {
   const es = locale === "es";
   const signals: InsightSignal[] = [];
 
-  // ─ Performance entries for this athlete ──────────────────────────────────
   const perfEntries = state.performanceEntries.filter((e) => e.athleteId === athleteId);
   const loadEntries = state.trainingLoadEntries.filter((e) => e.athleteId === athleteId);
+  const today = new Date();
 
-  // ─ Training load analysis ────────────────────────────────────────────────
-  if (loadEntries.length >= 2) {
-    // Sort by date
-    const sorted = [...loadEntries].sort((a, b) => a.date.localeCompare(b.date));
-    const last4 = sorted.slice(-4);
-    const prev4 = sorted.slice(-8, -4);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PILAR 1 — MADURACIÓN
+  // ═══════════════════════════════════════════════════════════════════════════
 
-    if (last4.length > 0 && prev4.length > 0) {
-      const avgLast = last4.reduce((s, e) => s + e.load, 0) / last4.length;
-      const avgPrev = prev4.reduce((s, e) => s + e.load, 0) / prev4.length;
-      const ratio = avgPrev > 0 ? avgLast / avgPrev : 1;
+  // ─ Growth velocity (from all assessments for this athlete sorted by date) ─
+  const athleteAssessments = (state.records as Array<{ athleteId: string; dataCollectionDate: string; statureCm: number }>)
+    .filter((r) => r.athleteId === athleteId && r.statureCm > 0)
+    .sort((a, b) => a.dataCollectionDate.localeCompare(b.dataCollectionDate));
 
-      if (ratio > 1.35) {
+  if (athleteAssessments.length >= 2) {
+    const last = athleteAssessments[athleteAssessments.length - 1];
+    const prev = athleteAssessments[athleteAssessments.length - 2];
+    const daysDiff = (new Date(last.dataCollectionDate).getTime() - new Date(prev.dataCollectionDate).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysDiff > 0) {
+      const monthlyRate = ((last.statureCm - prev.statureCm) / daysDiff) * 30.44;
+      if (monthlyRate >= 0.8) {
+        // PHV threshold ≥ 0.8 cm/month considered rapid
         signals.push({
-          kind: "loadSpike",
-          severity: band === "Mid-PHV" ? "critical" : "warning",
+          kind: "growthVelocity",
+          severity: monthlyRate >= 1.2 ? "warning" : "info",
+          pilar: "maturation",
           message: es
-            ? `Carga reciente +${Math.round((ratio - 1) * 100)}% sobre las 4 semanas previas${band === "Mid-PHV" ? " — alto riesgo en pico de crecimiento" : ""}.`
-            : `Recent load +${Math.round((ratio - 1) * 100)}% above prior 4-week average${band === "Mid-PHV" ? " — elevated risk at peak growth" : ""}.`,
+            ? `Velocidad de crecimiento: +${monthlyRate.toFixed(2)} cm/mes en el último período.`
+            : `Growth velocity: +${monthlyRate.toFixed(2)} cm/month in the last period.`,
+          detail: es
+            ? monthlyRate >= 1.2 ? "Crecimiento rápido activo — monitorizar carga de impacto." : "Crecimiento acelerado — fase sensible."
+            : monthlyRate >= 1.2 ? "Active rapid growth — monitor impact loads." : "Accelerated growth — sensitive phase.",
         });
-      } else if (ratio < 0.6 && last4.length >= 3) {
-        signals.push({
-          kind: "loadSpike",
-          severity: "info",
-          message: es
-            ? `Carga reciente inusualmente baja (−${Math.round((1 - ratio) * 100)}%): ¿lesión o baja voluntaria?`
-            : `Recent load unusually low (−${Math.round((1 - ratio) * 100)}%): injury or intentional reduction?`,
-        });
-      }
-    }
-
-    // ─ Compare load with team average ──────────────────────────────────────
-    const teamId = state.athletes.find((a) => a.id === athleteId)?.teamId;
-    if (teamId) {
-      const teammates = state.athletes.filter((a) => a.teamId === teamId && a.id !== athleteId).map((a) => a.id);
-      const recentDates = new Set(loadEntries.slice(-4).map((e) => e.date));
-      const teamLoads = state.trainingLoadEntries.filter(
-        (e) => teammates.includes(e.athleteId) && recentDates.has(e.date),
-      );
-      if (teamLoads.length > 2) {
-        const athleteAvg = loadEntries.filter((e) => recentDates.has(e.date)).reduce((s, e) => s + e.load, 0) /
-          Math.max(1, loadEntries.filter((e) => recentDates.has(e.date)).length);
-        const teamAvg = teamLoads.reduce((s, e) => s + e.load, 0) / teamLoads.length;
-        const vsTeam = teamAvg > 0 ? athleteAvg / teamAvg : 1;
-        if (vsTeam > 1.3) {
-          signals.push({
-            kind: "loadHighVsTeam",
-            severity: band === "Mid-PHV" ? "warning" : "info",
-            message: es
-              ? `Carga ${Math.round((vsTeam - 1) * 100)}% superior a la media del equipo en las últimas sesiones.`
-              : `Load ${Math.round((vsTeam - 1) * 100)}% above team average over recent sessions.`,
-          });
-        }
       }
     }
   }
 
-  // ─ Performance trend analysis ────────────────────────────────────────────
+  // ─ Offset trend: is the athlete approaching PHV? ─────────────────────────
+  if (typeof offset === "number" && allLatestAssessments) {
+    // Compare current offset to the band context
+    const approachingPHV = offset > -1 && offset < 0 && band === "Pre-PHV";
+    const enteringPHV = offset > -0.3 && offset < 0.3 && band !== "Post-PHV";
+    if (enteringPHV) {
+      signals.push({
+        kind: "offsetTrend",
+        severity: "warning",
+        pilar: "maturation",
+        message: es
+          ? `Offset madurativo en ${offset.toFixed(2)} años — muy próximo al pico de crecimiento (PHV).`
+          : `Maturity offset at ${offset.toFixed(2)} y — very close to peak height velocity (PHV).`,
+        detail: es
+          ? "Máxima precaución con cargas de impacto y cambios bruscos de volumen."
+          : "Maximum caution with impact loads and abrupt volume changes.",
+      });
+    } else if (approachingPHV) {
+      signals.push({
+        kind: "offsetTrend",
+        severity: "info",
+        pilar: "maturation",
+        message: es
+          ? `Offset madurativo en ${offset.toFixed(2)} años — avanzando hacia el PHV.`
+          : `Maturity offset at ${offset.toFixed(2)} y — advancing toward PHV.`,
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PILAR 2 — RENDIMIENTO
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const testGroups = new Map<string, typeof perfEntries>();
   perfEntries.forEach((e) => {
     const g = testGroups.get(e.testName) ?? [];
@@ -3409,56 +3451,292 @@ function buildEnrichedSignals(
   testGroups.forEach((entries, testName) => {
     if (entries.length < 2) return;
     const sorted = [...entries].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
+
+    // ─ Last vs previous measurement ────────────────────────────────────────
     const recent = sorted.slice(-2);
     const prev = recent[0].value;
     const curr = recent[1].value;
     if (prev === 0) return;
-    const drop = (prev - curr) / Math.abs(prev);
+    const lastChangePct = (curr - prev) / Math.abs(prev);
+    const isNearAPHV = band === "Mid-PHV" || (typeof offset === "number" && Math.abs(offset) < 0.5);
 
-    if (drop > 0.1) {
-      // Perf drop detected — check maturation context
-      const isNearAPHV = band === "Mid-PHV" || (typeof offset === "number" && Math.abs(offset) < 0.5);
+    if (lastChangePct < -0.1) {
       if (isNearAPHV) {
         signals.push({
           kind: "growthJustified",
           severity: "info",
+          pilar: "performance",
           message: es
-            ? `Bajada de rendimiento en "${testName}" (−${Math.round(drop * 100)}%) — probable impacto del pico de crecimiento. Esperable en esta fase madurativa.`
-            : `Performance drop in "${testName}" (−${Math.round(drop * 100)}%) — likely growth-spurt effect. Expected at this maturational stage.`,
+            ? `Bajada en "${testName}" (−${Math.round(Math.abs(lastChangePct) * 100)}%) — probable impacto del pico de crecimiento.`
+            : `Drop in "${testName}" (−${Math.round(Math.abs(lastChangePct) * 100)}%) — likely growth-spurt effect.`,
+          detail: es ? "Esperable en esta fase madurativa." : "Expected at this maturational stage.",
         });
       } else {
         signals.push({
           kind: "perfDrop",
-          severity: drop > 0.2 ? "warning" : "info",
+          severity: lastChangePct < -0.2 ? "warning" : "info",
+          pilar: "performance",
           message: es
-            ? `Bajada de rendimiento en "${testName}": −${Math.round(drop * 100)}% respecto a la medición anterior.`
-            : `Performance drop in "${testName}": −${Math.round(drop * 100)}% vs. prior measurement.`,
+            ? `Bajada en "${testName}": −${Math.round(Math.abs(lastChangePct) * 100)}% respecto a la medición anterior.`
+            : `Drop in "${testName}": −${Math.round(Math.abs(lastChangePct) * 100)}% vs. prior measurement.`,
         });
       }
-    } else if (drop < -0.1) {
+    } else if (lastChangePct > 0.1) {
       signals.push({
         kind: "perfTrend",
         severity: "info",
+        pilar: "performance",
         message: es
-          ? `Mejora en "${testName}": +${Math.round(Math.abs(drop) * 100)}% respecto a la medición anterior.`
-          : `Improvement in "${testName}": +${Math.round(Math.abs(drop) * 100)}% vs. prior measurement.`,
+          ? `Mejora en "${testName}": +${Math.round(lastChangePct * 100)}% respecto a la medición anterior.`
+          : `Improvement in "${testName}": +${Math.round(lastChangePct * 100)}% vs. prior measurement.`,
       });
+    }
+
+    // ─ Full-series trend (linear regression) — only for ≥ 3 points ─────────
+    if (sorted.length >= 3) {
+      const values = sorted.map((e) => e.value);
+      const slope = linearTrendSlope(values);
+      const baseVal = values[0] || 1;
+      // Normalise slope as % change per measurement relative to first value
+      const slopePct = slope / Math.abs(baseVal);
+
+      if (Math.abs(slopePct) >= 0.04) {
+        const direction = slopePct > 0 ? "up" : "down";
+        const n = sorted.length;
+        signals.push({
+          kind: "perfTrendSeries",
+          severity: "info",
+          pilar: "performance",
+          message: es
+            ? `Tendencia en "${testName}" sobre ${n} mediciones: ${direction === "up" ? "↑ mejora" : "↓ descenso"} sostenido de ~${Math.round(Math.abs(slopePct) * 100)}% por evaluación.`
+            : `Trend in "${testName}" over ${n} measurements: sustained ${direction === "up" ? "↑ improvement" : "↓ decline"} of ~${Math.round(Math.abs(slopePct) * 100)}% per session.`,
+        });
+      }
+    }
+
+    // ─ Percentile vs same maturity band ─────────────────────────────────────
+    if (band && sorted.length > 0) {
+      const athleteLatestVal = sorted[sorted.length - 1].value;
+      // Gather last value of same test from other athletes in same band
+      const bandPeerValues: number[] = [];
+      state.athletes.forEach((peer) => {
+        if (peer.id === athleteId) return;
+        // We need to infer band for peer — if allLatestAssessments provided use it
+        const peerBandInfo = allLatestAssessments?.find((a) => a.athleteId === peer.id);
+        if (!peerBandInfo || peerBandInfo.band !== band) return;
+        const peerEntries = state.performanceEntries
+          .filter((e) => e.athleteId === peer.id && e.testName === testName)
+          .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
+        if (peerEntries.length > 0) bandPeerValues.push(peerEntries[peerEntries.length - 1].value);
+      });
+
+      if (bandPeerValues.length >= 3) {
+        const pct = percentileRank(athleteLatestVal, bandPeerValues);
+        if (pct <= 20 || pct >= 80) {
+          signals.push({
+            kind: "perfPercentile",
+            severity: "info",
+            pilar: "performance",
+            message: es
+              ? `"${testName}": percentil ${pct} respecto a ${bandPeerValues.length} jugadores en la misma banda madurativa (${band}).`
+              : `"${testName}": ${pct}th percentile vs. ${bandPeerValues.length} peers in same maturity band (${band}).`,
+            detail: es
+              ? pct >= 80 ? "Rendimiento destacado en su grupo madurativo." : "Por debajo de la mayoría de su grupo madurativo."
+              : pct >= 80 ? "Outstanding performance within their maturity group." : "Below most peers in their maturity group.",
+          });
+        }
+      }
     }
   });
 
-  // ─ Maturation-based recommendation hints ────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PILAR 3 — CARGA DE ENTRENAMIENTO
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (loadEntries.length >= 2) {
+    const sorted = [...loadEntries].sort((a, b) => a.date.localeCompare(b.date));
+
+    // ─ ACWR: acute (last 7 days) / chronic (last 28 days) ──────────────────
+    const todayMs = today.getTime();
+    const acuteEntries = sorted.filter((e) => {
+      const ms = new Date(e.date).getTime();
+      return todayMs - ms <= 7 * 24 * 60 * 60 * 1000;
+    });
+    const chronicEntries = sorted.filter((e) => {
+      const ms = new Date(e.date).getTime();
+      return todayMs - ms <= 28 * 24 * 60 * 60 * 1000;
+    });
+
+    if (acuteEntries.length >= 1 && chronicEntries.length >= 3) {
+      const acuteAvg = acuteEntries.reduce((s, e) => s + e.load, 0) / acuteEntries.length;
+      const chronicAvg = chronicEntries.reduce((s, e) => s + e.load, 0) / chronicEntries.length;
+      const acwr = chronicAvg > 0 ? acuteAvg / chronicAvg : 1;
+
+      if (acwr > 1.5) {
+        signals.push({
+          kind: "loadACWR",
+          severity: band === "Mid-PHV" ? "critical" : "warning",
+          pilar: "load",
+          message: es
+            ? `ACWR en ${acwr.toFixed(2)} — zona de riesgo (>1.5)${band === "Mid-PHV" ? ", coincide con pico de crecimiento" : ""}.`
+            : `ACWR at ${acwr.toFixed(2)} — danger zone (>1.5)${band === "Mid-PHV" ? ", coincides with peak growth" : ""}.`,
+          detail: es
+            ? "Ratio carga aguda (7d) / carga crónica (28d). Por encima de 1.5 aumenta significativamente el riesgo de lesión."
+            : "Acute (7d) / chronic (28d) workload ratio. Above 1.5 significantly increases injury risk.",
+        });
+      } else if (acwr < 0.7) {
+        signals.push({
+          kind: "loadACWR",
+          severity: "info",
+          pilar: "load",
+          message: es
+            ? `ACWR bajo: ${acwr.toFixed(2)} — carga aguda muy inferior a la crónica. ¿Descanso intencionado o baja?`
+            : `Low ACWR: ${acwr.toFixed(2)} — acute load well below chronic baseline. Intentional rest or absence?`,
+        });
+      } else if (acwr >= 0.8 && acwr <= 1.3) {
+        signals.push({
+          kind: "loadACWR",
+          severity: "info",
+          pilar: "load",
+          message: es
+            ? `ACWR óptimo: ${acwr.toFixed(2)} (zona ideal 0.8–1.3).`
+            : `Optimal ACWR: ${acwr.toFixed(2)} (ideal zone 0.8–1.3).`,
+        });
+      }
+    }
+
+    // ─ Load spike: last 4 vs previous 4 sessions ───────────────────────────
+    const last4 = sorted.slice(-4);
+    const prev4 = sorted.slice(-8, -4);
+    if (last4.length > 0 && prev4.length > 0) {
+      const avgLast = last4.reduce((s, e) => s + e.load, 0) / last4.length;
+      const avgPrev = prev4.reduce((s, e) => s + e.load, 0) / prev4.length;
+      const ratio = avgPrev > 0 ? avgLast / avgPrev : 1;
+
+      if (ratio > 1.35) {
+        signals.push({
+          kind: "loadSpike",
+          severity: band === "Mid-PHV" ? "critical" : "warning",
+          pilar: "load",
+          message: es
+            ? `Carga reciente +${Math.round((ratio - 1) * 100)}% sobre las 4 sesiones previas${band === "Mid-PHV" ? " — alto riesgo en pico de crecimiento" : ""}.`
+            : `Recent load +${Math.round((ratio - 1) * 100)}% above prior 4-session average${band === "Mid-PHV" ? " — elevated risk at peak growth" : ""}.`,
+        });
+      } else if (ratio < 0.6 && last4.length >= 3) {
+        signals.push({
+          kind: "loadSpike",
+          severity: "info",
+          pilar: "load",
+          message: es
+            ? `Carga reciente inusualmente baja (−${Math.round((1 - ratio) * 100)}%): ¿lesión o baja voluntaria?`
+            : `Recent load unusually low (−${Math.round((1 - ratio) * 100)}%): injury or intentional reduction?`,
+        });
+      }
+    }
+
+    // ─ Load monotony: std deviation of RPE in last 7 sessions ──────────────
+    const last7 = sorted.slice(-7);
+    if (last7.length >= 4) {
+      const rpes = last7.map((e) => e.rpe);
+      const meanRpe = rpes.reduce((s, v) => s + v, 0) / rpes.length;
+      const stdRpe = Math.sqrt(rpes.reduce((s, v) => s + (v - meanRpe) ** 2, 0) / rpes.length);
+      const monotony = meanRpe > 0 ? meanRpe / (stdRpe || 0.001) : 0;
+      if (monotony > 2.0) {
+        signals.push({
+          kind: "loadMonotony",
+          severity: "warning",
+          pilar: "load",
+          message: es
+            ? `Monotonía de carga alta (índice ${monotony.toFixed(1)}) — RPE muy uniforme en las últimas sesiones. Riesgo de sobreentrenamiento acumulado.`
+            : `High training monotony (index ${monotony.toFixed(1)}) — very uniform RPE across recent sessions. Risk of accumulated overtraining.`,
+          detail: es
+            ? "Variar la intensidad entre sesiones reduce este riesgo."
+            : "Varying intensity between sessions reduces this risk.",
+        });
+      }
+    }
+
+    // ─ Compare load with team average ──────────────────────────────────────
+    const teamId = state.athletes.find((a) => a.id === athleteId)?.teamId;
+    if (teamId) {
+      const teammates = state.athletes.filter((a) => a.teamId === teamId && a.id !== athleteId).map((a) => a.id);
+      const recentDates = new Set(last4.map((e) => e.date));
+      const teamLoads = state.trainingLoadEntries.filter(
+        (e) => teammates.includes(e.athleteId) && recentDates.has(e.date),
+      );
+      if (teamLoads.length > 2) {
+        const athleteAvg = last4.reduce((s, e) => s + e.load, 0) / Math.max(1, last4.length);
+        const teamAvg = teamLoads.reduce((s, e) => s + e.load, 0) / teamLoads.length;
+        const vsTeam = teamAvg > 0 ? athleteAvg / teamAvg : 1;
+        if (vsTeam > 1.3) {
+          signals.push({
+            kind: "loadHighVsTeam",
+            severity: band === "Mid-PHV" ? "warning" : "info",
+            pilar: "load",
+            message: es
+              ? `Carga ${Math.round((vsTeam - 1) * 100)}% superior a la media del equipo en las últimas sesiones.`
+              : `Load ${Math.round((vsTeam - 1) * 100)}% above team average over recent sessions.`,
+          });
+        } else if (vsTeam < 0.7) {
+          signals.push({
+            kind: "loadHighVsTeam",
+            severity: "info",
+            pilar: "load",
+            message: es
+              ? `Carga ${Math.round((1 - vsTeam) * 100)}% inferior a la media del equipo en las últimas sesiones.`
+              : `Load ${Math.round((1 - vsTeam) * 100)}% below team average over recent sessions.`,
+          });
+        }
+      }
+    }
+
+    // ─ Compare load with same maturity band ────────────────────────────────
+    if (band && allLatestAssessments) {
+      const bandPeerIds = allLatestAssessments
+        .filter((a) => a.athleteId !== athleteId && a.band === band)
+        .map((a) => a.athleteId);
+      if (bandPeerIds.length >= 2) {
+        const recentDates = new Set(last4.map((e) => e.date));
+        const bandLoads = state.trainingLoadEntries.filter(
+          (e) => bandPeerIds.includes(e.athleteId) && recentDates.has(e.date),
+        );
+        if (bandLoads.length >= 2) {
+          const athleteAvg = last4.reduce((s, e) => s + e.load, 0) / Math.max(1, last4.length);
+          const bandAvg = bandLoads.reduce((s, e) => s + e.load, 0) / bandLoads.length;
+          const vsBand = bandAvg > 0 ? athleteAvg / bandAvg : 1;
+          if (vsBand > 1.3) {
+            signals.push({
+              kind: "loadHighVsTeam",
+              severity: band === "Mid-PHV" ? "warning" : "info",
+              pilar: "load",
+              message: es
+                ? `Carga ${Math.round((vsBand - 1) * 100)}% superior a jugadores de su misma banda madurativa (${band}).`
+                : `Load ${Math.round((vsBand - 1) * 100)}% above peers in the same maturity band (${band}).`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PILAR 4 — RECOMENDACIONES MADURATIVAS
+  // ═══════════════════════════════════════════════════════════════════════════
+
   if (band === "Mid-PHV") {
     signals.push({
       kind: "recommendationHint",
       severity: "info",
+      pilar: "recommendation",
       message: es
-        ? "Fase de pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto."
+        ? "Pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto."
         : "Peak growth phase: prioritise technique and coordination, limit impact loads.",
     });
   } else if (band === "Pre-PHV") {
     signals.push({
       kind: "recommendationHint",
       severity: "info",
+      pilar: "recommendation",
       message: es
         ? "Ventana sensible para habilidades motoras y coordinación multilateral."
         : "Sensitive window for motor skills and multilateral coordination.",
@@ -3467,6 +3745,7 @@ function buildEnrichedSignals(
     signals.push({
       kind: "recommendationHint",
       severity: "info",
+      pilar: "recommendation",
       message: es
         ? "Introducir progresivamente cargas de fuerza y trabajo de potencia."
         : "Progressively introduce strength and power loads.",
@@ -3516,13 +3795,54 @@ function SmartAthleteCard({
   const warningAlerts = status.alerts.filter((a) => a.severity === "warning");
   const critSignals = signals.filter((s) => s.severity === "critical");
   const warnSignals = signals.filter((s) => s.severity === "warning");
-  const infoSignals = signals.filter((s) => s.severity === "info");
 
-  const topIssues = [...criticalAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "critical" as const })),
+  const topIssues = [
+    ...criticalAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "critical" as const })),
     ...warningAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "warning" as const })),
-    ...critSignals.map((s) => ({ text: s.message, detail: undefined, sev: "critical" as const })),
-    ...warnSignals.map((s) => ({ text: s.message, detail: undefined, sev: "warning" as const })),
+    ...critSignals.map((s) => ({ text: s.message, detail: s.detail, sev: "critical" as const })),
+    ...warnSignals.map((s) => ({ text: s.message, detail: s.detail, sev: "warning" as const })),
   ];
+
+  // Group info signals by pilar
+  const maturationSignals = signals.filter((s) => s.severity === "info" && s.pilar === "maturation");
+  const performanceSignals = signals.filter((s) => s.severity === "info" && s.pilar === "performance");
+  const loadSignals = signals.filter((s) => s.severity === "info" && s.pilar === "load");
+  const recSignals = signals.filter((s) => s.pilar === "recommendation");
+
+  const pilarConfig = [
+    {
+      id: "maturation",
+      label: es ? "Maduración" : "Maturation",
+      items: maturationSignals,
+      icon: <Activity className="h-3 w-3 text-violet-500" />,
+      headerClass: "text-violet-600",
+      itemClass: "bg-violet-50 border-violet-100",
+      textClass: "text-violet-800",
+      detailClass: "text-violet-600",
+    },
+    {
+      id: "performance",
+      label: es ? "Rendimiento" : "Performance",
+      items: performanceSignals,
+      icon: <TrendingUp className="h-3 w-3 text-teal-500" />,
+      headerClass: "text-teal-600",
+      itemClass: "bg-teal-50 border-teal-100",
+      textClass: "text-teal-800",
+      detailClass: "text-teal-600",
+    },
+    {
+      id: "load",
+      label: es ? "Carga" : "Load",
+      items: loadSignals,
+      icon: <BarChart2 className="h-3 w-3 text-blue-500" />,
+      headerClass: "text-blue-600",
+      itemClass: "bg-blue-50 border-blue-100",
+      textClass: "text-blue-800",
+      detailClass: "text-blue-600",
+    },
+  ] as const;
+
+  const totalSignalCount = topIssues.length + signals.filter((s) => s.severity === "info").length;
 
   return (
     <div className={`rounded-2xl border overflow-hidden shadow-sm transition-all ${urgencyBorderColor}`}>
@@ -3532,10 +3852,8 @@ function SmartAthleteCard({
         onClick={() => setExpanded((p) => !p)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-black/[0.02] transition"
       >
-        {/* Urgency dot */}
         <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
 
-        {/* Avatar */}
         <span className={`flex-shrink-0 h-8 w-8 rounded-full text-sm font-black flex items-center justify-center ${
           urgency === "critical" ? "bg-rose-200 text-rose-800"
           : urgency === "warning" ? "bg-amber-200 text-amber-800"
@@ -3544,25 +3862,24 @@ function SmartAthleteCard({
           {status.name.charAt(0).toUpperCase()}
         </span>
 
-        {/* Name + team */}
         <div className="min-w-0 flex-1">
           <p className="font-bold text-slate-900 text-sm truncate">{status.name}</p>
           <p className="text-[11px] text-slate-500 truncate">{status.team} · {formatNumber(status.age, 1)} {es ? "a" : "y"}</p>
         </div>
 
-        {/* Tags */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {status.band && (
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getBandChipSA(status.band)}`}>
               {bandLabelSA(status.band, locale)}
             </span>
           )}
-          {topIssues.length > 0 && (
+          {totalSignalCount > 0 && (
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
               urgency === "critical" ? "bg-rose-100 text-rose-700"
-              : "bg-amber-100 text-amber-700"
+              : urgency === "warning" ? "bg-amber-100 text-amber-700"
+              : "bg-slate-100 text-slate-600"
             }`}>
-              {topIssues.length} {es ? "señal" : "signal"}{topIssues.length !== 1 ? "es" : ""}
+              {totalSignalCount} {es ? "señal" : "signal"}{totalSignalCount !== 1 ? "es" : ""}
             </span>
           )}
           <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -3596,44 +3913,54 @@ function SmartAthleteCard({
             </div>
           )}
 
-          {/* Info signals (perf trend, load, growth context, recommendations) */}
-          {infoSignals.length > 0 && (
-            <div className="px-4 py-3 space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                {es ? "Contexto y tendencias" : "Context & trends"}
-              </p>
-              {infoSignals.map((sig, i) => {
-                const isGrowthJustified = sig.kind === "growthJustified";
-                const isImprovement = sig.kind === "perfTrend";
-                const isRec = sig.kind === "recommendationHint";
-                return (
-                  <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 ${
-                    isGrowthJustified ? "bg-blue-50 border border-blue-100"
-                    : isImprovement ? "bg-teal-50 border border-teal-100"
-                    : isRec ? "bg-slate-50 border border-slate-200"
-                    : "bg-slate-50 border border-slate-200"
-                  }`}>
-                    {isGrowthJustified
-                      ? <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
-                      : isImprovement
-                      ? <TrendingUp className="h-3.5 w-3.5 text-teal-500 mt-0.5 flex-shrink-0" />
-                      : isRec
-                      ? <Target className="h-3.5 w-3.5 text-slate-500 mt-0.5 flex-shrink-0" />
-                      : <Activity className="h-3.5 w-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
-                    }
-                    <p className={`text-xs leading-relaxed ${
-                      isGrowthJustified ? "text-blue-800"
-                      : isImprovement ? "text-teal-800"
-                      : "text-slate-700"
-                    }`}>{sig.message}</p>
+          {/* Pillar sections */}
+          {pilarConfig.map((pilar) => {
+            if (pilar.items.length === 0) return null;
+            return (
+              <div key={pilar.id} className="px-4 py-3 space-y-1.5">
+                <p className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 mb-1 ${pilar.headerClass}`}>
+                  {pilar.icon}
+                  {pilar.label}
+                </p>
+                {pilar.items.map((sig, i) => (
+                  <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 border ${pilar.itemClass}`}>
+                    <Info className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
+                      sig.kind === "perfTrend" || sig.kind === "perfTrendSeries"
+                        ? "text-teal-400"
+                        : sig.kind === "loadACWR" || sig.kind === "loadMonotony"
+                        ? "text-blue-400"
+                        : sig.kind === "growthVelocity" || sig.kind === "offsetTrend"
+                        ? "text-violet-400"
+                        : "text-slate-400"
+                    }`} />
+                    <div>
+                      <p className={`text-xs leading-relaxed ${pilar.textClass}`}>{sig.message}</p>
+                      {sig.detail && <p className={`text-[11px] mt-0.5 ${pilar.detailClass}`}>{sig.detail}</p>}
+                    </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            );
+          })}
+
+          {/* Recommendations */}
+          {recSignals.length > 0 && (
+            <div className="px-4 py-3 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
+                <Target className="h-3 w-3 text-slate-400" />
+                {es ? "Recomendaciones" : "Recommendations"}
+              </p>
+              {recSignals.map((sig, i) => (
+                <div key={i} className="flex gap-2 items-start rounded-lg p-2.5 bg-slate-50 border border-slate-200">
+                  <Target className="h-3.5 w-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-slate-700 leading-relaxed">{sig.message}</p>
+                </div>
+              ))}
             </div>
           )}
 
           {/* No signals at all */}
-          {topIssues.length === 0 && infoSignals.length === 0 && (
+          {totalSignalCount === 0 && (
             <div className="px-4 py-3 flex items-center gap-2 text-xs text-slate-400">
               <CheckCircle2 className="h-4 w-4 text-teal-400" />
               {es ? "Sin señales activas en este momento." : "No active signals at this time."}
@@ -3731,6 +4058,11 @@ function AssistantView({
 
     return Array.from(map.values());
   }, [latestEngineResolved, alertItems, rapidGrowthItems, t]);
+
+  // Band context for all athletes — used by buildEnrichedSignals for cross-athlete comparisons
+  const allLatestAssessmentsForSignals = useMemo(() =>
+    allAthleteStatus.map((a) => ({ athleteId: a.id, band: a.band, offset: a.offset })),
+  [allAthleteStatus]);
 
   // Teams list
   const allTeams = useMemo(() => {
@@ -3927,8 +4259,8 @@ function AssistantView({
           ) : (
             <div className="space-y-2">
               {teamAthletes.map((athlete) => {
-                const urgency = getUrgencyLevel(athlete.alerts, athlete.band);
-                const signals = buildEnrichedSignals(athlete.id, athlete.band, athlete.offset, state, locale);
+                const signals = buildEnrichedSignals(athlete.id, athlete.band, athlete.offset, state, locale, allLatestAssessmentsForSignals);
+                const urgency = getUrgencyLevel(athlete.alerts, athlete.band, signals);
                 return (
                   <SmartAthleteCard
                     key={athlete.id}
