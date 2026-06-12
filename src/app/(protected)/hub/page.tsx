@@ -241,7 +241,8 @@ export default function HubPage() {
                 </Link>
                 <Link
                   href="/datahub"
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/8 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/15"
+                  className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition"
+                  style={{ backgroundColor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "#ffffff" }}
                 >
                   Centro de datos
                 </Link>
@@ -426,7 +427,7 @@ export default function HubPage() {
             {feedItems.length === 0 ? (
               <p className="text-sm text-ink-soft">Sin actividad registrada en los últimos 7 días.</p>
             ) : (
-              feedItems.map((item, i) => {
+              feedItems.slice(0, 3).map((item, i) => {
                 const Icon = item.icon;
                 return (
                   <div key={i} className="flex gap-3 border-b border-line pb-3 last:border-0 last:pb-0">

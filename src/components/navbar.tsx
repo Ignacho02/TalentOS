@@ -170,14 +170,9 @@ export function Navbar() {
                   />
                 </div>
               )}
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wider truncate">
-                  <span className="text-zinc-900">Talent</span><span className="text-accent">OS</span>
-                </p>
-                <p className="font-semibold text-zinc-900 text-sm sm:text-base truncate" suppressHydrationWarning>
-                  {state.club.name}
-                </p>
-              </div>
+              <p className="font-bold tracking-wide leading-none">
+                <span className="text-lg text-zinc-900">Talent</span><span className="text-xl text-accent">OS</span>
+              </p>
             </Link>
 
             {/* ── Desktop nav ── */}
