@@ -12,7 +12,7 @@
 ![Architecture](https://img.shields.io/badge/architecture-handoff%20ready-blueviolet)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Maduration es una web app para clubes y staffs de formacion que convierte mediciones antropometricas y datos de rendimiento en contexto util para la toma de decisiones. El foco del producto esta en maduracion biologica, bio-banding, analisis comparativo y una estructura de DataHub que pueda crecer hacia operaciones reales de club.
+TalentOS es una web app para clubes y staffs de formacion que convierte mediciones antropometricas y datos de rendimiento en contexto util para la toma de decisiones. El foco del producto esta en maduracion biologica, bio-banding, analisis comparativo y una estructura de DataHub que pueda crecer hacia operaciones reales de club.
 
 Este repositorio esta preparado explica que hace hoy la app, que partes estan realmente operativas y donde tocar segun el tipo de cambio.
 Para acceder a la documentación detallada leer el documento [Enterprise Documentation](docs/Maduration-Enterprise-Documentation.md)
