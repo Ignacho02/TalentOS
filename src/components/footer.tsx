@@ -79,10 +79,7 @@ export function Footer() {
         {/* Copyright */}
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-sm text-zinc-500">
-            © 2024-2026 Maduration. {t("footer.rights")}
-          </p>
-          <p className="text-sm text-zinc-500">
-            {t("footer.builtBy")} <span className="font-semibold text-zinc-700">Ignacio Garbil</span>
+            © 2024-2026 TalentOS. {t("footer.rights")}
           </p>
         </div>
       </div>
