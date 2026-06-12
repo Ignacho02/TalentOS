@@ -1,4 +1,4 @@
-# Maduration App
+# TalentOS
 
 [![Deploy with Vercel](https://vercel.com/button)](https://maturation-and-bio-banding-app.vercel.app/login)
 
