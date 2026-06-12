@@ -222,41 +222,25 @@ export default function HubPage() {
             {/* Left: headline */}
             <div className="flex flex-col justify-between">
               <div>
-                {/* Eyebrow */}
-                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 py-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,.8)]" />
-                  <span className="text-xs font-medium tracking-widest text-white/60 uppercase">
+                <div className="mb-6 inline-flex items-center gap-3">
+                  {club.badgeUrl ? (
+                    <img
+                      src={club.badgeUrl}
+                      alt={`${club.name} badge`}
+                      className="h-14 w-14 object-contain"
+                    />
+                  ) : (
+                    <Image
+                      src="/talentos-mark.png"
+                      alt="TalentOS logo"
+                      width={56}
+                      height={56}
+                      className="h-14 w-14 object-contain opacity-90"
+                    />
+                  )}
+                  <p className="text-lg font-semibold tracking-wide text-white">
                     {club.name}
-                  </span>
-                </div>
-
-                <div className="mb-6 inline-flex items-center gap-3 rounded-2xl border border-white/12 bg-white/8 px-4 py-3 backdrop-blur-sm">
-                  <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/10">
-                    {club.badgeUrl ? (
-                      <img
-                        src={club.badgeUrl}
-                        alt={`${club.name} badge`}
-                        className="h-full w-full object-contain"
-                      />
-                    ) : (
-                      <Image
-                        src="/talentos-mark.png"
-                        alt="TalentOS logo"
-                        width={56}
-                        height={56}
-                        className="h-full w-full object-cover opacity-80"
-                      />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
-                      {es ? "Resumen del club" : "Club summary"}
-                    </p>
-                    <p className="mt-1 text-base font-semibold text-white">{club.name}</p>
-                    <p className="mt-0.5 text-sm text-white/60">
-                      {club.region || (es ? "Sin región definida" : "No region defined")}
-                    </p>
-                  </div>
+                  </p>
                 </div>
 
                 <h1 className="max-w-xl text-[clamp(2rem,4vw,3.5rem)] font-semibold leading-[1.1] tracking-tight text-white">
