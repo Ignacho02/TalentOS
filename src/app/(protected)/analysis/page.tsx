@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, ResponsiveContainer,
@@ -3299,6 +3299,7 @@ function PerformanceIntelligenceView({
   const es = locale === "es";
   const router = useRouter();
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
+  const [activeSection, setActiveSection] = useState<"overview" | "feed" | "trends" | "recommendations">("overview");
   const [activeCategories, setActiveCategories] = useState<Insight["category"][]>([
     "growth",
     "load",
@@ -3306,6 +3307,10 @@ function PerformanceIntelligenceView({
     "risk",
     "talent",
   ]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const latestEngineResolved = useMemo(
     () =>
@@ -3329,10 +3334,65 @@ function PerformanceIntelligenceView({
     [latestEngineResolved, assessments, state, locale],
   );
 
-  const visibleInsights = useMemo(
-    () => intelligence.insights.filter((insight) => activeCategories.includes(insight.category)),
-    [intelligence.insights, activeCategories],
+  const filteredInsights = useMemo(
+    () =>
+      intelligence.insights.filter((insight) => {
+        if (!activeCategories.includes(insight.category)) return false;
+        if (dateFrom && insight.createdAt < dateFrom) return false;
+        if (dateTo && insight.createdAt > dateTo) return false;
+
+        const normalizedQuery = deferredSearchTerm.trim().toLowerCase();
+        if (!normalizedQuery) return true;
+
+        const haystack = [
+          insight.title,
+          insight.description,
+          insight.teamName,
+          insight.recommendation,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(normalizedQuery);
+      }),
+    [intelligence.insights, activeCategories, dateFrom, dateTo, deferredSearchTerm],
   );
+
+  const filteredRecommendations = useMemo(
+    () => intelligence.recommendations.filter((item) => item.relatedInsightIds.some((id) => filteredInsights.some((insight) => insight.id === id))),
+    [intelligence.recommendations, filteredInsights],
+  );
+
+  const filteredTrends = useMemo(() => {
+    const relevantTeams = new Set(filteredInsights.map((insight) => insight.teamName).filter(Boolean));
+    const relevantTalent = filteredInsights.some((insight) => insight.category === "talent");
+    return intelligence.trends.filter((trend) => {
+      if (trend.id === "trend-talent") return relevantTalent;
+      if (trend.id.startsWith("trend-load-")) {
+        const teamName = trend.id.replace("trend-load-", "");
+        return relevantTeams.has(teamName);
+      }
+      return true;
+    });
+  }, [intelligence.trends, filteredInsights]);
+
+  const filteredSummary = useMemo(() => {
+    const monitoredAthletes = new Set(
+      filteredInsights
+        .filter((insight) => insight.severity !== "low" && insight.athleteId)
+        .map((insight) => insight.athleteId as string),
+    );
+
+    return {
+      criticalAlerts: filteredInsights.filter((insight) => insight.severity === "critical").length,
+      patternsDetected: filteredInsights.length,
+      athletesToMonitor: monitoredAthletes.size,
+      emergingTalents: filteredInsights.filter((insight) => insight.category === "talent").length,
+    };
+  }, [filteredInsights]);
+
+  const topFeedInsights = filteredInsights.slice(0, 5);
 
   const categoryConfig: Array<{
     id: Insight["category"];
@@ -3395,28 +3455,28 @@ function PerformanceIntelligenceView({
   const summaryCards = [
     {
       label: es ? "Alertas críticas" : "Critical alerts",
-      value: intelligence.summary.criticalAlerts,
+      value: filteredSummary.criticalAlerts,
       hint: es ? "requieren revisión inmediata" : "require immediate review",
       tone: "text-rose-700 bg-rose-50 border-rose-200",
       icon: <AlertTriangle className="h-4 w-4" />,
     },
     {
       label: es ? "Patrones detectados" : "Patterns detected",
-      value: intelligence.summary.patternsDetected,
+      value: filteredSummary.patternsDetected,
       hint: es ? "hallazgos activos en la academia" : "active findings across the academy",
       tone: "text-slate-800 bg-white border-slate-200",
       icon: <Activity className="h-4 w-4" />,
     },
     {
       label: es ? "Atletas en seguimiento" : "Athletes to monitor",
-      value: intelligence.summary.athletesToMonitor,
+      value: filteredSummary.athletesToMonitor,
       hint: es ? "con señales de riesgo o carga" : "with risk or load signals",
       tone: "text-amber-700 bg-amber-50 border-amber-200",
       icon: <Users className="h-4 w-4" />,
     },
     {
       label: es ? "Talentos emergentes" : "Emerging talents",
-      value: intelligence.summary.emergingTalents,
+      value: filteredSummary.emergingTalents,
       hint: es ? "mejoras sin más carga" : "improvement without extra load",
       tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
       icon: <Trophy className="h-4 w-4" />,
@@ -3442,6 +3502,33 @@ function PerformanceIntelligenceView({
       router.push("/analysis?tab=collective");
     }
   }
+
+  const sectionCards = [
+    {
+      id: "feed" as const,
+      kicker: "Priority Feed",
+      title: es ? "Hallazgos priorizados" : "Prioritised findings",
+      description: es ? "Entra para ver el detalle completo de insights filtrados." : "Open the complete filtered insight detail.",
+      count: filteredInsights.length,
+      tone: "border-slate-200 bg-white",
+    },
+    {
+      id: "trends" as const,
+      kicker: "Trends",
+      title: es ? "Tendencias colectivas" : "Collective trends",
+      description: es ? "Resumen estratégico por equipo y banda madurativa." : "Strategic overview by team and maturity band.",
+      count: filteredTrends.length,
+      tone: "border-blue-200 bg-blue-50/60",
+    },
+    {
+      id: "recommendations" as const,
+      kicker: "Recommendations",
+      title: es ? "Acciones sugeridas" : "Suggested actions",
+      description: es ? "Recomendaciones accionables para el staff." : "Actionable recommendations for staff.",
+      count: filteredRecommendations.length,
+      tone: "border-emerald-200 bg-emerald-50/60",
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -3479,12 +3566,60 @@ function PerformanceIntelligenceView({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-              {es ? "Detectores" : "Detectors"}
+              {es ? "Filtros globales" : "Global filters"}
             </p>
             <h3 className="mt-1 text-lg font-semibold text-slate-900">
-              {es ? "Activa los hallazgos que quieres ver en el feed" : "Activate the findings you want to see in the feed"}
+              {es ? "Resume primero, profundiza después" : "Summarise first, drill down after"}
             </h3>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm("");
+              setDateFrom("");
+              setDateTo("");
+              setActiveCategories(["growth", "load", "performance", "risk", "talent"]);
+            }}
+            className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+          >
+            {es ? "Limpiar filtros" : "Clear filters"}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(160px,1fr))]">
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-slate-500">{es ? "Nombre / equipo / insight" : "Name / team / insight"}</span>
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder={es ? "Buscar jugador, equipo o patrón..." : "Search athlete, team, or pattern..."}
+                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-slate-500">{es ? "Desde" : "From"}</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-slate-500">{es ? "Hasta" : "To"}</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <div className="flex flex-wrap gap-2">
             {categoryConfig.map((item) => {
               const active = activeCategories.includes(item.id);
@@ -3504,7 +3639,100 @@ function PerformanceIntelligenceView({
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: "overview", label: es ? "Resumen" : "Overview" },
+            { id: "feed", label: "Priority Feed" },
+            { id: "trends", label: "Trends" },
+            { id: "recommendations", label: "Recommendations" },
+          ].map((section) => {
+            const active = activeSection === section.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => setActiveSection(section.id as typeof activeSection)}
+                className={`rounded-full border px-3 py-2 text-xs font-bold transition-colors ${active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {activeSection === "overview" && (
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+          <section className="space-y-4">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                {es ? "Vista global" : "Global view"}
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                {es ? "Entra solo donde haga falta" : "Only drill down where needed"}
+              </h3>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              {sectionCards.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => setActiveSection(section.id)}
+                  className={`rounded-3xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${section.tone}`}
+                >
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">{section.kicker}</p>
+                  <h4 className="mt-2 text-lg font-semibold text-slate-900">{section.title}</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
+                  <div className="mt-5 flex items-center justify-between">
+                    <span className="text-3xl font-bold text-slate-900">{section.count}</span>
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
+                      {es ? "Abrir" : "Open"}
+                      <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <aside className="space-y-4">
+            <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                {es ? "Vista rápida" : "Quick view"}
+              </p>
+              <h4 className="mt-1 text-lg font-semibold text-slate-900">
+                {es ? "Top 3 del feed" : "Top 3 from the feed"}
+              </h4>
+              <div className="mt-4 space-y-3">
+                {topFeedInsights.slice(0, 3).map((insight) => (
+                  <button
+                    key={insight.id}
+                    type="button"
+                    onClick={() => setActiveSection("feed")}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-white">
+                        {severityLabels[insight.severity]}
+                      </span>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{insight.category}</span>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{insight.title}</p>
+                  </button>
+                ))}
+                {topFeedInsights.length === 0 && (
+                  <p className="rounded-2xl bg-white px-4 py-5 text-sm text-slate-500">
+                    {es ? "No hay señales con los filtros actuales." : "No signals with the current filters."}
+                  </p>
+                )}
+              </div>
+            </section>
+          </aside>
+        </div>
+      )}
+
+      {activeSection === "feed" && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -3516,19 +3744,19 @@ function PerformanceIntelligenceView({
               </h3>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-              {visibleInsights.length} {es ? "activos" : "active"}
+              {filteredInsights.length} {es ? "activos" : "active"}
             </span>
           </div>
 
-          {visibleInsights.length === 0 ? (
+          {filteredInsights.length === 0 ? (
             <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white px-6 py-14 text-center text-slate-400">
               <Shield className="mx-auto h-8 w-8 opacity-30" />
               <p className="mt-3 text-sm font-medium">
-                {es ? "No hay hallazgos para los detectores seleccionados." : "No findings for the selected detectors."}
+                {es ? "No hay hallazgos para los filtros seleccionados." : "No findings for the selected filters."}
               </p>
             </div>
           ) : (
-            visibleInsights.map((insight) => (
+            filteredInsights.map((insight) => (
               <article key={insight.id} className={`rounded-3xl border p-5 shadow-sm ${severityStyles[insight.severity]}`}>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
@@ -3580,55 +3808,57 @@ function PerformanceIntelligenceView({
             ))
           )}
         </section>
+      )}
 
-        <aside className="space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-              Trends
-            </p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-900">
-              {es ? "Tendencias detectadas" : "Detected trends"}
-            </h3>
-            <div className="mt-4 space-y-3">
-              {intelligence.trends.length === 0 ? (
-                <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                  {es ? "Todavía no hay suficiente señal colectiva para mostrar tendencias." : "There is not enough collective signal to show trends yet."}
-                </p>
-              ) : (
-                intelligence.trends.map((trend) => (
-                  <div key={trend.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                    <p className="text-sm font-semibold text-slate-900">{trend.title}</p>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">{trend.description}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
+      {activeSection === "trends" && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+            Trends
+          </p>
+          <h3 className="mt-1 text-xl font-semibold text-slate-900">
+            {es ? "Tendencias detectadas" : "Detected trends"}
+          </h3>
+          <div className="mt-4 space-y-3">
+            {filteredTrends.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                {es ? "Todavía no hay suficiente señal colectiva para mostrar tendencias." : "There is not enough collective signal to show trends yet."}
+              </p>
+            ) : (
+              filteredTrends.map((trend) => (
+                <div key={trend.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-sm font-semibold text-slate-900">{trend.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{trend.description}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-              Recommendations
-            </p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-900">
-              {es ? "Acciones sugeridas" : "Suggested actions"}
-            </h3>
-            <div className="mt-4 space-y-3">
-              {intelligence.recommendations.length === 0 ? (
-                <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                  {es ? "No hay recomendaciones accionables con la información actual." : "There are no actionable recommendations with the current information."}
-                </p>
-              ) : (
-                intelligence.recommendations.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4">
-                    <p className="text-sm font-semibold text-emerald-900">{item.title}</p>
-                    <p className="mt-1 text-sm leading-6 text-emerald-800">{item.description}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        </aside>
-      </div>
+      {activeSection === "recommendations" && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+            Recommendations
+          </p>
+          <h3 className="mt-1 text-xl font-semibold text-slate-900">
+            {es ? "Acciones sugeridas" : "Suggested actions"}
+          </h3>
+          <div className="mt-4 space-y-3">
+            {filteredRecommendations.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                {es ? "No hay recomendaciones accionables con los filtros actuales." : "There are no actionable recommendations with the current filters."}
+              </p>
+            ) : (
+              filteredRecommendations.map((item) => (
+                <div key={item.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4">
+                  <p className="text-sm font-semibold text-emerald-900">{item.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-emerald-800">{item.description}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
