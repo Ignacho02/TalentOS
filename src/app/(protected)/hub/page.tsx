@@ -23,6 +23,7 @@ import { useLocale } from "@/lib/i18n/locale-context";
 import { useAppState } from "@/lib/store/app-state";
 import type { ModuleStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { buildAlerts } from "@/lib/maturation/analysis-helpers";
 
 // ─── Module definitions ───────────────────────────────────────────────────────
 
@@ -84,10 +85,16 @@ function daysAgo(isoDate: string): string {
 }
 
 export default function HubPage() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const es = locale === "es";
   const { state, assessments } = useAppState();
 
   const { athletes, teams, records, gpsSessions, trainingLoadEntries, club } = state;
+
+  // Real alert counts from the assistant engine
+  const realAlerts = buildAlerts(assessments);
+  const criticalAlertCount = realAlerts.filter((a) => a.severity === "critical").length;
+  const warningAlertCount  = realAlerts.filter((a) => a.severity === "warning").length;
 
   const totalAthletes = athletes.length;
   const totalTeams = teams.length;
@@ -159,12 +166,13 @@ export default function HubPage() {
       bg: "bg-sky-500/10",
     },
     {
-      label: "Alertas PHV",
-      value: midPhvCount.toString(),
-      detail: "Jugadores en Mid-PHV",
+      label: criticalAlertCount > 0 ? "Alertas críticas" : warningAlertCount > 0 ? "Avisos activos" : "Alertas",
+      value: criticalAlertCount > 0 ? criticalAlertCount.toString() : warningAlertCount > 0 ? warningAlertCount.toString() : "0",
+      detail: criticalAlertCount > 0 ? "Revisión inmediata" : warningAlertCount > 0 ? "Requieren atención" : "Todo en orden",
       icon: AlertTriangle,
-      color: "text-amber-400",
-      bg: "bg-amber-400/10",
+      color: criticalAlertCount > 0 ? "text-rose-500" : warningAlertCount > 0 ? "text-amber-400" : "text-emerald-400",
+      bg: criticalAlertCount > 0 ? "bg-rose-500/10" : warningAlertCount > 0 ? "bg-amber-400/10" : "bg-emerald-400/10",
+      href: "/analysis",
     },
     {
       label: "Evaluaciones",
@@ -253,6 +261,26 @@ export default function HubPage() {
             <div className="grid grid-cols-2 gap-3">
               {kpiCards.map((item) => {
                 const Icon = item.icon;
+                const hrefItem = item as typeof item & { href?: string };
+                if (hrefItem.href) {
+                  return (
+                    <Link
+                      key={item.label}
+                      href={hrefItem.href}
+                      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/8 p-5 backdrop-blur-sm transition hover:bg-white/12 block"
+                    >
+                      <div className={cn("mb-3 inline-flex items-center justify-center rounded-xl p-2", item.bg)}>
+                        <Icon className={cn("h-4 w-4", item.color)} />
+                      </div>
+                      <div className="text-3xl font-bold tabular-nums text-white">{item.value}</div>
+                      <div className="mt-1 text-sm font-medium text-white/70">{item.label}</div>
+                      <div className="mt-0.5 text-xs text-white/40">{item.detail}</div>
+                      <div className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-white/40 group-hover:text-white/70 transition">
+                        {es ? "Ver asistente" : "View assistant"} <ChevronRight className="h-3 w-3" />
+                      </div>
+                    </Link>
+                  );
+                }
                 return (
                   <div
                     key={item.label}
@@ -261,9 +289,7 @@ export default function HubPage() {
                     <div className={cn("mb-3 inline-flex items-center justify-center rounded-xl p-2", item.bg)}>
                       <Icon className={cn("h-4 w-4", item.color)} />
                     </div>
-                    <div className="text-3xl font-bold tabular-nums text-white">
-                      {item.value}
-                    </div>
+                    <div className="text-3xl font-bold tabular-nums text-white">{item.value}</div>
                     <div className="mt-1 text-sm font-medium text-white/70">{item.label}</div>
                     <div className="mt-0.5 text-xs text-white/40">{item.detail}</div>
                   </div>

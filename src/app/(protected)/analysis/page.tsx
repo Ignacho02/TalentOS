@@ -3335,10 +3335,9 @@ type InsightSignal = {
     | "loadMonotony"       // NEW: RPE variability / monotony
     | "growthJustified"
     | "growthVelocity"     // NEW: cm/month growth rate
-    | "offsetTrend"        // NEW: offset trending toward PHV
-    | "recommendationHint";
+    | "offsetTrend";       // NEW: offset trending toward PHV
   severity: "critical" | "warning" | "info";
-  pilar: "maturation" | "performance" | "load" | "recommendation";
+  pilar: "maturation" | "performance" | "load";
   message: string;
   detail?: string;
 };
@@ -3719,40 +3718,34 @@ function buildEnrichedSignals(
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PILAR 4 — RECOMENDACIONES MADURATIVAS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  if (band === "Mid-PHV") {
-    signals.push({
-      kind: "recommendationHint",
-      severity: "info",
-      pilar: "recommendation",
-      message: es
-        ? "Pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto."
-        : "Peak growth phase: prioritise technique and coordination, limit impact loads.",
-    });
-  } else if (band === "Pre-PHV") {
-    signals.push({
-      kind: "recommendationHint",
-      severity: "info",
-      pilar: "recommendation",
-      message: es
-        ? "Ventana sensible para habilidades motoras y coordinación multilateral."
-        : "Sensitive window for motor skills and multilateral coordination.",
-    });
-  } else if (band === "Post-PHV") {
-    signals.push({
-      kind: "recommendationHint",
-      severity: "info",
-      pilar: "recommendation",
-      message: es
-        ? "Introducir progresivamente cargas de fuerza y trabajo de potencia."
-        : "Progressively introduce strength and power loads.",
-    });
-  }
-
   return signals;
+}
+
+// ── Pilar-level status helper ────────────────────────────────────────────────
+type PilarStatus = "ok" | "warning" | "critical";
+
+function getPilarStatus(pilar: "maturation" | "performance" | "load", signals: InsightSignal[], alerts: AlertItem[]): PilarStatus {
+  // Critical alerts map to pilars via category
+  const alertPilarMap: Record<string, "maturation" | "performance" | "load"> = {
+    highACWR: "load",
+    highLoad: "load",
+    rapidGrowth: "maturation",
+    performanceDrop: "performance",
+  };
+  for (const a of alerts) {
+    if (a.severity === "critical" && alertPilarMap[a.category] === pilar) return "critical";
+  }
+  for (const s of signals) {
+    if (s.pilar === pilar && s.severity === "critical") return "critical";
+  }
+  for (const a of alerts) {
+    if (a.severity === "warning" && alertPilarMap[a.category] === pilar) return "warning";
+  }
+  for (const s of signals) {
+    if (s.pilar === pilar && s.severity === "warning") return "warning";
+  }
+  const hasInfo = signals.some((s) => s.pilar === pilar && s.severity === "info");
+  return hasInfo ? "ok" : "ok";
 }
 
 // ── Athlete card inside SmartAlertsView ──────────────────────────────────────
@@ -3779,6 +3772,25 @@ function SmartAthleteCard({
   const [expanded, setExpanded] = useState(false);
   const es = locale === "es";
 
+  // ── Pilar semaphores ──────────────────────────────────────────────────────
+  const pilarStatuses = {
+    maturation: getPilarStatus("maturation", signals, status.alerts),
+    performance: getPilarStatus("performance", signals, status.alerts),
+    load: getPilarStatus("load", signals, status.alerts),
+  };
+
+  const semaphoreColor = (st: PilarStatus) =>
+    st === "critical" ? "bg-rose-500 ring-rose-300"
+    : st === "warning" ? "bg-amber-400 ring-amber-200"
+    : "bg-teal-400 ring-teal-200";
+
+  const pilarDots: { key: "maturation" | "performance" | "load"; labelEs: string; labelEn: string }[] = [
+    { key: "maturation", labelEs: "Mad", labelEn: "Mat" },
+    { key: "performance", labelEs: "Rend", labelEn: "Perf" },
+    { key: "load", labelEs: "Carga", labelEn: "Load" },
+  ];
+
+  // ── Urgency visuals ───────────────────────────────────────────────────────
   const urgencyBorderColor =
     urgency === "critical" ? "border-rose-300 bg-rose-50/40"
     : urgency === "warning" ? "border-amber-300 bg-amber-50/40"
@@ -3791,29 +3803,30 @@ function SmartAthleteCard({
     : urgency === "monitoring" ? "bg-amber-300"
     : "bg-teal-400";
 
+  // ── Issue lists ───────────────────────────────────────────────────────────
   const criticalAlerts = status.alerts.filter((a) => a.severity === "critical");
-  const warningAlerts = status.alerts.filter((a) => a.severity === "warning");
-  const critSignals = signals.filter((s) => s.severity === "critical");
-  const warnSignals = signals.filter((s) => s.severity === "warning");
+  const warningAlerts  = status.alerts.filter((a) => a.severity === "warning");
+  const critSignals    = signals.filter((s) => s.severity === "critical");
+  const warnSignals    = signals.filter((s) => s.severity === "warning");
 
   const topIssues = [
     ...criticalAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "critical" as const })),
-    ...warningAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "warning" as const })),
-    ...critSignals.map((s) => ({ text: s.message, detail: s.detail, sev: "critical" as const })),
-    ...warnSignals.map((s) => ({ text: s.message, detail: s.detail, sev: "warning" as const })),
+    ...warningAlerts.map((a)  => ({ text: a.message, detail: a.detail, sev: "warning" as const })),
+    ...critSignals.map((s)    => ({ text: s.message, detail: s.detail, sev: "critical" as const })),
+    ...warnSignals.map((s)    => ({ text: s.message, detail: s.detail, sev: "warning" as const })),
   ];
 
-  // Group info signals by pilar
-  const maturationSignals = signals.filter((s) => s.severity === "info" && s.pilar === "maturation");
-  const performanceSignals = signals.filter((s) => s.severity === "info" && s.pilar === "performance");
-  const loadSignals = signals.filter((s) => s.severity === "info" && s.pilar === "load");
-  const recSignals = signals.filter((s) => s.pilar === "recommendation");
+  // ── Info signals grouped by pilar ─────────────────────────────────────────
+  const infoByPilar = {
+    maturation:  signals.filter((s) => s.severity === "info" && s.pilar === "maturation"),
+    performance: signals.filter((s) => s.severity === "info" && s.pilar === "performance"),
+    load:        signals.filter((s) => s.severity === "info" && s.pilar === "load"),
+  };
 
   const pilarConfig = [
     {
-      id: "maturation",
+      key: "maturation" as const,
       label: es ? "Maduración" : "Maturation",
-      items: maturationSignals,
       icon: <Activity className="h-3 w-3 text-violet-500" />,
       headerClass: "text-violet-600",
       itemClass: "bg-violet-50 border-violet-100",
@@ -3821,9 +3834,8 @@ function SmartAthleteCard({
       detailClass: "text-violet-600",
     },
     {
-      id: "performance",
+      key: "performance" as const,
       label: es ? "Rendimiento" : "Performance",
-      items: performanceSignals,
       icon: <TrendingUp className="h-3 w-3 text-teal-500" />,
       headerClass: "text-teal-600",
       itemClass: "bg-teal-50 border-teal-100",
@@ -3831,144 +3843,229 @@ function SmartAthleteCard({
       detailClass: "text-teal-600",
     },
     {
-      id: "load",
+      key: "load" as const,
       label: es ? "Carga" : "Load",
-      items: loadSignals,
       icon: <BarChart2 className="h-3 w-3 text-blue-500" />,
       headerClass: "text-blue-600",
       itemClass: "bg-blue-50 border-blue-100",
       textClass: "text-blue-800",
       detailClass: "text-blue-600",
     },
-  ] as const;
+  ];
 
-  const totalSignalCount = topIssues.length + signals.filter((s) => s.severity === "info").length;
+  const hasAnyContent = topIssues.length > 0 || Object.values(infoByPilar).some((arr) => arr.length > 0);
+
+  // Worst severity badge for the header
+  const worstBadge =
+    urgency === "critical" ? { label: es ? "Crítico" : "Critical", cls: "bg-rose-100 text-rose-700" }
+    : urgency === "warning"  ? { label: es ? "Aviso" : "Warning",   cls: "bg-amber-100 text-amber-700" }
+    : urgency === "monitoring" ? { label: es ? "Seguim." : "Monitor", cls: "bg-amber-50 text-amber-600" }
+    : null;
+
+  // Band recommendation content
+  const bandRec =
+    status.band === "Mid-PHV"  ? (es ? "Pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto." : "Peak growth phase: prioritise technique and coordination, limit impact loads.")
+    : status.band === "Pre-PHV"  ? (es ? "Ventana sensible para habilidades motoras y coordinación multilateral." : "Sensitive window for motor skills and multilateral coordination.")
+    : status.band === "Post-PHV" ? (es ? "Introducir progresivamente cargas de fuerza y trabajo de potencia." : "Progressively introduce strength and power loads.")
+    : null;
 
   return (
-    <div className={`rounded-2xl border overflow-hidden shadow-sm transition-all ${urgencyBorderColor}`}>
-      {/* Header row */}
+    <>
+      {/* ── ROW (list item — click opens modal) ── */}
       <button
         type="button"
-        onClick={() => setExpanded((p) => !p)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-black/[0.02] transition"
+        onClick={() => setExpanded(true)}
+        className={`w-full rounded-2xl border shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 text-left ${urgencyBorderColor}`}
       >
-        <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
+        <div className="flex items-center gap-3 px-4 py-3">
+          {/* Urgency dot */}
+          <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
 
-        <span className={`flex-shrink-0 h-8 w-8 rounded-full text-sm font-black flex items-center justify-center ${
-          urgency === "critical" ? "bg-rose-200 text-rose-800"
-          : urgency === "warning" ? "bg-amber-200 text-amber-800"
-          : "bg-slate-200 text-slate-700"
-        }`}>
-          {status.name.charAt(0).toUpperCase()}
-        </span>
+          {/* Avatar */}
+          <span className={`flex-shrink-0 h-8 w-8 rounded-full text-sm font-black flex items-center justify-center ${
+            urgency === "critical" ? "bg-rose-200 text-rose-800"
+            : urgency === "warning" ? "bg-amber-200 text-amber-800"
+            : "bg-slate-200 text-slate-700"
+          }`}>
+            {status.name.charAt(0).toUpperCase()}
+          </span>
 
-        <div className="min-w-0 flex-1">
-          <p className="font-bold text-slate-900 text-sm truncate">{status.name}</p>
-          <p className="text-[11px] text-slate-500 truncate">{status.team} · {formatNumber(status.age, 1)} {es ? "a" : "y"}</p>
-        </div>
+          {/* Name + meta */}
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-slate-900 text-sm truncate">{status.name}</p>
+            <p className="text-[11px] text-slate-500 truncate">
+              {status.team} · {formatNumber(status.age, 1)} {es ? "a" : "y"}
+            </p>
+          </div>
 
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {status.band && (
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getBandChipSA(status.band)}`}>
-              {bandLabelSA(status.band, locale)}
-            </span>
-          )}
-          {totalSignalCount > 0 && (
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-              urgency === "critical" ? "bg-rose-100 text-rose-700"
-              : urgency === "warning" ? "bg-amber-100 text-amber-700"
-              : "bg-slate-100 text-slate-600"
-            }`}>
-              {totalSignalCount} {es ? "señal" : "signal"}{totalSignalCount !== 1 ? "es" : ""}
-            </span>
-          )}
-          <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          {/* Right: pilar semaphores + band + worst badge + arrow */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="hidden sm:flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
+              {pilarDots.map(({ key, labelEs, labelEn }) => (
+                <div key={key} className="flex flex-col items-center gap-0.5">
+                  <span className={`h-2 w-2 rounded-full ring-2 ring-offset-0 ${semaphoreColor(pilarStatuses[key])}`} />
+                  <span className="text-[8px] font-semibold text-slate-400 leading-none">{es ? labelEs : labelEn}</span>
+                </div>
+              ))}
+            </div>
+            {status.band && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getBandChipSA(status.band)}`}>
+                {bandLabelSA(status.band, locale)}
+              </span>
+            )}
+            {worstBadge && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${worstBadge.cls}`}>
+                {worstBadge.label}
+              </span>
+            )}
+            <ChevronRight className="h-4 w-4 text-slate-300" />
+          </div>
         </div>
       </button>
 
-      {/* Expanded content */}
+      {/* ── MODAL ── */}
       {expanded && (
-        <div className="border-t border-slate-100 divide-y divide-slate-100">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`athlete-modal-${status.id}`}
+          onKeyDown={(e) => { if (e.key === "Escape") setExpanded(false); }}
+        >
+          {/* Backdrop */}
+          <button
+            type="button"
+            aria-label={es ? "Cerrar" : "Close"}
+            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+            onClick={() => setExpanded(false)}
+          />
 
-          {/* Top issues (critical + warning) */}
-          {topIssues.length > 0 && (
-            <div className="px-4 py-3 space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                {es ? "Alertas activas" : "Active alerts"}
-              </p>
-              {topIssues.map((issue, i) => (
-                <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 ${
-                  issue.sev === "critical" ? "bg-rose-50 border border-rose-100" : "bg-amber-50 border border-amber-100"
-                }`}>
-                  {issue.sev === "critical"
-                    ? <AlertTriangle className="h-3.5 w-3.5 text-rose-500 mt-0.5 flex-shrink-0" />
-                    : <AlertCircle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
-                  }
-                  <div>
-                    <p className={`text-xs font-semibold ${issue.sev === "critical" ? "text-rose-800" : "text-amber-900"}`}>{issue.text}</p>
-                    {issue.detail && <p className={`text-[11px] mt-0.5 ${issue.sev === "critical" ? "text-rose-600" : "text-amber-700"}`}>{issue.detail}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Panel */}
+          <div className="relative w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl">
 
-          {/* Pillar sections */}
-          {pilarConfig.map((pilar) => {
-            if (pilar.items.length === 0) return null;
-            return (
-              <div key={pilar.id} className="px-4 py-3 space-y-1.5">
-                <p className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 mb-1 ${pilar.headerClass}`}>
-                  {pilar.icon}
-                  {pilar.label}
-                </p>
-                {pilar.items.map((sig, i) => (
-                  <div key={i} className={`flex gap-2 items-start rounded-lg p-2.5 border ${pilar.itemClass}`}>
-                    <Info className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
-                      sig.kind === "perfTrend" || sig.kind === "perfTrendSeries"
-                        ? "text-teal-400"
-                        : sig.kind === "loadACWR" || sig.kind === "loadMonotony"
-                        ? "text-blue-400"
-                        : sig.kind === "growthVelocity" || sig.kind === "offsetTrend"
-                        ? "text-violet-400"
-                        : "text-slate-400"
-                    }`} />
-                    <div>
-                      <p className={`text-xs leading-relaxed ${pilar.textClass}`}>{sig.message}</p>
-                      {sig.detail && <p className={`text-[11px] mt-0.5 ${pilar.detailClass}`}>{sig.detail}</p>}
-                    </div>
-                  </div>
-                ))}
+            {/* Modal header */}
+            <div className={`sticky top-0 z-10 flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white rounded-t-3xl sm:rounded-t-2xl ${
+              urgency === "critical" ? "border-rose-200 bg-rose-50/60"
+              : urgency === "warning" ? "border-amber-200 bg-amber-50/60"
+              : ""
+            }`}>
+              <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
+              <span className={`flex-shrink-0 h-9 w-9 rounded-full text-sm font-black flex items-center justify-center ${
+                urgency === "critical" ? "bg-rose-200 text-rose-800"
+                : urgency === "warning" ? "bg-amber-200 text-amber-800"
+                : "bg-slate-200 text-slate-700"
+              }`}>
+                {status.name.charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p id={`athlete-modal-${status.id}`} className="font-bold text-slate-900 truncate">{status.name}</p>
+                <p className="text-xs text-slate-500">{status.team} · {formatNumber(status.age, 1)} {es ? "años" : "y"}</p>
               </div>
-            );
-          })}
+              {status.band && (
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${getBandChipSA(status.band)}`}>
+                  {bandLabelSA(status.band, locale)}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="flex-shrink-0 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                aria-label={es ? "Cerrar" : "Close"}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-          {/* Recommendations */}
-          {recSignals.length > 0 && (
-            <div className="px-4 py-3 space-y-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-                <Target className="h-3 w-3 text-slate-400" />
-                {es ? "Recomendaciones" : "Recommendations"}
-              </p>
-              {recSignals.map((sig, i) => (
-                <div key={i} className="flex gap-2 items-start rounded-lg p-2.5 bg-slate-50 border border-slate-200">
+            {/* Pilar semaphores bar */}
+            <div className="flex items-center gap-0 divide-x divide-slate-100 border-b border-slate-100">
+              {pilarDots.map(({ key, labelEs, labelEn }) => {
+                const st = pilarStatuses[key];
+                const dotCls = st === "critical" ? "bg-rose-500" : st === "warning" ? "bg-amber-400" : "bg-teal-400";
+                const bgCls  = st === "critical" ? "bg-rose-50"  : st === "warning" ? "bg-amber-50"  : "bg-white";
+                return (
+                  <div key={key} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${bgCls}`}>
+                    <span className={`h-2.5 w-2.5 rounded-full ${dotCls}`} />
+                    <span className="text-[11px] font-semibold text-slate-600">{es ? labelEs : labelEn}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal body */}
+            <div className="divide-y divide-slate-100">
+
+              {/* Band recommendation */}
+              {bandRec && (
+                <div className="px-5 py-3 flex items-start gap-2 bg-slate-50">
                   <Target className="h-3.5 w-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-slate-700 leading-relaxed">{sig.message}</p>
+                  <p className="text-[12px] text-slate-600 leading-relaxed">{bandRec}</p>
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          {/* No signals at all */}
-          {totalSignalCount === 0 && (
-            <div className="px-4 py-3 flex items-center gap-2 text-xs text-slate-400">
-              <CheckCircle2 className="h-4 w-4 text-teal-400" />
-              {es ? "Sin señales activas en este momento." : "No active signals at this time."}
+              {/* Critical + warning alerts */}
+              {topIssues.length > 0 && (
+                <div className="px-5 py-4 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    {es ? "Alertas activas" : "Active alerts"}
+                  </p>
+                  {topIssues.map((issue, i) => (
+                    <div key={i} className={`flex gap-2 items-start rounded-xl p-3 ${
+                      issue.sev === "critical" ? "bg-rose-50 border border-rose-100" : "bg-amber-50 border border-amber-100"
+                    }`}>
+                      {issue.sev === "critical"
+                        ? <AlertTriangle className="h-4 w-4 text-rose-500 mt-0.5 flex-shrink-0" />
+                        : <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                      }
+                      <div>
+                        <p className={`text-sm font-semibold ${issue.sev === "critical" ? "text-rose-800" : "text-amber-900"}`}>{issue.text}</p>
+                        {issue.detail && <p className={`text-xs mt-0.5 ${issue.sev === "critical" ? "text-rose-600" : "text-amber-700"}`}>{issue.detail}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Info signals per pilar */}
+              {pilarConfig.map((pilar) => {
+                const items = infoByPilar[pilar.key];
+                if (items.length === 0) return null;
+                return (
+                  <div key={pilar.key} className="px-5 py-4 space-y-2">
+                    <p className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2 ${pilar.headerClass}`}>
+                      {pilar.icon}
+                      {pilar.label}
+                    </p>
+                    {items.map((sig, i) => (
+                      <div key={i} className={`flex gap-2 items-start rounded-xl p-3 border ${pilar.itemClass}`}>
+                        <Info className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                          sig.kind === "perfTrend" || sig.kind === "perfTrendSeries" ? "text-teal-400"
+                          : sig.kind === "loadACWR" || sig.kind === "loadMonotony" ? "text-blue-400"
+                          : sig.kind === "growthVelocity" || sig.kind === "offsetTrend" ? "text-violet-400"
+                          : "text-slate-400"
+                        }`} />
+                        <div>
+                          <p className={`text-sm leading-relaxed ${pilar.textClass}`}>{sig.message}</p>
+                          {sig.detail && <p className={`text-xs mt-0.5 ${pilar.detailClass}`}>{sig.detail}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+
+              {/* All-clear */}
+              {!hasAnyContent && (
+                <div className="px-5 py-6 flex flex-col items-center gap-2 text-slate-400">
+                  <CheckCircle2 className="h-8 w-8 text-teal-400" />
+                  <p className="text-sm font-medium">{es ? "Sin señales activas." : "No active signals."}</p>
+                </div>
+              )}
+
             </div>
-          )}
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -4064,26 +4161,47 @@ function AssistantView({
     allAthleteStatus.map((a) => ({ athleteId: a.id, band: a.band, offset: a.offset })),
   [allAthleteStatus]);
 
-  // Teams list
+  // Teams list with per-pilar worst status
   const allTeams = useMemo(() => {
-    const teams = new Map<string, { name: string; count: number; critCount: number; warnCount: number }>();
+    const teams = new Map<string, {
+      name: string; count: number; critCount: number; warnCount: number;
+      pilarWorst: { maturation: PilarStatus; performance: PilarStatus; load: PilarStatus };
+    }>();
     allAthleteStatus.forEach((a) => {
       const key = a.team || (es ? "Sin equipo" : "No team");
-      const existing = teams.get(key) ?? { name: key, count: 0, critCount: 0, warnCount: 0 };
+      const signals = buildEnrichedSignals(a.id, a.band, a.offset, state, locale, allLatestAssessmentsForSignals);
+      const urgency = getUrgencyLevel(a.alerts, a.band, signals);
+      const athletePilar = {
+        maturation: getPilarStatus("maturation", signals, a.alerts),
+        performance: getPilarStatus("performance", signals, a.alerts),
+        load: getPilarStatus("load", signals, a.alerts),
+      };
+      const existing = teams.get(key) ?? {
+        name: key, count: 0, critCount: 0, warnCount: 0,
+        pilarWorst: { maturation: "ok" as PilarStatus, performance: "ok" as PilarStatus, load: "ok" as PilarStatus },
+      };
       existing.count++;
-      const urgency = getUrgencyLevel(a.alerts, a.band);
       if (urgency === "critical") existing.critCount++;
       else if (urgency === "warning" || urgency === "monitoring") existing.warnCount++;
+      // Escalate pilar worst
+      const escalate = (curr: PilarStatus, next: PilarStatus): PilarStatus =>
+        next === "critical" ? "critical" : next === "warning" && curr !== "critical" ? "warning" : curr;
+      existing.pilarWorst.maturation  = escalate(existing.pilarWorst.maturation,  athletePilar.maturation);
+      existing.pilarWorst.performance = escalate(existing.pilarWorst.performance, athletePilar.performance);
+      existing.pilarWorst.load        = escalate(existing.pilarWorst.load,        athletePilar.load);
       teams.set(key, existing);
     });
     return Array.from(teams.values()).sort((a, b) => b.critCount - a.critCount || b.warnCount - a.warnCount);
-  }, [allAthleteStatus, es]);
+  }, [allAthleteStatus, es, state, locale, allLatestAssessmentsForSignals]);
 
   // Athletes in selected team, filtered + sorted
+  // "__all__" is a special key meaning cross-team urgency view
   const teamAthletes = useMemo(() => {
-    const athletes = selectedTeam
-      ? allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam)
-      : allAthleteStatus;
+    const athletes = !selectedTeam
+      ? allAthleteStatus
+      : selectedTeam === "__all__"
+      ? allAthleteStatus
+      : allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam);
 
     return athletes
       .filter((a) => {
@@ -4144,6 +4262,65 @@ function AssistantView({
         </button>
       </div>
 
+      {/* ── URGENCY QUICK-ACCESS ── */}
+      {selectedTeam === null && (criticalCount > 0 || warningCount > 0 || monitoringCount > 0) && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+            {es ? "Acceso rápido por urgencia" : "Quick access by urgency"}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {criticalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("critical"); }}
+                className="flex items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left hover:bg-rose-100 transition-all hover:shadow-sm"
+              >
+                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-rose-100 flex items-center justify-center">
+                  <AlertTriangle className="h-5 w-5 text-rose-600" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-rose-800">{criticalCount} {es ? "crítico" : "critical"}{criticalCount !== 1 ? "s" : ""}</p>
+                  <p className="text-[11px] text-rose-500">{es ? "Revisión inmediata" : "Immediate review"}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-rose-300 ml-auto" />
+              </button>
+            )}
+            {warningCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("warning"); }}
+                className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 transition-all hover:shadow-sm"
+              >
+                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <AlertCircle className="h-5 w-5 text-amber-600" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-amber-800">{warningCount} {es ? "aviso" : "warning"}{warningCount !== 1 ? "s" : ""}</p>
+                  <p className="text-[11px] text-amber-500">{es ? "Requieren atención" : "Require attention"}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-amber-300 ml-auto" />
+              </button>
+            )}
+            {monitoringCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("monitoring"); }}
+                className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-left hover:bg-amber-100/60 transition-all hover:shadow-sm"
+              >
+                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-amber-50 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-amber-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-amber-700">{monitoringCount} {es ? "seguimiento" : "monitoring"}</p>
+                  <p className="text-[11px] text-amber-400">{es ? "Mid-PHV activos" : "Active Mid-PHV"}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-amber-200 ml-auto" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── TEAM LIST (if no team selected) ── */}
       {selectedTeam === null ? (
         <div className="space-y-3">
@@ -4172,7 +4349,23 @@ function AssistantView({
                   <p className="font-bold text-slate-900 group-hover:text-teal-700 transition-colors">{team.name}</p>
                   <p className="text-xs text-slate-400">{team.count} {es ? "atleta" : "athlete"}{team.count !== 1 ? "s" : ""}</p>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {/* Per-pilar semaphores for the team */}
+                  <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                    {(["maturation", "performance", "load"] as const).map((pilar) => {
+                      const st = team.pilarWorst[pilar];
+                      const dotCls = st === "critical" ? "bg-rose-500 ring-rose-300" : st === "warning" ? "bg-amber-400 ring-amber-200" : "bg-teal-400 ring-teal-200";
+                      const labelMap: Record<typeof pilar, string> = es
+                        ? { maturation: "Mad", performance: "Rend", load: "Carga" }
+                        : { maturation: "Mat", performance: "Perf", load: "Load" };
+                      return (
+                        <div key={pilar} className="flex flex-col items-center gap-0.5">
+                          <span className={`h-2.5 w-2.5 rounded-full ring-2 ring-offset-0 ${dotCls}`} />
+                          <span className="text-[8px] font-semibold text-slate-400 leading-none">{labelMap[pilar]}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                   {team.critCount > 0 && (
                     <span className="flex items-center gap-1 rounded-full bg-rose-100 text-rose-700 px-2 py-0.5 text-[11px] font-bold">
                       <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse inline-block" />
@@ -4202,10 +4395,17 @@ function AssistantView({
               className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors no-print"
             >
               <ArrowLeft className="h-4 w-4" />
-              {es ? "Equipos" : "Teams"}
+              {es ? "Inicio" : "Home"}
             </button>
             <span className="text-slate-300">/</span>
-            <span className="text-sm font-bold text-slate-800">{selectedTeam}</span>
+            <span className="text-sm font-bold text-slate-800">
+              {selectedTeam === "__all__"
+                ? (urgencyFilter === "critical" ? (es ? "Críticos" : "Critical")
+                  : urgencyFilter === "warning"  ? (es ? "Avisos" : "Warnings")
+                  : urgencyFilter === "monitoring" ? (es ? "Seguimiento" : "Monitoring")
+                  : (es ? "Todos los jugadores" : "All players"))
+                : selectedTeam}
+            </span>
             <span className="ml-1 text-xs text-slate-400">
               {teamAthletes.length} {es ? "jugador" : "player"}{teamAthletes.length !== 1 ? "es" : ""}
             </span>
@@ -4215,11 +4415,14 @@ function AssistantView({
           <div className="flex flex-wrap items-center gap-2 no-print">
             <span className="text-xs font-semibold text-slate-400">{es ? "Filtrar por urgencia:" : "Filter by urgency:"}</span>
             {(["all", "critical", "warning", "monitoring"] as UrgencyFilter[]).map((level) => {
+              const teamPool = selectedTeam === "__all__"
+                ? allAthleteStatus
+                : allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam);
               const counts: Record<UrgencyFilter, number> = {
-                all: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam).length,
-                critical: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "critical").length,
-                warning: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "warning").length,
-                monitoring: allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam && getUrgencyLevel(a.alerts, a.band) === "monitoring").length,
+                all: teamPool.length,
+                critical: teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "critical").length,
+                warning:  teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "warning").length,
+                monitoring: teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "monitoring").length,
               };
               const active = urgencyFilter === level;
               const colorActive =
