@@ -1,14 +1,14 @@
 
-# Maduration Enterprise Documentation
+# TalentOS Enterprise Documentation
 
 ## Executive Summary
-Maduration is a Next.js 16 platform for biological maturation analysis, Bio-Banding, athlete management, performance monitoring, and youth football academy operations. The application combines anthropometric assessments, maturity calculations, athlete lifecycle management, analytics, and future collaboration/research capabilities.
+TalentOS is a Next.js 16 platform for biological maturation analysis, Bio-Banding, athlete management, performance monitoring, and youth football academy operations. The application combines anthropometric assessments, maturity calculations, athlete lifecycle management, analytics, and future collaboration/research capabilities.
 
 ---
 
 # 1. Product Vision
 
-Maduration aims to provide practitioners with a biologically informed decision-support platform that goes beyond chronological age.
+TalentOS aims to provide practitioners with a biologically informed decision-support platform that goes beyond chronological age.
 
 Core pillars:
 
