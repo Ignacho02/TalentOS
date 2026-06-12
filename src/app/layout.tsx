@@ -15,7 +15,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Maduration",
+  title: "TalentOS",
   description:
     "Web app bilingue para maduracion deportiva, DataHub antropometrico y analisis de maduracion.",
 };
