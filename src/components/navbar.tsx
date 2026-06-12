@@ -33,7 +33,7 @@ interface NavItem {
 const analysisAreas: NavItem[] = [
   { labelKey: "analysis.tabs.individual", href: "/analysis?tab=individual" },
   { labelKey: "analysis.tabs.collective", href: "/analysis?tab=collective" },
-  { labelKey: "analysis.tabs.assistant", href: "/analysis?tab=assistant" },
+  { labelKey: "analysis.tabs.intelligence", href: "/analysis?tab=intelligence" },
 ];
 
 const navigation = [
@@ -96,7 +96,7 @@ const mobileNav = [
     children: [
       { href: "/analysis?tab=individual", key: "analysis.tabs.individual" },
       { href: "/analysis?tab=collective", key: "analysis.tabs.collective" },
-      { href: "/analysis?tab=assistant",  key: "analysis.tabs.assistant" },
+      { href: "/analysis?tab=intelligence",  key: "analysis.tabs.intelligence" },
     ],
   },
   { href: "/community", key: "nav.community", icon: Users,        children: null },

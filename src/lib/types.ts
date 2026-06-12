@@ -167,6 +167,29 @@ export interface DashboardInsight {
   bodyKey: string;
 }
 
+export type InsightSeverity = "critical" | "high" | "medium" | "low";
+
+export type InsightCategory =
+  | "growth"
+  | "load"
+  | "performance"
+  | "risk"
+  | "talent";
+
+export interface Insight {
+  id: string;
+  severity: InsightSeverity;
+  category: InsightCategory;
+  athleteId?: string;
+  teamName?: string;
+  title: string;
+  description: string;
+  confidence: number;
+  recommendation?: string;
+  createdAt: string;
+  sourceIds?: string[];
+}
+
 export interface PerformanceEntryInput {
   athleteId?: string;
   athleteName: string;

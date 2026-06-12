@@ -8,12 +8,12 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import {
-  AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Filter,
+  AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Filter,
   Search, TrendingUp, Users, Calendar, MapPin, Target,
   Dumbbell, Shield, Activity, Group, Trophy, Zap, Download,
-  ArrowLeft, ArrowRight, Info, X, Menu, Maximize2, BarChart2
+  ArrowLeft, ArrowRight, Info, X, Menu, Maximize2
 } from "lucide-react";
-import { buildInsights } from "@/lib/maturation/insights";
+import { buildPerformanceIntelligence } from "@/lib/maturation/performance-intelligence";
 import { useAppState } from "@/lib/store/app-state";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
@@ -21,16 +21,12 @@ import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import { useMaturationPreferences } from "@/lib/hooks/use-maturation-preferences";
 import { MaturationInsights } from "@/components/maturation-insights";
 import {
-  buildAlerts, detectRapidGrowth,
-} from "@/lib/maturation/analysis-helpers";
-import {
   getAssessmentsForTeam,
   getLatestAssessmentsByAthlete,
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
 import { createUnifiedProfile, getGroupingBand } from "@/lib/maturation/unified-maturation";
-import type { MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex, GpsSession } from "@/lib/types";
-import type { AlertItem } from "@/lib/maturation/analysis-helpers";
+import type { Insight, MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
 
 const bandColors: Record<string, string> = {
   "Pre-PHV": "#0f766e",
@@ -84,7 +80,7 @@ const performanceAreaStyles: Record<PerformanceArea, {
   },
 };
 
-type AnalysisTab = "individual" | "collective" | "assistant";
+type AnalysisTab = "individual" | "collective" | "intelligence";
 type IndividualSubTab = "maturation" | "performance" | "load";
 type ExpandedPerformanceComparisonCandidate = {
   athleteId: string;
@@ -3291,807 +3287,26 @@ function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral"
   );
 }
 
-// ── helpers shared across SmartAlerts sub-components ─────────────────────────
-
-type UrgencyLevel = "critical" | "warning" | "monitoring" | "ok";
-
-function getUrgencyLevel(alerts: AlertItem[], band: MaturityBand | null, enrichedSignals?: InsightSignal[]): UrgencyLevel {
-  if (alerts.some((a) => a.severity === "critical")) return "critical";
-  if (enrichedSignals?.some((s) => s.severity === "critical")) return "critical";
-  if (alerts.some((a) => a.severity === "warning")) return "warning";
-  if (enrichedSignals?.some((s) => s.severity === "warning")) return "warning";
-  if (band === "Mid-PHV") return "monitoring";
-  return "ok";
-}
-
-function urgencyOrder(u: UrgencyLevel) {
-  return u === "critical" ? 0 : u === "warning" ? 1 : u === "monitoring" ? 2 : 3;
-}
-
-function getBandChipSA(band: MaturityBand | null) {
-  if (band === "Pre-PHV") return "bg-teal-100 text-teal-800 border-teal-200";
-  if (band === "Mid-PHV") return "bg-amber-100 text-amber-800 border-amber-200";
-  if (band === "Post-PHV") return "bg-slate-200 text-slate-700 border-slate-300";
-  return "bg-slate-100 text-slate-500 border-slate-200";
-}
-
-function bandLabelSA(band: MaturityBand | null, loc: string) {
-  if (!band) return "—";
-  if (loc === "es") return band === "Mid-PHV" ? "En-PHV" : band;
-  return band;
-}
-
-// ── enriched signal: derives contextual insights from performance + load data ─
-
-type InsightSignal = {
-  kind:
-    | "perfDrop"
-    | "perfTrend"
-    | "perfTrendSeries"    // NEW: trend over full series (linear regression)
-    | "perfPercentile"     // NEW: vs same maturity band
-    | "loadSpike"
-    | "loadHighVsTeam"
-    | "loadACWR"           // NEW: acute:chronic workload ratio
-    | "loadMonotony"       // NEW: RPE variability / monotony
-    | "growthJustified"
-    | "growthVelocity"     // NEW: cm/month growth rate
-    | "offsetTrend";       // NEW: offset trending toward PHV
-  severity: "critical" | "warning" | "info";
-  pilar: "maturation" | "performance" | "load";
-  message: string;
-  detail?: string;
-};
-
-// ── Linear regression helper (returns slope normalised per step) ────────────
-function linearTrendSlope(values: number[]): number {
-  const n = values.length;
-  if (n < 2) return 0;
-  const meanX = (n - 1) / 2;
-  const meanY = values.reduce((s, v) => s + v, 0) / n;
-  let num = 0, den = 0;
-  values.forEach((v, i) => { num += (i - meanX) * (v - meanY); den += (i - meanX) ** 2; });
-  return den === 0 ? 0 : num / den;
-}
-
-// ── Percentile rank of value within array (0–100) ───────────────────────────
-function percentileRank(value: number, population: number[]): number {
-  if (population.length === 0) return 50;
-  const below = population.filter((v) => v < value).length;
-  return Math.round((below / population.length) * 100);
-}
-
-function buildEnrichedSignals(
-  athleteId: string,
-  band: MaturityBand | null,
-  offset: number | null,
-  state: ReturnType<typeof useAppState>["state"],
-  locale: string,
-  allLatestAssessments?: { athleteId: string; band: MaturityBand | null; offset: number | null }[],
-): InsightSignal[] {
-  const es = locale === "es";
-  const signals: InsightSignal[] = [];
-
-  const perfEntries = state.performanceEntries.filter((e) => e.athleteId === athleteId);
-  const loadEntries = state.trainingLoadEntries.filter((e) => e.athleteId === athleteId);
-  const today = new Date();
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PILAR 1 — MADURACIÓN
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  // ─ Growth velocity (from all assessments for this athlete sorted by date) ─
-  const athleteAssessments = (state.records as Array<{ athleteId: string; dataCollectionDate: string; statureCm: number }>)
-    .filter((r) => r.athleteId === athleteId && r.statureCm > 0)
-    .sort((a, b) => a.dataCollectionDate.localeCompare(b.dataCollectionDate));
-
-  if (athleteAssessments.length >= 2) {
-    const last = athleteAssessments[athleteAssessments.length - 1];
-    const prev = athleteAssessments[athleteAssessments.length - 2];
-    const daysDiff = (new Date(last.dataCollectionDate).getTime() - new Date(prev.dataCollectionDate).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysDiff > 0) {
-      const monthlyRate = ((last.statureCm - prev.statureCm) / daysDiff) * 30.44;
-      if (monthlyRate >= 0.8) {
-        // PHV threshold ≥ 0.8 cm/month considered rapid
-        signals.push({
-          kind: "growthVelocity",
-          severity: monthlyRate >= 1.2 ? "warning" : "info",
-          pilar: "maturation",
-          message: es
-            ? `Velocidad de crecimiento: +${monthlyRate.toFixed(2)} cm/mes en el último período.`
-            : `Growth velocity: +${monthlyRate.toFixed(2)} cm/month in the last period.`,
-          detail: es
-            ? monthlyRate >= 1.2 ? "Crecimiento rápido activo — monitorizar carga de impacto." : "Crecimiento acelerado — fase sensible."
-            : monthlyRate >= 1.2 ? "Active rapid growth — monitor impact loads." : "Accelerated growth — sensitive phase.",
-        });
-      }
-    }
-  }
-
-  // ─ Offset trend: is the athlete approaching PHV? ─────────────────────────
-  if (typeof offset === "number" && allLatestAssessments) {
-    // Compare current offset to the band context
-    const approachingPHV = offset > -1 && offset < 0 && band === "Pre-PHV";
-    const enteringPHV = offset > -0.3 && offset < 0.3 && band !== "Post-PHV";
-    if (enteringPHV) {
-      signals.push({
-        kind: "offsetTrend",
-        severity: "warning",
-        pilar: "maturation",
-        message: es
-          ? `Offset madurativo en ${offset.toFixed(2)} años — muy próximo al pico de crecimiento (PHV).`
-          : `Maturity offset at ${offset.toFixed(2)} y — very close to peak height velocity (PHV).`,
-        detail: es
-          ? "Máxima precaución con cargas de impacto y cambios bruscos de volumen."
-          : "Maximum caution with impact loads and abrupt volume changes.",
-      });
-    } else if (approachingPHV) {
-      signals.push({
-        kind: "offsetTrend",
-        severity: "info",
-        pilar: "maturation",
-        message: es
-          ? `Offset madurativo en ${offset.toFixed(2)} años — avanzando hacia el PHV.`
-          : `Maturity offset at ${offset.toFixed(2)} y — advancing toward PHV.`,
-      });
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PILAR 2 — RENDIMIENTO
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const testGroups = new Map<string, typeof perfEntries>();
-  perfEntries.forEach((e) => {
-    const g = testGroups.get(e.testName) ?? [];
-    g.push(e);
-    testGroups.set(e.testName, g);
-  });
-
-  testGroups.forEach((entries, testName) => {
-    if (entries.length < 2) return;
-    const sorted = [...entries].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
-
-    // ─ Last vs previous measurement ────────────────────────────────────────
-    const recent = sorted.slice(-2);
-    const prev = recent[0].value;
-    const curr = recent[1].value;
-    if (prev === 0) return;
-    const lastChangePct = (curr - prev) / Math.abs(prev);
-    const isNearAPHV = band === "Mid-PHV" || (typeof offset === "number" && Math.abs(offset) < 0.5);
-
-    if (lastChangePct < -0.1) {
-      if (isNearAPHV) {
-        signals.push({
-          kind: "growthJustified",
-          severity: "info",
-          pilar: "performance",
-          message: es
-            ? `Bajada en "${testName}" (−${Math.round(Math.abs(lastChangePct) * 100)}%) — probable impacto del pico de crecimiento.`
-            : `Drop in "${testName}" (−${Math.round(Math.abs(lastChangePct) * 100)}%) — likely growth-spurt effect.`,
-          detail: es ? "Esperable en esta fase madurativa." : "Expected at this maturational stage.",
-        });
-      } else {
-        signals.push({
-          kind: "perfDrop",
-          severity: lastChangePct < -0.2 ? "warning" : "info",
-          pilar: "performance",
-          message: es
-            ? `Bajada en "${testName}": −${Math.round(Math.abs(lastChangePct) * 100)}% respecto a la medición anterior.`
-            : `Drop in "${testName}": −${Math.round(Math.abs(lastChangePct) * 100)}% vs. prior measurement.`,
-        });
-      }
-    } else if (lastChangePct > 0.1) {
-      signals.push({
-        kind: "perfTrend",
-        severity: "info",
-        pilar: "performance",
-        message: es
-          ? `Mejora en "${testName}": +${Math.round(lastChangePct * 100)}% respecto a la medición anterior.`
-          : `Improvement in "${testName}": +${Math.round(lastChangePct * 100)}% vs. prior measurement.`,
-      });
-    }
-
-    // ─ Full-series trend (linear regression) — only for ≥ 3 points ─────────
-    if (sorted.length >= 3) {
-      const values = sorted.map((e) => e.value);
-      const slope = linearTrendSlope(values);
-      const baseVal = values[0] || 1;
-      // Normalise slope as % change per measurement relative to first value
-      const slopePct = slope / Math.abs(baseVal);
-
-      if (Math.abs(slopePct) >= 0.04) {
-        const direction = slopePct > 0 ? "up" : "down";
-        const n = sorted.length;
-        signals.push({
-          kind: "perfTrendSeries",
-          severity: "info",
-          pilar: "performance",
-          message: es
-            ? `Tendencia en "${testName}" sobre ${n} mediciones: ${direction === "up" ? "↑ mejora" : "↓ descenso"} sostenido de ~${Math.round(Math.abs(slopePct) * 100)}% por evaluación.`
-            : `Trend in "${testName}" over ${n} measurements: sustained ${direction === "up" ? "↑ improvement" : "↓ decline"} of ~${Math.round(Math.abs(slopePct) * 100)}% per session.`,
-        });
-      }
-    }
-
-    // ─ Percentile vs same maturity band ─────────────────────────────────────
-    if (band && sorted.length > 0) {
-      const athleteLatestVal = sorted[sorted.length - 1].value;
-      // Gather last value of same test from other athletes in same band
-      const bandPeerValues: number[] = [];
-      state.athletes.forEach((peer) => {
-        if (peer.id === athleteId) return;
-        // We need to infer band for peer — if allLatestAssessments provided use it
-        const peerBandInfo = allLatestAssessments?.find((a) => a.athleteId === peer.id);
-        if (!peerBandInfo || peerBandInfo.band !== band) return;
-        const peerEntries = state.performanceEntries
-          .filter((e) => e.athleteId === peer.id && e.testName === testName)
-          .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
-        if (peerEntries.length > 0) bandPeerValues.push(peerEntries[peerEntries.length - 1].value);
-      });
-
-      if (bandPeerValues.length >= 3) {
-        const pct = percentileRank(athleteLatestVal, bandPeerValues);
-        if (pct <= 20 || pct >= 80) {
-          signals.push({
-            kind: "perfPercentile",
-            severity: "info",
-            pilar: "performance",
-            message: es
-              ? `"${testName}": percentil ${pct} respecto a ${bandPeerValues.length} jugadores en la misma banda madurativa (${band}).`
-              : `"${testName}": ${pct}th percentile vs. ${bandPeerValues.length} peers in same maturity band (${band}).`,
-            detail: es
-              ? pct >= 80 ? "Rendimiento destacado en su grupo madurativo." : "Por debajo de la mayoría de su grupo madurativo."
-              : pct >= 80 ? "Outstanding performance within their maturity group." : "Below most peers in their maturity group.",
-          });
-        }
-      }
-    }
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PILAR 3 — CARGA DE ENTRENAMIENTO
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  if (loadEntries.length >= 2) {
-    const sorted = [...loadEntries].sort((a, b) => a.date.localeCompare(b.date));
-
-    // ─ ACWR: acute (last 7 days) / chronic (last 28 days) ──────────────────
-    const todayMs = today.getTime();
-    const acuteEntries = sorted.filter((e) => {
-      const ms = new Date(e.date).getTime();
-      return todayMs - ms <= 7 * 24 * 60 * 60 * 1000;
-    });
-    const chronicEntries = sorted.filter((e) => {
-      const ms = new Date(e.date).getTime();
-      return todayMs - ms <= 28 * 24 * 60 * 60 * 1000;
-    });
-
-    if (acuteEntries.length >= 1 && chronicEntries.length >= 3) {
-      const acuteAvg = acuteEntries.reduce((s, e) => s + e.load, 0) / acuteEntries.length;
-      const chronicAvg = chronicEntries.reduce((s, e) => s + e.load, 0) / chronicEntries.length;
-      const acwr = chronicAvg > 0 ? acuteAvg / chronicAvg : 1;
-
-      if (acwr > 1.5) {
-        signals.push({
-          kind: "loadACWR",
-          severity: band === "Mid-PHV" ? "critical" : "warning",
-          pilar: "load",
-          message: es
-            ? `ACWR en ${acwr.toFixed(2)} — zona de riesgo (>1.5)${band === "Mid-PHV" ? ", coincide con pico de crecimiento" : ""}.`
-            : `ACWR at ${acwr.toFixed(2)} — danger zone (>1.5)${band === "Mid-PHV" ? ", coincides with peak growth" : ""}.`,
-          detail: es
-            ? "Ratio carga aguda (7d) / carga crónica (28d). Por encima de 1.5 aumenta significativamente el riesgo de lesión."
-            : "Acute (7d) / chronic (28d) workload ratio. Above 1.5 significantly increases injury risk.",
-        });
-      } else if (acwr < 0.7) {
-        signals.push({
-          kind: "loadACWR",
-          severity: "info",
-          pilar: "load",
-          message: es
-            ? `ACWR bajo: ${acwr.toFixed(2)} — carga aguda muy inferior a la crónica. ¿Descanso intencionado o baja?`
-            : `Low ACWR: ${acwr.toFixed(2)} — acute load well below chronic baseline. Intentional rest or absence?`,
-        });
-      } else if (acwr >= 0.8 && acwr <= 1.3) {
-        signals.push({
-          kind: "loadACWR",
-          severity: "info",
-          pilar: "load",
-          message: es
-            ? `ACWR óptimo: ${acwr.toFixed(2)} (zona ideal 0.8–1.3).`
-            : `Optimal ACWR: ${acwr.toFixed(2)} (ideal zone 0.8–1.3).`,
-        });
-      }
-    }
-
-    // ─ Load spike: last 4 vs previous 4 sessions ───────────────────────────
-    const last4 = sorted.slice(-4);
-    const prev4 = sorted.slice(-8, -4);
-    if (last4.length > 0 && prev4.length > 0) {
-      const avgLast = last4.reduce((s, e) => s + e.load, 0) / last4.length;
-      const avgPrev = prev4.reduce((s, e) => s + e.load, 0) / prev4.length;
-      const ratio = avgPrev > 0 ? avgLast / avgPrev : 1;
-
-      if (ratio > 1.35) {
-        signals.push({
-          kind: "loadSpike",
-          severity: band === "Mid-PHV" ? "critical" : "warning",
-          pilar: "load",
-          message: es
-            ? `Carga reciente +${Math.round((ratio - 1) * 100)}% sobre las 4 sesiones previas${band === "Mid-PHV" ? " — alto riesgo en pico de crecimiento" : ""}.`
-            : `Recent load +${Math.round((ratio - 1) * 100)}% above prior 4-session average${band === "Mid-PHV" ? " — elevated risk at peak growth" : ""}.`,
-        });
-      } else if (ratio < 0.6 && last4.length >= 3) {
-        signals.push({
-          kind: "loadSpike",
-          severity: "info",
-          pilar: "load",
-          message: es
-            ? `Carga reciente inusualmente baja (−${Math.round((1 - ratio) * 100)}%): ¿lesión o baja voluntaria?`
-            : `Recent load unusually low (−${Math.round((1 - ratio) * 100)}%): injury or intentional reduction?`,
-        });
-      }
-    }
-
-    // ─ Load monotony: std deviation of RPE in last 7 sessions ──────────────
-    const last7 = sorted.slice(-7);
-    if (last7.length >= 4) {
-      const rpes = last7.map((e) => e.rpe);
-      const meanRpe = rpes.reduce((s, v) => s + v, 0) / rpes.length;
-      const stdRpe = Math.sqrt(rpes.reduce((s, v) => s + (v - meanRpe) ** 2, 0) / rpes.length);
-      const monotony = meanRpe > 0 ? meanRpe / (stdRpe || 0.001) : 0;
-      if (monotony > 2.0) {
-        signals.push({
-          kind: "loadMonotony",
-          severity: "warning",
-          pilar: "load",
-          message: es
-            ? `Monotonía de carga alta (índice ${monotony.toFixed(1)}) — RPE muy uniforme en las últimas sesiones. Riesgo de sobreentrenamiento acumulado.`
-            : `High training monotony (index ${monotony.toFixed(1)}) — very uniform RPE across recent sessions. Risk of accumulated overtraining.`,
-          detail: es
-            ? "Variar la intensidad entre sesiones reduce este riesgo."
-            : "Varying intensity between sessions reduces this risk.",
-        });
-      }
-    }
-
-    // ─ Compare load with team average ──────────────────────────────────────
-    const teamId = state.athletes.find((a) => a.id === athleteId)?.teamId;
-    if (teamId) {
-      const teammates = state.athletes.filter((a) => a.teamId === teamId && a.id !== athleteId).map((a) => a.id);
-      const recentDates = new Set(last4.map((e) => e.date));
-      const teamLoads = state.trainingLoadEntries.filter(
-        (e) => teammates.includes(e.athleteId) && recentDates.has(e.date),
-      );
-      if (teamLoads.length > 2) {
-        const athleteAvg = last4.reduce((s, e) => s + e.load, 0) / Math.max(1, last4.length);
-        const teamAvg = teamLoads.reduce((s, e) => s + e.load, 0) / teamLoads.length;
-        const vsTeam = teamAvg > 0 ? athleteAvg / teamAvg : 1;
-        if (vsTeam > 1.3) {
-          signals.push({
-            kind: "loadHighVsTeam",
-            severity: band === "Mid-PHV" ? "warning" : "info",
-            pilar: "load",
-            message: es
-              ? `Carga ${Math.round((vsTeam - 1) * 100)}% superior a la media del equipo en las últimas sesiones.`
-              : `Load ${Math.round((vsTeam - 1) * 100)}% above team average over recent sessions.`,
-          });
-        } else if (vsTeam < 0.7) {
-          signals.push({
-            kind: "loadHighVsTeam",
-            severity: "info",
-            pilar: "load",
-            message: es
-              ? `Carga ${Math.round((1 - vsTeam) * 100)}% inferior a la media del equipo en las últimas sesiones.`
-              : `Load ${Math.round((1 - vsTeam) * 100)}% below team average over recent sessions.`,
-          });
-        }
-      }
-    }
-
-    // ─ Compare load with same maturity band ────────────────────────────────
-    if (band && allLatestAssessments) {
-      const bandPeerIds = allLatestAssessments
-        .filter((a) => a.athleteId !== athleteId && a.band === band)
-        .map((a) => a.athleteId);
-      if (bandPeerIds.length >= 2) {
-        const recentDates = new Set(last4.map((e) => e.date));
-        const bandLoads = state.trainingLoadEntries.filter(
-          (e) => bandPeerIds.includes(e.athleteId) && recentDates.has(e.date),
-        );
-        if (bandLoads.length >= 2) {
-          const athleteAvg = last4.reduce((s, e) => s + e.load, 0) / Math.max(1, last4.length);
-          const bandAvg = bandLoads.reduce((s, e) => s + e.load, 0) / bandLoads.length;
-          const vsBand = bandAvg > 0 ? athleteAvg / bandAvg : 1;
-          if (vsBand > 1.3) {
-            signals.push({
-              kind: "loadHighVsTeam",
-              severity: band === "Mid-PHV" ? "warning" : "info",
-              pilar: "load",
-              message: es
-                ? `Carga ${Math.round((vsBand - 1) * 100)}% superior a jugadores de su misma banda madurativa (${band}).`
-                : `Load ${Math.round((vsBand - 1) * 100)}% above peers in the same maturity band (${band}).`,
-            });
-          }
-        }
-      }
-    }
-  }
-
-  return signals;
-}
-
-// ── Pilar-level status helper ────────────────────────────────────────────────
-type PilarStatus = "ok" | "warning" | "critical";
-
-function getPilarStatus(pilar: "maturation" | "performance" | "load", signals: InsightSignal[], alerts: AlertItem[]): PilarStatus {
-  // Critical alerts map to pilars via category
-  const alertPilarMap: Record<string, "maturation" | "performance" | "load"> = {
-    highACWR: "load",
-    highLoad: "load",
-    rapidGrowth: "maturation",
-    performanceDrop: "performance",
-  };
-  for (const a of alerts) {
-    if (a.severity === "critical" && alertPilarMap[a.category] === pilar) return "critical";
-  }
-  for (const s of signals) {
-    if (s.pilar === pilar && s.severity === "critical") return "critical";
-  }
-  for (const a of alerts) {
-    if (a.severity === "warning" && alertPilarMap[a.category] === pilar) return "warning";
-  }
-  for (const s of signals) {
-    if (s.pilar === pilar && s.severity === "warning") return "warning";
-  }
-  const hasInfo = signals.some((s) => s.pilar === pilar && s.severity === "info");
-  return hasInfo ? "ok" : "ok";
-}
-
-// ── Athlete card inside SmartAlertsView ──────────────────────────────────────
-
-function SmartAthleteCard({
-  status,
-  signals,
-  locale,
-  urgency,
-}: {
-  status: {
-    id: string;
-    name: string;
-    team?: string;
-    band: MaturityBand | null;
-    offset: number;
-    age: number;
-    alerts: AlertItem[];
-  };
-  signals: InsightSignal[];
-  locale: string;
-  urgency: UrgencyLevel;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const es = locale === "es";
-
-  // ── Pilar semaphores ──────────────────────────────────────────────────────
-  const pilarStatuses = {
-    maturation: getPilarStatus("maturation", signals, status.alerts),
-    performance: getPilarStatus("performance", signals, status.alerts),
-    load: getPilarStatus("load", signals, status.alerts),
-  };
-
-  const semaphoreColor = (st: PilarStatus) =>
-    st === "critical" ? "bg-rose-500 ring-rose-300"
-    : st === "warning" ? "bg-amber-400 ring-amber-200"
-    : "bg-teal-400 ring-teal-200";
-
-  const pilarDots: { key: "maturation" | "performance" | "load"; labelEs: string; labelEn: string }[] = [
-    { key: "maturation", labelEs: "Mad", labelEn: "Mat" },
-    { key: "performance", labelEs: "Rend", labelEn: "Perf" },
-    { key: "load", labelEs: "Carga", labelEn: "Load" },
-  ];
-
-  // ── Urgency visuals ───────────────────────────────────────────────────────
-  const urgencyBorderColor =
-    urgency === "critical" ? "border-rose-300 bg-rose-50/40"
-    : urgency === "warning" ? "border-amber-300 bg-amber-50/40"
-    : urgency === "monitoring" ? "border-amber-200 bg-amber-50/20"
-    : "border-slate-200 bg-white";
-
-  const urgencyDot =
-    urgency === "critical" ? "bg-rose-500 animate-pulse"
-    : urgency === "warning" ? "bg-amber-400"
-    : urgency === "monitoring" ? "bg-amber-300"
-    : "bg-teal-400";
-
-  // ── Issue lists ───────────────────────────────────────────────────────────
-  const criticalAlerts = status.alerts.filter((a) => a.severity === "critical");
-  const warningAlerts  = status.alerts.filter((a) => a.severity === "warning");
-  const critSignals    = signals.filter((s) => s.severity === "critical");
-  const warnSignals    = signals.filter((s) => s.severity === "warning");
-
-  const topIssues = [
-    ...criticalAlerts.map((a) => ({ text: a.message, detail: a.detail, sev: "critical" as const })),
-    ...warningAlerts.map((a)  => ({ text: a.message, detail: a.detail, sev: "warning" as const })),
-    ...critSignals.map((s)    => ({ text: s.message, detail: s.detail, sev: "critical" as const })),
-    ...warnSignals.map((s)    => ({ text: s.message, detail: s.detail, sev: "warning" as const })),
-  ];
-
-  // ── Info signals grouped by pilar ─────────────────────────────────────────
-  const infoByPilar = {
-    maturation:  signals.filter((s) => s.severity === "info" && s.pilar === "maturation"),
-    performance: signals.filter((s) => s.severity === "info" && s.pilar === "performance"),
-    load:        signals.filter((s) => s.severity === "info" && s.pilar === "load"),
-  };
-
-  const pilarConfig = [
-    {
-      key: "maturation" as const,
-      label: es ? "Maduración" : "Maturation",
-      icon: <Activity className="h-3 w-3 text-violet-500" />,
-      headerClass: "text-violet-600",
-      itemClass: "bg-violet-50 border-violet-100",
-      textClass: "text-violet-800",
-      detailClass: "text-violet-600",
-    },
-    {
-      key: "performance" as const,
-      label: es ? "Rendimiento" : "Performance",
-      icon: <TrendingUp className="h-3 w-3 text-teal-500" />,
-      headerClass: "text-teal-600",
-      itemClass: "bg-teal-50 border-teal-100",
-      textClass: "text-teal-800",
-      detailClass: "text-teal-600",
-    },
-    {
-      key: "load" as const,
-      label: es ? "Carga" : "Load",
-      icon: <BarChart2 className="h-3 w-3 text-blue-500" />,
-      headerClass: "text-blue-600",
-      itemClass: "bg-blue-50 border-blue-100",
-      textClass: "text-blue-800",
-      detailClass: "text-blue-600",
-    },
-  ];
-
-  const hasAnyContent = topIssues.length > 0 || Object.values(infoByPilar).some((arr) => arr.length > 0);
-
-  // Worst severity badge for the header
-  const worstBadge =
-    urgency === "critical" ? { label: es ? "Crítico" : "Critical", cls: "bg-rose-100 text-rose-700" }
-    : urgency === "warning"  ? { label: es ? "Aviso" : "Warning",   cls: "bg-amber-100 text-amber-700" }
-    : urgency === "monitoring" ? { label: es ? "Seguim." : "Monitor", cls: "bg-amber-50 text-amber-600" }
-    : null;
-
-  // Band recommendation content
-  const bandRec =
-    status.band === "Mid-PHV"  ? (es ? "Pico de crecimiento: priorizar técnica y coordinación, limitar cargas de impacto." : "Peak growth phase: prioritise technique and coordination, limit impact loads.")
-    : status.band === "Pre-PHV"  ? (es ? "Ventana sensible para habilidades motoras y coordinación multilateral." : "Sensitive window for motor skills and multilateral coordination.")
-    : status.band === "Post-PHV" ? (es ? "Introducir progresivamente cargas de fuerza y trabajo de potencia." : "Progressively introduce strength and power loads.")
-    : null;
-
-  return (
-    <>
-      {/* ── ROW (list item — click opens modal) ── */}
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        className={`w-full rounded-2xl border shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 text-left ${urgencyBorderColor}`}
-      >
-        <div className="flex items-center gap-3 px-4 py-3">
-          {/* Urgency dot */}
-          <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
-
-          {/* Avatar */}
-          <span className={`flex-shrink-0 h-8 w-8 rounded-full text-sm font-black flex items-center justify-center ${
-            urgency === "critical" ? "bg-rose-200 text-rose-800"
-            : urgency === "warning" ? "bg-amber-200 text-amber-800"
-            : "bg-slate-200 text-slate-700"
-          }`}>
-            {status.name.charAt(0).toUpperCase()}
-          </span>
-
-          {/* Name + meta */}
-          <div className="min-w-0 flex-1">
-            <p className="font-bold text-slate-900 text-sm truncate">{status.name}</p>
-            <p className="text-[11px] text-slate-500 truncate">
-              {status.team} · {formatNumber(status.age, 1)} {es ? "a" : "y"}
-            </p>
-          </div>
-
-          {/* Right: pilar semaphores + band + worst badge + arrow */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1">
-              {pilarDots.map(({ key, labelEs, labelEn }) => (
-                <div key={key} className="flex flex-col items-center gap-0.5">
-                  <span className={`h-2 w-2 rounded-full ring-2 ring-offset-0 ${semaphoreColor(pilarStatuses[key])}`} />
-                  <span className="text-[8px] font-semibold text-slate-400 leading-none">{es ? labelEs : labelEn}</span>
-                </div>
-              ))}
-            </div>
-            {status.band && (
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getBandChipSA(status.band)}`}>
-                {bandLabelSA(status.band, locale)}
-              </span>
-            )}
-            {worstBadge && (
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${worstBadge.cls}`}>
-                {worstBadge.label}
-              </span>
-            )}
-            <ChevronRight className="h-4 w-4 text-slate-300" />
-          </div>
-        </div>
-      </button>
-
-      {/* ── MODAL ── */}
-      {expanded && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`athlete-modal-${status.id}`}
-          onKeyDown={(e) => { if (e.key === "Escape") setExpanded(false); }}
-        >
-          {/* Backdrop */}
-          <button
-            type="button"
-            aria-label={es ? "Cerrar" : "Close"}
-            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            onClick={() => setExpanded(false)}
-          />
-
-          {/* Panel */}
-          <div className="relative w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white shadow-2xl">
-
-            {/* Modal header */}
-            <div className={`sticky top-0 z-10 flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white rounded-t-3xl sm:rounded-t-2xl ${
-              urgency === "critical" ? "border-rose-200 bg-rose-50/60"
-              : urgency === "warning" ? "border-amber-200 bg-amber-50/60"
-              : ""
-            }`}>
-              <span className={`flex-shrink-0 h-2.5 w-2.5 rounded-full ${urgencyDot}`} />
-              <span className={`flex-shrink-0 h-9 w-9 rounded-full text-sm font-black flex items-center justify-center ${
-                urgency === "critical" ? "bg-rose-200 text-rose-800"
-                : urgency === "warning" ? "bg-amber-200 text-amber-800"
-                : "bg-slate-200 text-slate-700"
-              }`}>
-                {status.name.charAt(0).toUpperCase()}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p id={`athlete-modal-${status.id}`} className="font-bold text-slate-900 truncate">{status.name}</p>
-                <p className="text-xs text-slate-500">{status.team} · {formatNumber(status.age, 1)} {es ? "años" : "y"}</p>
-              </div>
-              {status.band && (
-                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${getBandChipSA(status.band)}`}>
-                  {bandLabelSA(status.band, locale)}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                className="flex-shrink-0 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
-                aria-label={es ? "Cerrar" : "Close"}
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Pilar semaphores bar */}
-            <div className="flex items-center gap-0 divide-x divide-slate-100 border-b border-slate-100">
-              {pilarDots.map(({ key, labelEs, labelEn }) => {
-                const st = pilarStatuses[key];
-                const dotCls = st === "critical" ? "bg-rose-500" : st === "warning" ? "bg-amber-400" : "bg-teal-400";
-                const bgCls  = st === "critical" ? "bg-rose-50"  : st === "warning" ? "bg-amber-50"  : "bg-white";
-                return (
-                  <div key={key} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${bgCls}`}>
-                    <span className={`h-2.5 w-2.5 rounded-full ${dotCls}`} />
-                    <span className="text-[11px] font-semibold text-slate-600">{es ? labelEs : labelEn}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Modal body */}
-            <div className="divide-y divide-slate-100">
-
-              {/* Band recommendation */}
-              {bandRec && (
-                <div className="px-5 py-3 flex items-start gap-2 bg-slate-50">
-                  <Target className="h-3.5 w-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-[12px] text-slate-600 leading-relaxed">{bandRec}</p>
-                </div>
-              )}
-
-              {/* Critical + warning alerts */}
-              {topIssues.length > 0 && (
-                <div className="px-5 py-4 space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                    {es ? "Alertas activas" : "Active alerts"}
-                  </p>
-                  {topIssues.map((issue, i) => (
-                    <div key={i} className={`flex gap-2 items-start rounded-xl p-3 ${
-                      issue.sev === "critical" ? "bg-rose-50 border border-rose-100" : "bg-amber-50 border border-amber-100"
-                    }`}>
-                      {issue.sev === "critical"
-                        ? <AlertTriangle className="h-4 w-4 text-rose-500 mt-0.5 flex-shrink-0" />
-                        : <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                      }
-                      <div>
-                        <p className={`text-sm font-semibold ${issue.sev === "critical" ? "text-rose-800" : "text-amber-900"}`}>{issue.text}</p>
-                        {issue.detail && <p className={`text-xs mt-0.5 ${issue.sev === "critical" ? "text-rose-600" : "text-amber-700"}`}>{issue.detail}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Info signals per pilar */}
-              {pilarConfig.map((pilar) => {
-                const items = infoByPilar[pilar.key];
-                if (items.length === 0) return null;
-                return (
-                  <div key={pilar.key} className="px-5 py-4 space-y-2">
-                    <p className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2 ${pilar.headerClass}`}>
-                      {pilar.icon}
-                      {pilar.label}
-                    </p>
-                    {items.map((sig, i) => (
-                      <div key={i} className={`flex gap-2 items-start rounded-xl p-3 border ${pilar.itemClass}`}>
-                        <Info className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                          sig.kind === "perfTrend" || sig.kind === "perfTrendSeries" ? "text-teal-400"
-                          : sig.kind === "loadACWR" || sig.kind === "loadMonotony" ? "text-blue-400"
-                          : sig.kind === "growthVelocity" || sig.kind === "offsetTrend" ? "text-violet-400"
-                          : "text-slate-400"
-                        }`} />
-                        <div>
-                          <p className={`text-sm leading-relaxed ${pilar.textClass}`}>{sig.message}</p>
-                          {sig.detail && <p className={`text-xs mt-0.5 ${pilar.detailClass}`}>{sig.detail}</p>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-
-              {/* All-clear */}
-              {!hasAnyContent && (
-                <div className="px-5 py-6 flex flex-col items-center gap-2 text-slate-400">
-                  <CheckCircle2 className="h-8 w-8 text-teal-400" />
-                  <p className="text-sm font-medium">{es ? "Sin señales activas." : "No active signals."}</p>
-                </div>
-              )}
-
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// ── Main AssistantView (new design) ─────────────────────────────────────────
-
-function AssistantView({
+function PerformanceIntelligenceView({
   assessments,
   state,
-  t,
   locale,
 }: {
   assessments: ReturnType<typeof useAppState>["assessments"];
   state: ReturnType<typeof useAppState>["state"];
-  t: (k: string) => string;
   locale: string;
 }) {
   const es = locale === "es";
+  const router = useRouter();
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
+  const [activeCategories, setActiveCategories] = useState<Insight["category"][]>([
+    "growth",
+    "load",
+    "performance",
+    "risk",
+    "talent",
+  ]);
 
-  // Navigation state: null = team list, string = selected team
-  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
-  // Urgency filter
-  type UrgencyFilter = "all" | "critical" | "warning" | "monitoring";
-  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
-
-  // Resolve latest assessments with engine profiles
   const latestEngineResolved = useMemo(
     () =>
       getLatestAssessmentsByAthlete(assessments).map((assessment) => {
@@ -4109,375 +3324,311 @@ function AssistantView({
     [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
-  const alertItems = useMemo(() => buildAlerts(latestEngineResolved), [latestEngineResolved]);
-  const rapidGrowthItems = useMemo(() => detectRapidGrowth(assessments), [assessments]);
+  const intelligence = useMemo(
+    () => buildPerformanceIntelligence(latestEngineResolved, assessments, state, locale),
+    [latestEngineResolved, assessments, state, locale],
+  );
 
-  // Build athlete status map
-  const allAthleteStatus = useMemo(() => {
-    const map = new Map<string, {
-      id: string;
-      name: string;
-      team: string;
-      band: MaturityBand | null;
-      offset: number;
-      age: number;
-      alerts: AlertItem[];
-    }>();
+  const visibleInsights = useMemo(
+    () => intelligence.insights.filter((insight) => activeCategories.includes(insight.category)),
+    [intelligence.insights, activeCategories],
+  );
 
-    latestEngineResolved.forEach((a) => {
-      const band = a.classification.maturityBand;
-      const baseAlerts = alertItems.filter((al) => al.athleteName === a.inputs.athleteName);
-      map.set(a.inputs.athleteId, {
-        id: a.inputs.athleteId,
-        name: a.inputs.athleteName,
-        team: a.inputs.teamName ?? "",
-        band,
-        offset: a.classification.primaryOffset,
-        age: a.derivedMetrics.chronologicalAge,
-        alerts: [...baseAlerts],
-      });
-    });
+  const categoryConfig: Array<{
+    id: Insight["category"];
+    label: string;
+    icon: React.ReactNode;
+    activeClass: string;
+    idleClass: string;
+  }> = [
+    {
+      id: "growth",
+      label: es ? "Crecimiento" : "Growth",
+      icon: <Activity className="h-3.5 w-3.5" />,
+      activeClass: "border-violet-600 bg-violet-600 text-white",
+      idleClass: "border-violet-200 bg-violet-50 text-violet-700",
+    },
+    {
+      id: "load",
+      label: es ? "Carga" : "Load",
+      icon: <Dumbbell className="h-3.5 w-3.5" />,
+      activeClass: "border-amber-500 bg-amber-500 text-white",
+      idleClass: "border-amber-200 bg-amber-50 text-amber-700",
+    },
+    {
+      id: "performance",
+      label: es ? "Rendimiento" : "Performance",
+      icon: <TrendingUp className="h-3.5 w-3.5" />,
+      activeClass: "border-sky-600 bg-sky-600 text-white",
+      idleClass: "border-sky-200 bg-sky-50 text-sky-700",
+    },
+    {
+      id: "risk",
+      label: es ? "Riesgo" : "Risk",
+      icon: <Shield className="h-3.5 w-3.5" />,
+      activeClass: "border-rose-600 bg-rose-600 text-white",
+      idleClass: "border-rose-200 bg-rose-50 text-rose-700",
+    },
+    {
+      id: "talent",
+      label: es ? "Talento" : "Talent",
+      icon: <Trophy className="h-3.5 w-3.5" />,
+      activeClass: "border-emerald-600 bg-emerald-600 text-white",
+      idleClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    },
+  ];
 
-    rapidGrowthItems.forEach((rg) => {
-      const entry = map.get(rg.athleteId);
-      if (entry) {
-        entry.alerts.push({
-          id: rg.id,
-          severity: "warning",
-          athleteName: rg.athleteName,
-          teamName: rg.teamName,
-          category: "rapidGrowth",
-          message: t("analysis.assistant.rapidGrowth") + `: +${formatNumber(rg.statureGain, 2)}cm`,
-          detail: t("analysis.assistant.rapidGrowthDetail").replace("{rate}", formatNumber(rg.monthlyRate, 2)),
-        });
-      }
-    });
-
-    return Array.from(map.values());
-  }, [latestEngineResolved, alertItems, rapidGrowthItems, t]);
-
-  // Band context for all athletes — used by buildEnrichedSignals for cross-athlete comparisons
-  const allLatestAssessmentsForSignals = useMemo(() =>
-    allAthleteStatus.map((a) => ({ athleteId: a.id, band: a.band, offset: a.offset })),
-  [allAthleteStatus]);
-
-  // Teams list with per-pilar worst status
-  const allTeams = useMemo(() => {
-    const teams = new Map<string, {
-      name: string; count: number; critCount: number; warnCount: number;
-      pilarWorst: { maturation: PilarStatus; performance: PilarStatus; load: PilarStatus };
-    }>();
-    allAthleteStatus.forEach((a) => {
-      const key = a.team || (es ? "Sin equipo" : "No team");
-      const signals = buildEnrichedSignals(a.id, a.band, a.offset, state, locale, allLatestAssessmentsForSignals);
-      const urgency = getUrgencyLevel(a.alerts, a.band, signals);
-      const athletePilar = {
-        maturation: getPilarStatus("maturation", signals, a.alerts),
-        performance: getPilarStatus("performance", signals, a.alerts),
-        load: getPilarStatus("load", signals, a.alerts),
-      };
-      const existing = teams.get(key) ?? {
-        name: key, count: 0, critCount: 0, warnCount: 0,
-        pilarWorst: { maturation: "ok" as PilarStatus, performance: "ok" as PilarStatus, load: "ok" as PilarStatus },
-      };
-      existing.count++;
-      if (urgency === "critical") existing.critCount++;
-      else if (urgency === "warning" || urgency === "monitoring") existing.warnCount++;
-      // Escalate pilar worst
-      const escalate = (curr: PilarStatus, next: PilarStatus): PilarStatus =>
-        next === "critical" ? "critical" : next === "warning" && curr !== "critical" ? "warning" : curr;
-      existing.pilarWorst.maturation  = escalate(existing.pilarWorst.maturation,  athletePilar.maturation);
-      existing.pilarWorst.performance = escalate(existing.pilarWorst.performance, athletePilar.performance);
-      existing.pilarWorst.load        = escalate(existing.pilarWorst.load,        athletePilar.load);
-      teams.set(key, existing);
-    });
-    return Array.from(teams.values()).sort((a, b) => b.critCount - a.critCount || b.warnCount - a.warnCount);
-  }, [allAthleteStatus, es, state, locale, allLatestAssessmentsForSignals]);
-
-  // Athletes in selected team, filtered + sorted
-  // "__all__" is a special key meaning cross-team urgency view
-  const teamAthletes = useMemo(() => {
-    const athletes = !selectedTeam
-      ? allAthleteStatus
-      : selectedTeam === "__all__"
-      ? allAthleteStatus
-      : allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam);
-
-    return athletes
-      .filter((a) => {
-        if (urgencyFilter === "all") return true;
-        const u = getUrgencyLevel(a.alerts, a.band);
-        return u === urgencyFilter;
-      })
-      .sort((a, b) => urgencyOrder(getUrgencyLevel(a.alerts, a.band)) - urgencyOrder(getUrgencyLevel(b.alerts, b.band)));
-  }, [allAthleteStatus, selectedTeam, urgencyFilter, es]);
-
-  // Summary counts
-  const criticalCount = allAthleteStatus.reduce((s, a) => s + a.alerts.filter((al) => al.severity === "critical").length, 0);
-  const warningCount = allAthleteStatus.filter((a) => getUrgencyLevel(a.alerts, a.band) === "warning").length;
-  const monitoringCount = allAthleteStatus.filter((a) => getUrgencyLevel(a.alerts, a.band) === "monitoring").length;
-
-  const urgencyLabels: Record<UrgencyFilter, string> = {
-    all: es ? "Todos" : "All",
-    critical: es ? "Crítico" : "Critical",
-    warning: es ? "Aviso" : "Warning",
-    monitoring: es ? "Seguimiento" : "Monitoring",
+  const severityStyles: Record<Insight["severity"], string> = {
+    critical: "border-rose-300 bg-rose-50/80",
+    high: "border-amber-300 bg-amber-50/80",
+    medium: "border-sky-200 bg-white",
+    low: "border-slate-200 bg-white",
   };
 
+  const severityLabels: Record<Insight["severity"], string> = {
+    critical: es ? "Crítico" : "Critical",
+    high: es ? "Importante" : "High",
+    medium: es ? "Seguimiento" : "Monitor",
+    low: es ? "Oportunidad" : "Opportunity",
+  };
+
+  const summaryCards = [
+    {
+      label: es ? "Alertas críticas" : "Critical alerts",
+      value: intelligence.summary.criticalAlerts,
+      hint: es ? "requieren revisión inmediata" : "require immediate review",
+      tone: "text-rose-700 bg-rose-50 border-rose-200",
+      icon: <AlertTriangle className="h-4 w-4" />,
+    },
+    {
+      label: es ? "Patrones detectados" : "Patterns detected",
+      value: intelligence.summary.patternsDetected,
+      hint: es ? "hallazgos activos en la academia" : "active findings across the academy",
+      tone: "text-slate-800 bg-white border-slate-200",
+      icon: <Activity className="h-4 w-4" />,
+    },
+    {
+      label: es ? "Atletas en seguimiento" : "Athletes to monitor",
+      value: intelligence.summary.athletesToMonitor,
+      hint: es ? "con señales de riesgo o carga" : "with risk or load signals",
+      tone: "text-amber-700 bg-amber-50 border-amber-200",
+      icon: <Users className="h-4 w-4" />,
+    },
+    {
+      label: es ? "Talentos emergentes" : "Emerging talents",
+      value: intelligence.summary.emergingTalents,
+      hint: es ? "mejoras sin más carga" : "improvement without extra load",
+      tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
+      icon: <Trophy className="h-4 w-4" />,
+    },
+  ];
+
+  function toggleCategory(category: Insight["category"]) {
+    setActiveCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    );
+  }
+
+  function openInsight(insight: Insight) {
+    if (insight.athleteId) {
+      router.push(`/analysis?tab=individual&player=${insight.athleteId}`);
+      return;
+    }
+
+    if (insight.teamName) {
+      sessionStorage.setItem("analysis_collective_team", insight.teamName);
+      router.push("/analysis?tab=collective");
+    }
+  }
+
   return (
-    <div className="space-y-5">
-
-      {/* ── SUMMARY BANNER ── */}
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-slate-800">
-            {allAthleteStatus.length === 0
-              ? (es ? "Sin atletas evaluados todavía." : "No athletes assessed yet.")
-              : criticalCount > 0
-              ? (es ? `${criticalCount} alerta${criticalCount > 1 ? "s" : ""} crítica${criticalCount > 1 ? "s" : ""} — revisión inmediata necesaria.` : `${criticalCount} critical alert${criticalCount > 1 ? "s" : ""} — immediate review required.`)
-              : warningCount > 0 || monitoringCount > 0
-              ? (es ? `${warningCount} aviso${warningCount !== 1 ? "s" : ""} activo${warningCount !== 1 ? "s" : ""} · ${monitoringCount} en seguimiento.` : `${warningCount} active warning${warningCount !== 1 ? "s" : ""} · ${monitoringCount} under monitoring.`)
-              : (es ? `Todo en orden · ${allAthleteStatus.length} atletas evaluados.` : `All clear · ${allAthleteStatus.length} athletes assessed.`)}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
-            <AlertTriangle className="h-3 w-3" />{criticalCount} {es ? "crítico" : "critical"}{criticalCount !== 1 ? "s" : ""}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-            <AlertCircle className="h-3 w-3" />{warningCount} {es ? "aviso" : "warning"}{warningCount !== 1 ? "s" : ""}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-600">
-            <Zap className="h-3 w-3" />{monitoringCount} {es ? "seguim." : "monitor"}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-            <Users className="h-3 w-3" />{allAthleteStatus.length} {es ? "atletas" : "athletes"}
-          </span>
-        </div>
-        <button
-          onClick={() => window.print()}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors no-print"
-        >
-          <Download className="h-3.5 w-3.5" />PDF
-        </button>
-      </div>
-
-      {/* ── URGENCY QUICK-ACCESS ── */}
-      {selectedTeam === null && (criticalCount > 0 || warningCount > 0 || monitoringCount > 0) && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
-            {es ? "Acceso rápido por urgencia" : "Quick access by urgency"}
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {criticalCount > 0 && (
-              <button
-                type="button"
-                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("critical"); }}
-                className="flex items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left hover:bg-rose-100 transition-all hover:shadow-sm"
-              >
-                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-rose-100 flex items-center justify-center">
-                  <AlertTriangle className="h-5 w-5 text-rose-600" />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-rose-800">{criticalCount} {es ? "crítico" : "critical"}{criticalCount !== 1 ? "s" : ""}</p>
-                  <p className="text-[11px] text-rose-500">{es ? "Revisión inmediata" : "Immediate review"}</p>
+    <div className="space-y-6">
+      <section className="rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_40%),linear-gradient(135deg,#0f172a,#1e293b_55%,#334155)] px-5 py-6 text-white shadow-xl sm:px-7">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-300">
+              Performance Intelligence
+            </p>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
+              {es ? "Qué está pasando en tu academia que merece atención" : "What is happening in your academy that deserves attention"}
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              {es
+                ? "Una capa de descubrimiento automático sobre maduración, rendimiento y carga."
+                : "An automatic discovery layer across maturation, performance, and load."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {summaryCards.map((card) => (
+              <div key={card.label} className={`min-w-[150px] rounded-2xl border px-4 py-3 ${card.tone}`}>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  {card.icon}
+                  <span>{card.label}</span>
                 </div>
-                <ChevronRight className="h-4 w-4 text-rose-300 ml-auto" />
-              </button>
-            )}
-            {warningCount > 0 && (
-              <button
-                type="button"
-                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("warning"); }}
-                className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 transition-all hover:shadow-sm"
-              >
-                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center">
-                  <AlertCircle className="h-5 w-5 text-amber-600" />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-amber-800">{warningCount} {es ? "aviso" : "warning"}{warningCount !== 1 ? "s" : ""}</p>
-                  <p className="text-[11px] text-amber-500">{es ? "Requieren atención" : "Require attention"}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-amber-300 ml-auto" />
-              </button>
-            )}
-            {monitoringCount > 0 && (
-              <button
-                type="button"
-                onClick={() => { setSelectedTeam("__all__"); setUrgencyFilter("monitoring"); }}
-                className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-left hover:bg-amber-100/60 transition-all hover:shadow-sm"
-              >
-                <span className="flex-shrink-0 h-9 w-9 rounded-xl bg-amber-50 flex items-center justify-center">
-                  <Zap className="h-5 w-5 text-amber-500" />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-amber-700">{monitoringCount} {es ? "seguimiento" : "monitoring"}</p>
-                  <p className="text-[11px] text-amber-400">{es ? "Mid-PHV activos" : "Active Mid-PHV"}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-amber-200 ml-auto" />
-              </button>
-            )}
+                <p className="mt-2 text-3xl font-bold">{card.value}</p>
+                <p className="mt-1 text-[11px] opacity-80">{card.hint}</p>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+      </section>
 
-      {/* ── TEAM LIST (if no team selected) ── */}
-      {selectedTeam === null ? (
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 px-1">
-            {es ? "Selecciona un equipo o grupo" : "Select a team or group"}
-          </h2>
-          {allTeams.length === 0 ? (
-            <div className="h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-2">
-              <Users size={32} className="opacity-20" />
-              <p className="text-sm font-medium">{es ? "Sin datos disponibles." : "No data available."}</p>
-            </div>
-          ) : (
-            allTeams.map((team) => (
-              <button
-                key={team.name}
-                type="button"
-                onClick={() => setSelectedTeam(team.name)}
-                className="w-full flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
-              >
-                <div className={`flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center ${
-                  team.critCount > 0 ? "bg-rose-100 text-rose-700" : team.warnCount > 0 ? "bg-amber-100 text-amber-700" : "bg-teal-100 text-teal-700"
-                }`}>
-                  <Users className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-900 group-hover:text-teal-700 transition-colors">{team.name}</p>
-                  <p className="text-xs text-slate-400">{team.count} {es ? "atleta" : "athlete"}{team.count !== 1 ? "s" : ""}</p>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  {/* Per-pilar semaphores for the team */}
-                  <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
-                    {(["maturation", "performance", "load"] as const).map((pilar) => {
-                      const st = team.pilarWorst[pilar];
-                      const dotCls = st === "critical" ? "bg-rose-500 ring-rose-300" : st === "warning" ? "bg-amber-400 ring-amber-200" : "bg-teal-400 ring-teal-200";
-                      const labelMap: Record<typeof pilar, string> = es
-                        ? { maturation: "Mad", performance: "Rend", load: "Carga" }
-                        : { maturation: "Mat", performance: "Perf", load: "Load" };
-                      return (
-                        <div key={pilar} className="flex flex-col items-center gap-0.5">
-                          <span className={`h-2.5 w-2.5 rounded-full ring-2 ring-offset-0 ${dotCls}`} />
-                          <span className="text-[8px] font-semibold text-slate-400 leading-none">{labelMap[pilar]}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {team.critCount > 0 && (
-                    <span className="flex items-center gap-1 rounded-full bg-rose-100 text-rose-700 px-2 py-0.5 text-[11px] font-bold">
-                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse inline-block" />
-                      {team.critCount}
-                    </span>
-                  )}
-                  {team.warnCount > 0 && (
-                    <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-bold">
-                      {team.warnCount}⚠
-                    </span>
-                  )}
-                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      ) : (
-        /* ── PLAYER LIST for selected team ── */
-        <div className="space-y-4">
-
-          {/* Back + team header */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => { setSelectedTeam(null); setUrgencyFilter("all"); }}
-              className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors no-print"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {es ? "Inicio" : "Home"}
-            </button>
-            <span className="text-slate-300">/</span>
-            <span className="text-sm font-bold text-slate-800">
-              {selectedTeam === "__all__"
-                ? (urgencyFilter === "critical" ? (es ? "Críticos" : "Critical")
-                  : urgencyFilter === "warning"  ? (es ? "Avisos" : "Warnings")
-                  : urgencyFilter === "monitoring" ? (es ? "Seguimiento" : "Monitoring")
-                  : (es ? "Todos los jugadores" : "All players"))
-                : selectedTeam}
-            </span>
-            <span className="ml-1 text-xs text-slate-400">
-              {teamAthletes.length} {es ? "jugador" : "player"}{teamAthletes.length !== 1 ? "es" : ""}
-            </span>
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              {es ? "Detectores" : "Detectors"}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold text-slate-900">
+              {es ? "Activa los hallazgos que quieres ver en el feed" : "Activate the findings you want to see in the feed"}
+            </h3>
           </div>
-
-          {/* Urgency filter bar */}
-          <div className="flex flex-wrap items-center gap-2 no-print">
-            <span className="text-xs font-semibold text-slate-400">{es ? "Filtrar por urgencia:" : "Filter by urgency:"}</span>
-            {(["all", "critical", "warning", "monitoring"] as UrgencyFilter[]).map((level) => {
-              const teamPool = selectedTeam === "__all__"
-                ? allAthleteStatus
-                : allAthleteStatus.filter((a) => (a.team || (es ? "Sin equipo" : "No team")) === selectedTeam);
-              const counts: Record<UrgencyFilter, number> = {
-                all: teamPool.length,
-                critical: teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "critical").length,
-                warning:  teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "warning").length,
-                monitoring: teamPool.filter((a) => getUrgencyLevel(a.alerts, a.band) === "monitoring").length,
-              };
-              const active = urgencyFilter === level;
-              const colorActive =
-                level === "critical" ? "bg-rose-600 text-white border-rose-600"
-                : level === "warning" ? "bg-amber-500 text-white border-amber-500"
-                : level === "monitoring" ? "bg-amber-200 text-amber-800 border-amber-300"
-                : "bg-teal-600 text-white border-teal-600";
-              const colorIdle =
-                level === "critical" ? "border-rose-200 text-rose-700 hover:bg-rose-50"
-                : level === "warning" ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                : level === "monitoring" ? "border-amber-200 text-amber-600 hover:bg-amber-50"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50";
+          <div className="flex flex-wrap gap-2">
+            {categoryConfig.map((item) => {
+              const active = activeCategories.includes(item.id);
               return (
                 <button
-                  key={level}
+                  key={item.id}
                   type="button"
-                  onClick={() => setUrgencyFilter(level)}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold transition-colors ${active ? colorActive : `bg-white ${colorIdle}`}`}
+                  onClick={() => toggleCategory(item.id)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold transition-colors ${active ? item.activeClass : item.idleClass}`}
                 >
-                  {urgencyLabels[level]}
-                  <span className={`rounded-full px-1.5 py-0 text-[10px] font-black ${active ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
-                    {counts[level]}
-                  </span>
+                  {item.icon}
+                  {item.label}
                 </button>
               );
             })}
           </div>
+        </div>
+      </section>
 
-          {/* Athlete cards */}
-          {teamAthletes.length === 0 ? (
-            <div className="h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl gap-2">
-              <Shield size={32} className="opacity-20" />
-              <p className="text-sm font-medium">
-                {es ? "Ningún jugador coincide con este filtro." : "No players match this filter."}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                Priority Feed
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                {es ? "Hallazgos priorizados" : "Prioritised findings"}
+              </h3>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              {visibleInsights.length} {es ? "activos" : "active"}
+            </span>
+          </div>
+
+          {visibleInsights.length === 0 ? (
+            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white px-6 py-14 text-center text-slate-400">
+              <Shield className="mx-auto h-8 w-8 opacity-30" />
+              <p className="mt-3 text-sm font-medium">
+                {es ? "No hay hallazgos para los detectores seleccionados." : "No findings for the selected detectors."}
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {teamAthletes.map((athlete) => {
-                const signals = buildEnrichedSignals(athlete.id, athlete.band, athlete.offset, state, locale, allLatestAssessmentsForSignals);
-                const urgency = getUrgencyLevel(athlete.alerts, athlete.band, signals);
-                return (
-                  <SmartAthleteCard
-                    key={athlete.id}
-                    status={athlete}
-                    signals={signals}
-                    locale={locale}
-                    urgency={urgency}
-                  />
-                );
-              })}
-            </div>
+            visibleInsights.map((insight) => (
+              <article key={insight.id} className={`rounded-3xl border p-5 shadow-sm ${severityStyles[insight.severity]}`}>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+                        {severityLabels[insight.severity]}
+                      </span>
+                      <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                        {insight.category}
+                      </span>
+                      {insight.teamName && (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                          {insight.teamName}
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="mt-3 text-lg font-semibold text-slate-900">{insight.title}</h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{insight.description}</p>
+                    {insight.recommendation && (
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                          {es ? "Recomendación" : "Recommendation"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-700">{insight.recommendation}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex w-full flex-shrink-0 flex-col gap-3 sm:w-44">
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                        {es ? "Confianza" : "Confidence"}
+                      </p>
+                      <p className="mt-1 text-2xl font-bold text-slate-900">{Math.round(insight.confidence * 100)}%</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatDate(insight.createdAt)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openInsight(insight)}
+                      disabled={!insight.athleteId && !insight.teamName}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {es ? "Abrir análisis" : "Open analysis"}
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))
           )}
-        </div>
-      )}
+        </section>
+
+        <aside className="space-y-6">
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              Trends
+            </p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">
+              {es ? "Tendencias detectadas" : "Detected trends"}
+            </h3>
+            <div className="mt-4 space-y-3">
+              {intelligence.trends.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                  {es ? "Todavía no hay suficiente señal colectiva para mostrar tendencias." : "There is not enough collective signal to show trends yet."}
+                </p>
+              ) : (
+                intelligence.trends.map((trend) => (
+                  <div key={trend.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                    <p className="text-sm font-semibold text-slate-900">{trend.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{trend.description}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              Recommendations
+            </p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">
+              {es ? "Acciones sugeridas" : "Suggested actions"}
+            </h3>
+            <div className="mt-4 space-y-3">
+              {intelligence.recommendations.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                  {es ? "No hay recomendaciones accionables con la información actual." : "There are no actionable recommendations with the current information."}
+                </p>
+              ) : (
+                intelligence.recommendations.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4">
+                    <p className="text-sm font-semibold text-emerald-900">{item.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-emerald-800">{item.description}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -4512,12 +3663,12 @@ function AnalysisSelection({
         : "Team comparison, groups and squad distribution.",
     },
     {
-      id: "assistant",
+      id: "intelligence",
       icon: <Activity className="h-8 w-8" />,
       color: "bg-amber-50 text-amber-600 border-amber-100",
       desc: locale === "es"
-        ? "Alertas preventivas y consejos de entrenamiento personalizados."
-        : "Preventive alerts and personalized training advice.",
+        ? "Centro de inteligencia deportiva con hallazgos automáticos sobre maduración, carga y rendimiento."
+        : "Sports intelligence center with automatic findings across maturation, load, and performance.",
     },
   ];
 
@@ -4574,7 +3725,7 @@ function AnalysisSidebar({
   const items: { id: AnalysisTab; icon: React.ReactNode }[] = [
     { id: "individual", icon: <Users className="h-5 w-5 flex-shrink-0" /> },
     { id: "collective", icon: <Group className="h-5 w-5 flex-shrink-0" /> },
-    { id: "assistant", icon: <Activity className="h-5 w-5 flex-shrink-0" /> },
+    { id: "intelligence", icon: <Activity className="h-5 w-5 flex-shrink-0" /> },
   ];
 
   function handleSelect(tab: AnalysisTab) {
@@ -4704,19 +3855,25 @@ export default function AnalysisPage() {
 
   const queryTab = searchParams.get("tab");
   const initialTab: AnalysisTab | null =
-    queryTab === "individual" || queryTab === "collective" || queryTab === "assistant"
+    queryTab === "individual" || queryTab === "collective" || queryTab === "intelligence"
       ? queryTab
+      : queryTab === "assistant"
+      ? "intelligence"
       : null;
   const [activeTab, setActiveTab] = useState<AnalysisTab | null>(initialTab);
 
   useEffect(() => {
     const queryTab = searchParams.get("tab");
-    if (queryTab === "individual" || queryTab === "collective" || queryTab === "assistant") {
+    if (queryTab === "assistant") {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", "intelligence");
+      router.replace(`/analysis?${next.toString()}`, { scroll: false });
+    } else if (queryTab === "individual" || queryTab === "collective" || queryTab === "intelligence") {
       setActiveTab(queryTab);
     } else {
       setActiveTab(null);
     }
-  }, [searchParams]);
+  }, [router, searchParams]);
 
   // Reset transient workspace selection when navigating away from the Analysis module completely
   useEffect(() => {
@@ -4763,12 +3920,6 @@ export default function AnalysisPage() {
     }
   };
 
-  const tabLabels: Record<AnalysisTab, string> = {
-    individual: t("analysis.tabs.individual"),
-    collective: t("analysis.tabs.collective"),
-    assistant: t("analysis.tabs.assistant"),
-  };
-
   return (
     <div className="flex min-h-[calc(100vh-4rem)] w-full min-w-0">
       {activeTab !== null && (
@@ -4798,8 +3949,8 @@ export default function AnalysisPage() {
             {activeTab === "collective" && (
               <CollectiveView assessments={assessments} state={state} t={t} locale={locale} />
             )}
-            {activeTab === "assistant" && (
-              <AssistantView assessments={assessments} state={state} t={t} locale={locale} />
+            {activeTab === "intelligence" && (
+              <PerformanceIntelligenceView assessments={assessments} state={state} locale={locale} />
             )}
           </div>
         </div>
