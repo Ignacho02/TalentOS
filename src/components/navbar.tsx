@@ -99,7 +99,7 @@ const mobileNav = [
       { href: "/analysis?tab=assistant",  key: "analysis.tabs.assistant" },
     ],
   },
-  { href: "/community", key: "nav.community", icon: Users,       children: null },
+  { href: "/community", key: "nav.community", icon: Users,        children: null },
   { href: "/research",  key: "nav.research",  icon: FlaskConical, children: null },
 ];
 
@@ -159,7 +159,7 @@ export function Navbar() {
           <div className="flex items-center justify-between gap-3">
 
             {/* ── Logo ── */}
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-shrink-0">
+            <Link href="/hub" className="flex items-center gap-2 sm:gap-3 min-w-0 flex-shrink-0">
               {state.club.badgeUrl && (
                 <div suppressHydrationWarning className="flex-shrink-0">
                   <img
@@ -171,14 +171,14 @@ export function Navbar() {
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wider text-accent truncate">
-                  {t("common.appName")}
+                <p className="text-xs font-semibold uppercase tracking-wider truncate">
+                  <span className="text-zinc-900">Talent</span><span className="text-accent">OS</span>
                 </p>
                 <p className="font-semibold text-zinc-900 text-sm sm:text-base truncate" suppressHydrationWarning>
                   {state.club.name}
                 </p>
               </div>
-            </div>
+            </Link>
 
             {/* ── Desktop nav ── */}
             <div className="hidden md:flex items-center gap-1 flex-1 justify-center" role="menubar">
