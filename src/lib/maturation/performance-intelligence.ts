@@ -90,91 +90,10 @@ function buildPerformanceIntelligenceInsights(
   const alerts = buildAlerts(latestAssessments);
   const rapidGrowthItems = detectRapidGrowth(allAssessments);
 
-  alerts.forEach((alert) => {
-    const athleteId = athleteNames.get(alert.athleteName);
-    const athlete = athleteId ? latestByAthlete.get(athleteId) : undefined;
-    const severity: InsightSeverity =
-      alert.severity === "critical" ? "critical" : alert.severity === "warning" ? "high" : "medium";
-
-    insights.push({
-      id: `alert-${alert.id}`,
-      severity,
-      category: "risk",
-      athleteId,
-      teamName: alert.teamName,
-      title: copy(locale, {
-        es: `${alert.athleteName}: ${alert.message}`,
-        en: `${alert.athleteName}: ${alert.message}`,
-      }),
-      description: alert.detail ?? copy(locale, {
-        es: "La revisión de datos requiere atención del staff.",
-        en: "This data issue needs staff review.",
-      }),
-      confidence: severity === "critical" ? 0.96 : 0.83,
-      recommendation:
-        athleteId && athlete
-          ? buildRiskRecommendation(locale, athlete.inputs.athleteName)
-          : undefined,
-      createdAt: athlete?.inputs.dataCollectionDate ?? new Date().toISOString().slice(0, 10),
-      sourceIds: [alert.id],
-    });
-  });
-
-  rapidGrowthItems.forEach((item) => {
-    insights.push({
-      id: `growth-${item.id}`,
-      severity: item.monthlyRate >= 1.2 ? "high" : "medium",
-      category: "growth",
-      athleteId: item.athleteId,
-      teamName: item.teamName,
-      title: copy(locale, {
-        es: `${item.athleteName}: crecimiento acelerado detectado`,
-        en: `${item.athleteName}: accelerated growth detected`,
-      }),
-      description: copy(locale, {
-        es: `+${formatNumber(item.statureGain, 1)} cm entre ${formatDate(item.dateFrom)} y ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/mes).`,
-        en: `+${formatNumber(item.statureGain, 1)} cm between ${formatDate(item.dateFrom)} and ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/month).`,
-      }),
-      confidence: clampConfidence(0.78 + Math.min(item.monthlyRate / 10, 0.1)),
-      recommendation: copy(locale, {
-        es: `Monitorizar coordinación y limitar exposición excéntrica alta para ${item.athleteName}.`,
-        en: `Monitor coordination and limit high eccentric exposure for ${item.athleteName}.`,
-      }),
-      createdAt: item.dateTo,
-      sourceIds: [item.id],
-    });
-  });
-
+  // Pre-calculate training load ratios for all athletes to allow cross-checks
+  const athleteLoadRatios = new Map<string, number>();
   latestAssessments.forEach((assessment) => {
     const athleteId = assessment.inputs.athleteId;
-    const athleteName = assessment.inputs.athleteName;
-    const band = assessment.classification.maturityBand;
-
-    if (band === "Mid-PHV") {
-      insights.push({
-        id: `phv-${athleteId}`,
-        severity: "medium",
-        category: "growth",
-        athleteId,
-        teamName: assessment.inputs.teamName,
-        title: copy(locale, {
-          es: `${athleteName}: ventana PHV activa`,
-          en: `${athleteName}: active PHV window`,
-        }),
-        description: copy(locale, {
-          es: `El atleta está en banda ${band}. Conviene revisar cargas de impacto y coordinación fina.`,
-          en: `The athlete is in the ${band} band. Review impact loading and fine coordination.`,
-        }),
-        confidence: 0.76,
-        recommendation: copy(locale, {
-          es: `Priorizar técnica, coordinación y seguimiento de molestias de crecimiento.`,
-          en: `Prioritise technique, coordination, and monitoring for growth-related soreness.`,
-        }),
-        createdAt: assessment.inputs.dataCollectionDate,
-        sourceIds: [assessment.inputs.id],
-      });
-    }
-
     const athleteLoad = state.trainingLoadEntries
       .filter((entry) => entry.athleteId === athleteId)
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -184,34 +103,217 @@ function buildPerformanceIntelligenceInsights(
       const recentAvg = recent.reduce((sum, entry) => sum + entry.load, 0) / recent.length;
       const baselineAvg = baseline.reduce((sum, entry) => sum + entry.load, 0) / baseline.length;
       const increaseRatio = baselineAvg > 0 ? recentAvg / baselineAvg : 1;
+      athleteLoadRatios.set(athleteId, increaseRatio);
+    }
+  });
 
-      if (increaseRatio >= 1.22) {
-        const severity: InsightSeverity = increaseRatio >= 1.4 || band === "Mid-PHV" ? "high" : "medium";
-        insights.push({
-          id: `load-${athleteId}`,
-          severity,
-          category: "load",
-          athleteId,
-          teamName: assessment.inputs.teamName,
-          title: copy(locale, {
-            es: `${athleteName}: carga reciente elevada`,
-            en: `${athleteName}: elevated recent load`,
-          }),
-          description: copy(locale, {
-            es: `La carga de las últimas 4 sesiones está ${Math.round((increaseRatio - 1) * 100)}% por encima del bloque previo.`,
-            en: `Load across the last 4 sessions is ${Math.round((increaseRatio - 1) * 100)}% above the prior block.`,
-          }),
-          confidence: clampConfidence(0.73 + Math.min((increaseRatio - 1) / 2, 0.12)),
-          recommendation: copy(locale, {
-            es: `Revisar minutos, RPE y densidad competitiva antes de seguir progresando la carga.`,
-            en: `Review minutes, RPE, and competition density before progressing load further.`,
-          }),
-          createdAt: recent[recent.length - 1]?.date ?? assessment.inputs.dataCollectionDate,
-          sourceIds: recent.map((entry) => entry.id),
-        });
-      }
+  // Group rapid growth alerts by athlete and keep only the most priority one
+  const rapidGrowthByAthlete = new Map<string, typeof rapidGrowthItems[0][]>();
+  rapidGrowthItems.forEach((item) => {
+    const list = rapidGrowthByAthlete.get(item.athleteId) ?? [];
+    list.push(item);
+    rapidGrowthByAthlete.set(item.athleteId, list);
+  });
+
+  const dedupedRapidGrowthItems: typeof rapidGrowthItems = [];
+  rapidGrowthByAthlete.forEach((items) => {
+    // Sort:
+    // 1. dateTo descending (latest first)
+    // 2. hasElevatedLoad first (loadRatio >= 1.22)
+    // 3. monthlyRate descending
+    items.sort((a, b) => {
+      const dateCompare = b.dateTo.localeCompare(a.dateTo);
+      if (dateCompare !== 0) return dateCompare;
+
+      const aLoad = (athleteLoadRatios.get(a.athleteId) ?? 1) >= 1.22;
+      const bLoad = (athleteLoadRatios.get(b.athleteId) ?? 1) >= 1.22;
+      if (aLoad !== bLoad) return bLoad ? 1 : -1;
+
+      return b.monthlyRate - a.monthlyRate;
+    });
+
+    // Keep only the first one
+    dedupedRapidGrowthItems.push(items[0]);
+  });
+
+  // 1. Process Alerts from Maturation Assessment (like invalid measurements)
+  alerts.forEach((alert) => {
+    const athleteId = athleteNames.get(alert.athleteName);
+    const athlete = athleteId ? latestByAthlete.get(athleteId) : undefined;
+    
+    // Default to medium (Yellow/Seguimiento) and growth (Maturation)
+    let severity: InsightSeverity = "medium";
+    let category: InsightCategory = "growth";
+    
+    if (alert.severity === "critical") {
+      severity = "critical"; // Red/Riesgo
+    }
+    
+    if (alert.category === "highLoadRisk") {
+      category = "load"; // Training Load area
     }
 
+    insights.push({
+      id: `alert-${alert.id}`,
+      severity,
+      category,
+      athleteId,
+      teamName: alert.teamName,
+      title: copy(locale, {
+        es: alert.category === "highLoadRisk"
+          ? `${alert.athleteName}: Riesgo de sobrecarga en PHV`
+          : `${alert.athleteName}: ${alert.message}`,
+        en: `${alert.athleteName}: ${alert.message}`,
+      }),
+      description: copy(locale, {
+        es: alert.category === "highLoadRisk"
+          ? `El atleta se encuentra en el pico de crecimiento rápido (Mid-PHV). Se recomienda moderar las cargas de impacto.`
+          : alert.detail ?? "La revisión de datos requiere atención del staff.",
+        en: alert.detail ?? "This data issue needs staff review.",
+      }),
+      confidence: severity === "critical" ? 0.96 : 0.83,
+      recommendation: alert.category === "highLoadRisk"
+        ? copy(locale, {
+            es: "Ajustar el volumen de saltos, aceleraciones rápidas y priorizar la recuperación neuromuscular.",
+            en: "Adjust jumping volume, quick accelerations, and prioritize neuromuscular recovery.",
+          })
+        : athleteId && athlete
+          ? buildRiskRecommendation(locale, athlete.inputs.athleteName)
+          : undefined,
+      createdAt: athlete?.inputs.dataCollectionDate ?? new Date().toISOString().slice(0, 10),
+      sourceIds: [alert.id],
+    });
+  });
+
+  // 2. Process Rapid Growth
+  dedupedRapidGrowthItems.forEach((item) => {
+    const loadRatio = athleteLoadRatios.get(item.athleteId) ?? 1;
+    const hasElevatedLoad = loadRatio >= 1.22;
+    
+    // Intertwined Growth + Load
+    const severity: InsightSeverity = hasElevatedLoad ? "critical" : "medium";
+
+    insights.push({
+      id: `growth-${item.id}`,
+      severity,
+      category: "growth", // Maturation
+      athleteId: item.athleteId,
+      teamName: item.teamName,
+      title: copy(locale, {
+        es: hasElevatedLoad
+          ? `${item.athleteName}: crecimiento acelerado con carga elevada`
+          : `${item.athleteName}: crecimiento acelerado detectado`,
+        en: hasElevatedLoad
+          ? `${item.athleteName}: Rapid growth with elevated load`
+          : `${item.athleteName}: Accelerated growth detected`,
+      }),
+      description: copy(locale, {
+        es: hasElevatedLoad
+          ? `+${formatNumber(item.statureGain, 1)} cm en ${formatNumber(item.monthsBetween, 1)} meses (${formatNumber(item.monthlyRate, 2)} cm/mes) coincidiendo con un aumento de carga del ${Math.round((loadRatio - 1) * 100)}%.`
+          : `+${formatNumber(item.statureGain, 1)} cm entre ${formatDate(item.dateFrom)} y ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/mes).`,
+        en: hasElevatedLoad
+          ? `+${formatNumber(item.statureGain, 1)} cm in ${formatNumber(item.monthsBetween, 1)} months (${formatNumber(item.monthlyRate, 2)} cm/month) with a ${Math.round((loadRatio - 1) * 100)}% load increase.`
+          : `+${formatNumber(item.statureGain, 1)} cm between ${formatDate(item.dateFrom)} and ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/month).`,
+      }),
+      confidence: clampConfidence(0.78 + Math.min(item.monthlyRate / 10, 0.1)),
+      recommendation: copy(locale, {
+        es: hasElevatedLoad
+          ? `Reducir de inmediato la carga excéntrica e impactos fuertes para proteger los cartílagos de crecimiento.`
+          : `Monitorizar flexibilidad, rango de movimiento y reportar posibles molestias en tendones.`,
+        en: hasElevatedLoad
+          ? `Immediately reduce eccentric load and high impact exercises to protect growth plates.`
+          : `Monitor flexibility, range of motion, and report potential tendon discomfort.`,
+      }),
+      createdAt: item.dateTo,
+      sourceIds: [item.id],
+    });
+  });
+
+  // 3. Process Individual Maturation status & training load & performance
+  latestAssessments.forEach((assessment) => {
+    const athleteId = assessment.inputs.athleteId;
+    const athleteName = assessment.inputs.athleteName;
+    const band = assessment.classification.maturityBand;
+    const hasPHV = band === "Mid-PHV";
+
+    // Growth peak window status (yellow/seguimiento in maturation)
+    if (hasPHV) {
+      insights.push({
+        id: `phv-${athleteId}`,
+        severity: "medium", // Yellow
+        category: "growth", // Maturation
+        athleteId,
+        teamName: assessment.inputs.teamName,
+        title: copy(locale, {
+          es: `${athleteName}: Ventana PHV activa (Pico de Crecimiento)`,
+          en: `${athleteName}: Active PHV window (Growth Spurt)`,
+        }),
+        description: copy(locale, {
+          es: `El atleta está en banda ${band}. Etapa de máxima velocidad de crecimiento y cambios coordinativos rápidos.`,
+          en: `The athlete is in the ${band} band. Peak growth velocity stage with fast coordination changes.`,
+        }),
+        confidence: 0.76,
+        recommendation: copy(locale, {
+          es: `Priorizar control de movimiento, técnica y estabilidad articular sobre carga de fuerza bruta.`,
+          en: `Prioritize movement control, technique, and joint stability over raw strength training.`,
+        }),
+        createdAt: assessment.inputs.dataCollectionDate,
+        sourceIds: [assessment.inputs.id],
+      });
+    }
+
+    // Training load evaluation
+    const increaseRatio = athleteLoadRatios.get(athleteId) ?? 1;
+    if (increaseRatio >= 1.22) {
+      // Intertwine Maturation + Load:
+      // High load in Mid-PHV is Red (critical); otherwise normal high load is Red if >= 1.4, else Yellow (medium)
+      const severity: InsightSeverity = (increaseRatio >= 1.4 || hasPHV) ? "critical" : "medium";
+
+      insights.push({
+        id: `load-${athleteId}`,
+        severity,
+        category: "load", // Carga
+        athleteId,
+        teamName: assessment.inputs.teamName,
+        title: copy(locale, {
+          es: hasPHV 
+            ? `${athleteName}: Riesgo de sobrecarga en pico de crecimiento`
+            : increaseRatio >= 1.4 
+              ? `${athleteName}: Aumento excesivo de carga`
+              : `${athleteName}: Carga reciente en aumento`,
+          en: hasPHV 
+            ? `${athleteName}: High load risk during growth peak`
+            : increaseRatio >= 1.4 
+              ? `${athleteName}: Excessive training load increase`
+              : `${athleteName}: Rising recent load`,
+        }),
+        description: copy(locale, {
+          es: hasPHV
+            ? `La carga de las últimas 4 sesiones ha aumentado un ${Math.round((increaseRatio - 1) * 100)}% en comparación con las 4 anteriores, coincidiendo con el pico de crecimiento.`
+            : `La carga de las últimas 4 sesiones está un ${Math.round((increaseRatio - 1) * 100)}% por encima del bloque anterior.`,
+          en: hasPHV
+            ? `Training load over the last 4 sessions is ${Math.round((increaseRatio - 1) * 100)}% above baseline while the athlete is in their peak growth window.`
+            : `Training load over the last 4 sessions is ${Math.round((increaseRatio - 1) * 100)}% above the previous block.`,
+        }),
+        confidence: clampConfidence(0.73 + Math.min((increaseRatio - 1) / 2, 0.12)),
+        recommendation: copy(locale, {
+          es: hasPHV
+            ? `Disminuir el volumen de saltos/impactos. Coordinar con preparador físico para programar sesiones de bajo impacto.`
+            : increaseRatio >= 1.4
+              ? `Revisar planificación semanal. Programar sesión de descarga y monitorizar fatiga neuromuscular.`
+              : `Seguimiento de RPE y fatiga subjetiva. Mantener la carga actual sin progresión por el momento.`,
+          en: hasPHV
+            ? `Reduce jumping/impact volume. Coordinate with trainer to schedule low-impact sessions.`
+            : increaseRatio >= 1.4
+              ? `Review weekly planning. Schedule a deload session and monitor neuromuscular fatigue.`
+              : `Follow RPE and subjective fatigue. Maintain current load with no progression for now.`,
+        }),
+        createdAt: assessment.inputs.dataCollectionDate,
+        sourceIds: [],
+      });
+    }
+
+    // Performance evaluation
     const groupedPerformance = new Map<string, PerformanceEntry[]>();
     state.performanceEntries
       .filter((entry) => entry.athleteId === athleteId)
@@ -244,59 +346,119 @@ function buildPerformanceIntelligenceInsights(
       .filter((signal) => signal.change <= -0.08)
       .sort((left, right) => left.change - right.change)[0];
 
+    // Intertwined Performance Drop + Load + Maturation
     if (strongestDrop) {
-      const linkedLoad = insights.find((entry) => entry.athleteId === athleteId && entry.category === "load");
-      const severity: InsightSeverity =
-        linkedLoad || band === "Mid-PHV" ? "high" : Math.abs(strongestDrop.change) >= 0.15 ? "high" : "medium";
+      const hasElevatedLoad = increaseRatio >= 1.22;
+      const severity: InsightSeverity = (hasElevatedLoad || hasPHV || Math.abs(strongestDrop.change) >= 0.15) ? "critical" : "medium";
+      const pctChange = Math.round(Math.abs(strongestDrop.change) * 100);
+
+      let titleEs = "";
+      let titleEn = "";
+      let descEs = "";
+      let descEn = "";
+      let recEs = "";
+      let recEn = "";
+
+      if (hasElevatedLoad && hasPHV) {
+        titleEs = `${athleteName}: Alerta crítica: Caída de rendimiento por sobrecarga en PHV`;
+        titleEn = `${athleteName}: Critical: Performance drop under overload in PHV`;
+        descEs = `El rendimiento en ${strongestDrop.testName} ha bajado un ${pctChange}% debido a la combinación de crecimiento acelerado (Mid-PHV) y aumento reciente de carga de entrenamiento.`;
+        descEn = `Performance in ${strongestDrop.testName} dropped by ${pctChange}% due to peak growth (Mid-PHV) and recent training load increase.`;
+        recEs = `Reducir de inmediato la intensidad y volumen. Programar descanso neuromuscular y vigilar molestias en articulaciones.`;
+        recEn = `Reduce intensity and volume immediately. Schedule neuromuscular rest and watch for joint pain.`;
+      } else if (hasElevatedLoad) {
+        titleEs = `${athleteName}: Caída de rendimiento por fatiga neuromuscular`;
+        titleEn = `${athleteName}: Performance drop due to neuromuscular fatigue`;
+        descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName} coincidiendo con carga reciente en aumento. Fatiga acumulada probable.`;
+        descEn = `Performance in ${strongestDrop.testName} decreased by ${pctChange}% alongside elevated training load. Fatigue is likely.`;
+        recEs = `Introducir descarga y sesiones de recuperación activa. Posponer el próximo test máximo.`;
+        recEn = `Introduce deload and active recovery sessions. Postpone the next maximal test.`;
+      } else if (hasPHV) {
+        titleEs = `${athleteName}: Descenso de rendimiento en pico de crecimiento`;
+        titleEn = `${athleteName}: Performance drop during growth spurt`;
+        descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName}. El pico de crecimiento (Mid-PHV) suele alterar transitoriamente el control motor fino ("adolescent awkwardness").`;
+        descEn = `Drop of ${pctChange}% in ${strongestDrop.testName}. Peak growth (Mid-PHV) often temporarily alters fine motor control ("adolescent awkwardness").`;
+        recEs = `Reducir la exigencia de fuerza/coordinación extrema. Enfocar en re-entrenar gestos técnicos y estabilidad corporal.`;
+        recEn = `Reduce extreme strength/coordination demands. Focus on retraining technique and body stability.`;
+      } else {
+        const isBigDrop = Math.abs(strongestDrop.change) >= 0.15;
+        titleEs = isBigDrop 
+          ? `${athleteName}: Descenso significativo en ${strongestDrop.testName}`
+          : `${athleteName}: Descenso moderado en ${strongestDrop.testName}`;
+        titleEn = isBigDrop
+          ? `${athleteName}: Significant performance drop in ${strongestDrop.testName}`
+          : `${athleteName}: Moderate performance drop in ${strongestDrop.testName}`;
+        descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName} respecto a la última medición.`;
+        descEn = `Drop of ${pctChange}% in ${strongestDrop.testName} vs the previous test.`;
+        recEs = isBigDrop 
+          ? `Descartar mala ejecución de la prueba o molestias físicas. Valorar repetir el test en unos días.`
+          : `Hacer seguimiento en las siguientes sesiones. Comprobar si el rendimiento se estabiliza.`;
+        recEn = isBigDrop
+          ? `Rule out poor test execution or physical discomfort. Consider re-testing in a few days.`
+          : `Monitor in the next sessions. Check if performance stabilizes.`;
+      }
+
       insights.push({
         id: `performance-drop-${athleteId}-${strongestDrop.testName}`,
         severity,
-        category: linkedLoad ? "risk" : "performance",
+        category: "performance", // Rendimiento tab
         athleteId,
         teamName: assessment.inputs.teamName,
-        title: copy(locale, {
-          es: `${athleteName}: descenso en ${strongestDrop.testName}`,
-          en: `${athleteName}: drop in ${strongestDrop.testName}`,
-        }),
-        description: copy(locale, {
-          es: `Cambio de ${Math.round(Math.abs(strongestDrop.change) * 100)}% respecto a la medición previa${linkedLoad ? " con carga elevada en paralelo" : ""}.`,
-          en: `${Math.round(Math.abs(strongestDrop.change) * 100)}% change vs. the previous measurement${linkedLoad ? " with elevated load in parallel" : ""}.`,
-        }),
+        title: copy(locale, { es: titleEs, en: titleEn }),
+        description: copy(locale, { es: descEs, en: descEn }),
         confidence: clampConfidence(0.72 + Math.min(Math.abs(strongestDrop.change), 0.18)),
-        recommendation: copy(locale, {
-          es: `Revisar fatiga neuromuscular y decidir si conviene descargar o repetir el test.`,
-          en: `Review neuromuscular fatigue and decide whether to deload or repeat the test.`,
-        }),
+        recommendation: copy(locale, { es: recEs, en: recEn }),
         createdAt: strongestDrop.latest.measurementDate,
-        sourceIds: [strongestDrop.latest.id, strongestDrop.previous.id, ...(linkedLoad?.sourceIds ?? [])],
+        sourceIds: [strongestDrop.latest.id, strongestDrop.previous.id],
       });
     }
 
+    // Intertwined Performance Improvement + Load + Maturation
     if (strongestImprovement) {
-      const linkedLoad = insights.find((entry) => entry.athleteId === athleteId && entry.category === "load");
-      const category: InsightCategory = linkedLoad ? "performance" : "talent";
+      const hasElevatedLoad = increaseRatio >= 1.22;
+      const isGrowingOrPost = band === "Mid-PHV" || band === "Post-PHV";
+      const pctChange = Math.round(strongestImprovement.change * 100);
+
+      let titleEs = "";
+      let titleEn = "";
+      let descEs = "";
+      let descEn = "";
+      let recEs = "";
+      let recEn = "";
+
+      if (!hasElevatedLoad && isGrowingOrPost) {
+        titleEs = `${athleteName}: Mejora por desarrollo biológico (Talento)`;
+        titleEn = `${athleteName}: Growth spurt performance gain (Talent)`;
+        descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} sin aumento de carga, probablemente potenciada por su desarrollo y maduración biológica (banda ${band}).`;
+        descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} without load increase, likely boosted by physical maturation (band ${band}).`;
+        recEs = `Aprovechar para asentar patrones técnicos limpios ahora que tiene mayor palanca y fuerza estructural.`;
+        recEn = `Take advantage of new levers to consolidate clean technical patterns and structural strength.`;
+      } else if (!hasElevatedLoad) {
+        titleEs = `${athleteName}: Mejora limpia de rendimiento (Talento)`;
+        titleEn = `${athleteName}: Clean performance improvement (Talent)`;
+        descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} sin incremento paralelo de carga. Gran respuesta técnica y señal de talento.`;
+        descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} without a parallel load increase. Great technical response and talent signal.`;
+        recEs = `Felicitar al jugador. Mantener su progresión y valorar si se sostiene en el próximo ciclo.`;
+        recEn = `Congratulate the player. Maintain progression and see if it holds in the next cycle.`;
+      } else {
+        titleEs = `${athleteName}: Adaptación positiva al entrenamiento`;
+        titleEn = `${athleteName}: Positive training adaptation`;
+        descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} asimilando bien la carga de entrenamiento elevada.`;
+        descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} showing positive adaptation under elevated training load.`;
+        recEs = `Continuar progresión pero vigilar que no se acumule fatiga excesiva a medio plazo.`;
+        recEn = `Continue progression but ensure excess fatigue does not accumulate in the medium term.`;
+      }
+
       insights.push({
         id: `performance-rise-${athleteId}-${strongestImprovement.testName}`,
-        severity: category === "talent" ? "medium" : "low",
-        category,
+        severity: "low", // Green (Oportunidad)
+        category: "talent", // Rendimiento / Talent tab
         athleteId,
         teamName: assessment.inputs.teamName,
-        title: copy(locale, {
-          es: `${athleteName}: mejora en ${strongestImprovement.testName}`,
-          en: `${athleteName}: improvement in ${strongestImprovement.testName}`,
-        }),
-        description: copy(locale, {
-          es: `Mejora del ${Math.round(strongestImprovement.change * 100)}% respecto a la medición previa${linkedLoad ? " sin ser todavía una señal limpia de talento por el aumento de carga" : " sin incremento paralelo de carga"}.`,
-          en: `${Math.round(strongestImprovement.change * 100)}% improvement vs. the previous measurement${linkedLoad ? " although the load increase weakens the talent signal" : " without a parallel load increase"}.`,
-        }),
+        title: copy(locale, { es: titleEs, en: titleEn }),
+        description: copy(locale, { es: descEs, en: descEn }),
         confidence: clampConfidence(0.68 + Math.min(strongestImprovement.change, 0.2)),
-        recommendation:
-          category === "talent"
-            ? copy(locale, {
-                es: `Abrir análisis individual y validar si la mejora se sostiene en el siguiente ciclo.`,
-                en: `Open the individual analysis and validate whether the improvement holds in the next cycle.`,
-              })
-            : undefined,
+        recommendation: copy(locale, { es: recEs, en: recEn }),
         createdAt: strongestImprovement.latest.measurementDate,
         sourceIds: [strongestImprovement.latest.id, strongestImprovement.previous.id],
       });
@@ -342,7 +504,7 @@ function buildTrends(insights: Insight[], latestAssessments: MaturationResult[],
   });
 
   byBand.forEach((count, band) => {
-    const bandInsights = insights.filter((insight) => insight.category === "risk" || insight.category === "growth").filter((insight) => {
+    const bandInsights = insights.filter((insight) => insight.category === "growth").filter((insight) => {
       const athleteAssessment = latestAssessments.find((assessment) => assessment.inputs.athleteId === insight.athleteId);
       return athleteAssessment?.classification.maturityBand === band;
     });

@@ -3366,23 +3366,38 @@ function PlayerIntelligenceModal({
   const es = locale === "es";
   const router = useRouter();
   const [activeArea, setActiveArea] = useState<IntelligenceArea>(defaultArea);
+  const [selectedSeverityFilter, setSelectedSeverityFilter] = useState<string>("all");
+
+  useEffect(() => {
+    setSelectedSeverityFilter("all");
+  }, [activeArea]);
 
   const areaInsights = useMemo(
     () => insights.filter((i) => categoryToArea(i.category) === activeArea),
     [insights, activeArea],
   );
 
+  const filteredInsights = useMemo(() => {
+    return areaInsights.filter((insight) => {
+      if (selectedSeverityFilter === "all") return true;
+      if (selectedSeverityFilter === "risk") return insight.severity === "critical" || insight.severity === "high";
+      if (selectedSeverityFilter === "monitoring") return insight.severity === "medium";
+      if (selectedSeverityFilter === "opportunity") return insight.severity === "low";
+      return true;
+    });
+  }, [areaInsights, selectedSeverityFilter]);
+
   const severityStyles: Record<Insight["severity"], string> = {
-    critical: "border-rose-300 bg-rose-50/80",
-    high: "border-amber-300 bg-amber-50/80",
-    medium: "border-sky-200 bg-white",
-    low: "border-slate-200 bg-white",
+    critical: "border-rose-200 bg-rose-50/40 text-rose-900 shadow-sm",
+    high: "border-rose-200 bg-rose-50/40 text-rose-900 shadow-sm",
+    medium: "border-amber-200 bg-amber-50/40 text-amber-900 shadow-sm",
+    low: "border-emerald-200 bg-emerald-50/40 text-emerald-900 shadow-sm",
   };
 
   const severityLabels: Record<Insight["severity"], string> = {
-    critical: es ? "Crítico" : "Critical",
-    high: es ? "Importante" : "High",
-    medium: es ? "Seguimiento" : "Monitor",
+    critical: es ? "Riesgo" : "Risk",
+    high: es ? "Riesgo" : "Risk",
+    medium: es ? "Seguimiento" : "Monitoring",
     low: es ? "Oportunidad" : "Opportunity",
   };
 
@@ -3481,28 +3496,89 @@ function PlayerIntelligenceModal({
           })}
         </div>
 
+        {/* Severity Filter bar */}
+        {areaInsights.length > 0 && (
+          <div className="px-6 py-3 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between gap-4 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              {es ? "Filtrar por importancia:" : "Filter by importance:"}
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[
+                { id: "all", labelEs: "Todos", labelEn: "All", color: "bg-slate-800 text-white border-slate-900" },
+                { id: "risk", labelEs: "Riesgo", labelEn: "Risk", color: "bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200" },
+                { id: "monitoring", labelEs: "Seguimiento", labelEn: "Monitoring", color: "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200" },
+                { id: "opportunity", labelEs: "Oportunidad", labelEn: "Opportunity", color: "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200" },
+              ].map((btn) => {
+                const active = selectedSeverityFilter === btn.id;
+                const count = areaInsights.filter((i) => {
+                  if (btn.id === "all") return true;
+                  if (btn.id === "risk") return i.severity === "critical" || i.severity === "high";
+                  if (btn.id === "monitoring") return i.severity === "medium";
+                  if (btn.id === "opportunity") return i.severity === "low";
+                  return true;
+                }).length;
+
+                return (
+                  <button
+                    key={btn.id}
+                    type="button"
+                    onClick={() => setSelectedSeverityFilter(btn.id)}
+                    className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      active
+                        ? (btn.id === "all" ? "bg-slate-800 text-white border-slate-900 shadow-sm" : btn.color.split(" hover:")[0] + " ring-2 ring-slate-300 ring-offset-1")
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {es ? btn.labelEs : btn.labelEn}
+                    <span className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                      active
+                        ? (btn.id === "all" ? "bg-slate-700 text-white" : "bg-white/95 text-slate-850")
+                        : "bg-slate-105 text-slate-500"
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {areaInsights.length === 0 ? (
+          {filteredInsights.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               <Shield className="h-10 w-10 opacity-20 mb-3" />
-              <p className="text-sm font-medium">
+              <p className="text-sm font-medium text-center px-4">
                 {es
-                  ? "Sin señales detectadas en esta área para este jugador."
-                  : "No signals detected in this area for this player."}
+                  ? selectedSeverityFilter !== "all"
+                    ? "Sin señales detectadas para este nivel de importancia."
+                    : "Sin señales detectadas en esta área para este jugador."
+                  : selectedSeverityFilter !== "all"
+                    ? "No signals detected for this importance level."
+                    : "No signals detected in this area for this player."}
               </p>
             </div>
           ) : (
-            areaInsights.map((insight) => (
+            filteredInsights.map((insight) => (
               <article key={insight.id} className={`rounded-2xl border p-4 ${severityStyles[insight.severity]}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border ${
+                        insight.severity === "critical" || insight.severity === "high"
+                          ? "bg-rose-100 text-rose-800 border-rose-200"
+                          : insight.severity === "medium"
+                            ? "bg-amber-100 text-amber-800 border-amber-200"
+                            : "bg-emerald-100 text-emerald-800 border-emerald-200"
+                      }`}>
                         {severityLabels[insight.severity]}
                       </span>
-                      <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                        {insight.category}
+                      <span className="rounded-full bg-white/95 border border-slate-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                        {insight.category === "growth" ? (es ? "Maduración" : "Maturation") :
+                         insight.category === "load" ? (es ? "Carga" : "Load") :
+                         insight.category === "talent" ? (es ? "Talento" : "Talent") :
+                         (es ? "Rendimiento" : "Performance")}
                       </span>
                     </div>
                     <h4 className="text-base font-semibold text-slate-900">{insight.title}</h4>
@@ -3564,6 +3640,7 @@ function PerformanceIntelligenceView({
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const deferredSearch = useDeferredValue(searchTerm);
+  const [showDocModal, setShowDocModal] = useState(false);
 
   // Engine-resolved assessments
   const latestEngineResolved = useMemo(
@@ -3676,6 +3753,14 @@ function PerformanceIntelligenceView({
                 ? "Descubrimiento automático sobre maduración, rendimiento y carga."
                 : "Automatic discovery across maturation, performance, and load."}
             </p>
+            <button
+              type="button"
+              onClick={() => setShowDocModal(true)}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/25 px-3 py-1.5 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm"
+            >
+              <Info className="h-3.5 w-3.5" />
+              {es ? "Entender lógica de alertas" : "How alerts work"}
+            </button>
           </div>
           {/* Global KPI pills */}
           <div className="flex flex-wrap gap-3">
@@ -3923,6 +4008,207 @@ function PerformanceIntelligenceView({
           defaultArea={activeArea ?? "maturation"}
           onClose={() => setSelectedPlayerId(null)}
         />
+      )}
+
+      {/* ── ALERTS DOCUMENTATION MODAL ── */}
+      {showDocModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/20 backdrop-blur-sm" role="dialog" aria-modal="true">
+          {/* Backdrop */}
+          <button
+            type="button"
+            aria-label={es ? "Cerrar" : "Close"}
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+            onClick={() => setShowDocModal(false)}
+          />
+
+          {/* Modal panel */}
+          <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-100">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Info className="h-5 w-5 text-teal-600" />
+                <h3 className="text-lg font-bold text-slate-900">
+                  {es ? "Lógica del Asistente de Alertas" : "Alert Assistant Logic"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                aria-label={es ? "Cerrar" : "Close"}
+                onClick={() => setShowDocModal(false)}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Section: Division clear */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
+                  {es ? "1. Clasificación por Áreas" : "1. Classification by Areas"}
+                </h4>
+                <p className="text-xs text-slate-500 mb-3">
+                  {es 
+                    ? "Las alertas se dividen en tres áreas independientes para evitar mezclas y facilitar su consulta:"
+                    : "Alerts are divided into three independent areas to avoid overlap and simplify search:"}
+                </p>
+                <div className="grid gap-3 text-sm">
+                  <div className="rounded-xl border border-violet-100 bg-violet-50/20 p-3">
+                    <span className="font-semibold text-violet-800">{es ? "Maduración" : "Maturation"}</span>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {es 
+                        ? "Estado y ritmo biológico. Incluye picos de crecimiento (ventana PHV), velocidad de estatura alta (crecimiento acelerado), ritmo madurativo (temprano o tardío) e incidencias críticas en las mediciones."
+                        : "Biological status and timing. Includes growth spurts (PHV window), stature velocity (rapid growth), maturation timing (early/late), and critical validation issues in measurements."}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/20 p-3">
+                    <span className="font-semibold text-sky-800">{es ? "Rendimiento" : "Performance"}</span>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {es 
+                        ? "Desarrollo atlético. Cambios notables (mejoras o retrocesos) en test físicos (fuerza, velocidad, CMJ, resistencia). Permite identificar tanto adaptaciones positivas como señales de alerta neuromuscular."
+                        : "Athletic development. Significant changes (improvements or drops) in physical tests (strength, speed, CMJ, endurance). Identifies positive adaptations as well as neuromuscular warning signals."}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/20 p-3">
+                    <span className="font-semibold text-amber-800">{es ? "Carga de Entrenamiento" : "Training Load"}</span>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {es 
+                        ? "Riesgo físico general. Incrementos en el ratio de carga de las últimas 4 sesiones y el riesgo específico por sobreesfuerzo de articulaciones en picos de crecimiento."
+                        : "General physical risk. Increases in recent load ratios (last 4 sessions) and specific risks regarding joint overload during peak growth spurts."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section: 3-tier colors */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
+                  {es ? "2. Tipos de Alertas y Severidad" : "2. Alert Types and Severity"}
+                </h4>
+                <p className="text-xs text-slate-500 mb-3">
+                  {es 
+                    ? "Cada alerta está visualmente catalogada en uno de los 3 niveles con acciones específicas:"
+                    : "Each alert is visually categorized into one of 3 levels with specific actions:"}
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50/30 p-3">
+                    <div className="mt-0.5 rounded-full bg-rose-500 h-2.5 w-2.5 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-rose-800 uppercase tracking-wider">{es ? "Riesgo (Rojo)" : "Risk (Red)"}</span>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {es 
+                          ? "Requiere atención prioritaria. Incluye aumentos de carga excesivos (≥ 40%), bajadas de rendimiento neuromuscular, o sobrecarga física durante el pico de crecimiento rápido (Mid-PHV)."
+                          : "Requires priority attention. Includes excessive load increases (≥ 40%), drops in neuromuscular performance, or physical overload during peak growth velocity (Mid-PHV)."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/30 p-3">
+                    <div className="mt-0.5 rounded-full bg-amber-500 h-2.5 w-2.5 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">{es ? "Seguimiento (Amarillo)" : "Monitoring (Yellow)"}</span>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {es 
+                          ? "Neutral / Preventivo. Indica que el jugador está en su pico de velocidad de crecimiento (Mid-PHV), presenta maduración extrema (temprana o muy tardía), o muestra aumentos moderados de carga reciente (22%-39%)."
+                          : "Neutral / Preventive. Indicates the athlete is in their peak growth window (Mid-PHV), presents extreme maturation (early/late), or shows moderate recent load increases (22%-39%)."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/30 p-3">
+                    <div className="mt-0.5 rounded-full bg-emerald-500 h-2.5 w-2.5 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">{es ? "Oportunidad / Talento (Verde)" : "Opportunity / Talent (Green)"}</span>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {es 
+                          ? "Aspectos positivos. Mejoras en tests de rendimiento físico, adaptaciones óptimas a la carga o progresos potenciados por la maduración biológica."
+                          : "Positive outcomes. Improvements in physical performance tests, optimal adaptations to training load, or progress boosted by biological maturation."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section: Intertwined logic */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
+                  {es ? "3. Lógica Cruzada e Inteligente" : "3. Cross-linked & Smart Logic"}
+                </h4>
+                <p className="text-xs leading-relaxed text-slate-600">
+                  {es 
+                    ? "Para dar mejores consejos, el sistema conecta los datos de las tres áreas en tiempo real:"
+                    : "To provide better guidance, the system connects data from the three areas in real time:"}
+                </p>
+                <ul className="list-disc list-inside mt-2 text-xs leading-relaxed text-slate-600 space-y-1 pl-1">
+                  <li>
+                    <strong>{es ? "Crecimiento + Carga" : "Growth + Load"}:</strong> {es 
+                      ? "Si un atleta crece rápido (>0.8 cm/mes) y tiene carga alta, su alerta de crecimiento sube a Roja (Riesgo) por estrés en cartílagos."
+                      : "If an athlete grows fast (>0.8 cm/month) and has high load, their growth alert escalates to Red (Risk) due to growth plate stress."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Rendimiento + Carga" : "Performance + Load"}:</strong> {es 
+                      ? "Un descanso en un test físico con carga alta se asocia a fatiga neuromuscular, elevándose a Roja (Riesgo) para recomendar descarga."
+                      : "A performance drop in a physical test with high load is associated with neuromuscular fatigue, raising it to Red (Risk) to recommend a deload."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Rendimiento + Maduración" : "Performance + Maturation"}:</strong> {es 
+                      ? "Un descenso de rendimiento durante el PHV se atribuye a descoordinación transitoria (torpeza adolescente). Una mejora en la misma banda se asocia a fuerza madurativa."
+                      : "A performance drop during PHV is attributed to adolescent awkwardness. An improvement in the same band is associated with maturation-driven force gains."}
+                  </li>
+                </ul>
+              </div>
+
+              {/* Section: Confidence Calculation */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
+                  {es ? "4. Cálculo del % de Confianza" : "4. Confidence % Calculation"}
+                </h4>
+                <p className="text-xs leading-relaxed text-slate-600 mb-2">
+                  {es 
+                    ? "Cada aviso incluye un porcentaje de confianza que evalúa la calidad y magnitud de la señal detectada:"
+                    : "Each warning includes a confidence percentage that evaluates the quality and magnitude of the detected signal:"}
+                </p>
+                <ul className="list-disc list-inside text-xs leading-relaxed text-slate-600 space-y-1.5 pl-1">
+                  <li>
+                    <strong>{es ? "Incidencias de datos (96%):" : "Data Issues (96%):"}</strong> {es 
+                      ? "Un porcentaje alto asignado de forma fija para indicar que hay datos antropométricos físicamente incongruentes (ej. estaturas o pesos fuera de límites) que deben ser corregidos de inmediato."
+                      : "A high fixed percentage indicating physically incongruent anthropometric data (e.g. heights or weights out of bounds) that must be corrected immediately."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Ventana PHV (76%):" : "PHV Window (76%):"}</strong> {es 
+                      ? "Un porcentaje de confianza estable derivado del coeficiente de correlación estándar de las fórmulas de maduración."
+                      : "A stable confidence percentage derived from the standard correlation coefficient of maturation formula predictions."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Crecimiento Rápido (78% - 88%):" : "Rapid Growth (78% - 88%):"}</strong> {es 
+                      ? "Arranca en un 78% y sube hasta un 10% adicional cuanto mayor sea la velocidad de crecimiento mensual en cm respecto al límite base."
+                      : "Starts at 78% and increases by up to an additional 10% depending on how fast the monthly growth rate in cm exceeds the baseline."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Rendimiento Deportivo (72% - 90%):" : "Sports Performance (72% - 90%):"}</strong> {es 
+                      ? "Ajusta su confianza de forma dinámica: a mayor porcentaje de cambio registrado (mejora o caída) en las pruebas físicas, mayor es el porcentaje de confianza final."
+                      : "Dynamically adjusts confidence: a greater percentage change (improvement or drop) in physical tests results in a higher final confidence score."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Cargas de Entrenamiento (73% - 85%):" : "Training Load (73% - 85%):"}</strong> {es 
+                      ? "Parte de un 73% y aumenta proporcionalmente según la magnitud de la subida de carga de las últimas 4 sesiones vs. bloque base."
+                      : "Starts at 73% and increases proportionally based on the magnitude of the training load increase of the last 4 sessions vs. baseline."}
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDocModal(false)}
+                className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition"
+              >
+                {es ? "Entendido" : "Understood"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
