@@ -3287,6 +3287,263 @@ function CoachMascot({ mood }: { mood: "happy" | "alert" | "warning" | "neutral"
   );
 }
 
+// ---------------------------------------------------------------------------
+// INTELLIGENCE — Area Hub card
+// ---------------------------------------------------------------------------
+type IntelligenceArea = "performance" | "load" | "maturation";
+
+interface IntelligenceAreaConfig {
+  id: IntelligenceArea;
+  labelEs: string;
+  labelEn: string;
+  descEs: string;
+  descEn: string;
+  icon: React.ReactNode;
+  tone: string;
+  activeTone: string;
+}
+
+const intelligenceAreas: IntelligenceAreaConfig[] = [
+  {
+    id: "maturation",
+    labelEs: "Maduración",
+    labelEn: "Maturation",
+    descEs: "Alertas de crecimiento, bandas y PHV por jugador.",
+    descEn: "Growth alerts, maturity bands, and PHV per player.",
+    icon: <Activity className="h-6 w-6" />,
+    tone: "border-violet-200 bg-violet-50/60 text-violet-700",
+    activeTone: "border-violet-500 bg-violet-600 text-white",
+  },
+  {
+    id: "performance",
+    labelEs: "Rendimiento",
+    labelEn: "Performance",
+    descEs: "Tendencias de tests, percentiles y talentos emergentes.",
+    descEn: "Test trends, percentiles and emerging talent signals.",
+    icon: <TrendingUp className="h-6 w-6" />,
+    tone: "border-sky-200 bg-sky-50/60 text-sky-700",
+    activeTone: "border-sky-500 bg-sky-600 text-white",
+  },
+  {
+    id: "load",
+    labelEs: "Carga",
+    labelEn: "Load",
+    descEs: "Riesgos de sobreentrenamiento y ratio ACWR por jugador.",
+    descEn: "Overtraining risk and ACWR ratio per player.",
+    icon: <Dumbbell className="h-6 w-6" />,
+    tone: "border-amber-200 bg-amber-50/60 text-amber-700",
+    activeTone: "border-amber-500 bg-amber-600 text-white",
+  },
+];
+
+// Map insight category → IntelligenceArea
+function categoryToArea(category: Insight["category"]): IntelligenceArea {
+  if (category === "load") return "load";
+  if (category === "performance" || category === "talent") return "performance";
+  return "maturation";
+}
+
+// ---------------------------------------------------------------------------
+// INTELLIGENCE — Player detail modal
+// ---------------------------------------------------------------------------
+function PlayerIntelligenceModal({
+  athlete,
+  insights,
+  allAssessments,
+  state,
+  locale,
+  defaultArea,
+  onClose,
+}: {
+  athlete: MaturationResult;
+  insights: Insight[];
+  allAssessments: MaturationResult[];
+  state: ReturnType<typeof useAppState>["state"];
+  locale: string;
+  defaultArea: IntelligenceArea;
+  onClose: () => void;
+}) {
+  const es = locale === "es";
+  const router = useRouter();
+  const [activeArea, setActiveArea] = useState<IntelligenceArea>(defaultArea);
+
+  const areaInsights = useMemo(
+    () => insights.filter((i) => categoryToArea(i.category) === activeArea),
+    [insights, activeArea],
+  );
+
+  const severityStyles: Record<Insight["severity"], string> = {
+    critical: "border-rose-300 bg-rose-50/80",
+    high: "border-amber-300 bg-amber-50/80",
+    medium: "border-sky-200 bg-white",
+    low: "border-slate-200 bg-white",
+  };
+
+  const severityLabels: Record<Insight["severity"], string> = {
+    critical: es ? "Crítico" : "Critical",
+    high: es ? "Importante" : "High",
+    medium: es ? "Seguimiento" : "Monitor",
+    low: es ? "Oportunidad" : "Opportunity",
+  };
+
+  // Count by area
+  const countByArea = useMemo(() => {
+    const counts: Record<IntelligenceArea, number> = { maturation: 0, performance: 0, load: 0 };
+    insights.forEach((i) => { counts[categoryToArea(i.category)]++; });
+    return counts;
+  }, [insights]);
+
+  const criticalCount = insights.filter((i) => i.severity === "critical").length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true">
+      {/* Backdrop */}
+      <button
+        type="button"
+        aria-label={es ? "Cerrar" : "Close"}
+        className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal panel */}
+      <div className="relative flex max-h-[96vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-white text-sm flex-shrink-0 ${
+                athlete.classification.maturityBand === "Pre-PHV" ? "bg-teal-500" :
+                athlete.classification.maturityBand === "Mid-PHV" ? "bg-amber-500" :
+                "bg-slate-500"
+              }`}>
+                {athlete.inputs.athleteName.charAt(0)}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 truncate">{athlete.inputs.athleteName}</h3>
+                <p className="text-sm text-slate-500">
+                  {[athlete.inputs.teamName, athlete.inputs.position, athlete.classification.maturityBand].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+              {criticalCount > 0 && (
+                <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700 ml-1">
+                  {criticalCount} {es ? "crítico" : "critical"}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => router.push(`/analysis?tab=individual&player=${athlete.inputs.athleteId}&subtab=${activeArea === "load" ? "load" : activeArea === "performance" ? "performance" : "maturation"}`)}
+              className="hidden sm:flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition"
+            >
+              {es ? "Abrir perfil completo" : "Open full profile"}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label={es ? "Cerrar" : "Close"}
+              onClick={onClose}
+              className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Area tabs */}
+        <div className="flex border-b border-slate-100 px-2">
+          {intelligenceAreas.map((area) => {
+            const active = activeArea === area.id;
+            const count = countByArea[area.id];
+            return (
+              <button
+                key={area.id}
+                type="button"
+                onClick={() => setActiveArea(area.id)}
+                className={`flex items-center gap-2 px-4 py-3.5 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
+                  active
+                    ? "border-teal-600 text-teal-700"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {area.icon}
+                {es ? area.labelEs : area.labelEn}
+                {count > 0 && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    active ? "bg-teal-100 text-teal-700" : "bg-slate-100 text-slate-500"
+                  }`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {areaInsights.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <Shield className="h-10 w-10 opacity-20 mb-3" />
+              <p className="text-sm font-medium">
+                {es
+                  ? "Sin señales detectadas en esta área para este jugador."
+                  : "No signals detected in this area for this player."}
+              </p>
+            </div>
+          ) : (
+            areaInsights.map((insight) => (
+              <article key={insight.id} className={`rounded-2xl border p-4 ${severityStyles[insight.severity]}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+                        {severityLabels[insight.severity]}
+                      </span>
+                      <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                        {insight.category}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-semibold text-slate-900">{insight.title}</h4>
+                    <p className="mt-1.5 text-sm leading-6 text-slate-600">{insight.description}</p>
+                    {insight.recommendation && (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white/80 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">
+                          {es ? "Recomendación" : "Recommendation"}
+                        </p>
+                        <p className="text-sm text-slate-700">{insight.recommendation}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0 rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{es ? "Confianza" : "Confidence"}</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{Math.round(insight.confidence * 100)}%</p>
+                    <p className="text-xs text-slate-500 mt-1">{formatDate(insight.createdAt)}</p>
+                  </div>
+                </div>
+              </article>
+            ))
+          )}
+
+          {/* Mobile full profile button */}
+          <button
+            type="button"
+            onClick={() => router.push(`/analysis?tab=individual&player=${athlete.inputs.athleteId}&subtab=${activeArea === "load" ? "load" : activeArea === "performance" ? "performance" : "maturation"}`)}
+            className="sm:hidden w-full flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition"
+          >
+            {es ? "Abrir perfil completo" : "Open full profile"}
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// INTELLIGENCE — Main view  (hub → team grid → player modal)
+// ---------------------------------------------------------------------------
 function PerformanceIntelligenceView({
   assessments,
   state,
@@ -3299,22 +3556,16 @@ function PerformanceIntelligenceView({
   const es = locale === "es";
   const router = useRouter();
   const { selectedEngine, bioBandingStrategy } = useMaturationPreferences();
-  const [activeSection, setActiveSection] = useState<"overview" | "feed" | "trends" | "recommendations">("overview");
-  const [activeCategories, setActiveCategories] = useState<Insight["category"][]>([
-    "growth",
-    "load",
-    "performance",
-    "risk",
-    "talent",
-  ]);
-  const [teamFilter, setTeamFilter] = useState("");
-  const [selectedTeamAthleteId, setSelectedTeamAthleteId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const deferredSearchTerm = useDeferredValue(searchTerm);
   const teamOptions = useMemo(() => getUniqueAthleteTeams(state.athletes), [state.athletes]);
 
+  // Hub state: selected area, team, player modal
+  const [activeArea, setActiveArea] = useState<IntelligenceArea | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string>("");
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearch = useDeferredValue(searchTerm);
+
+  // Engine-resolved assessments
   const latestEngineResolved = useMemo(
     () =>
       getLatestAssessmentsByAthlete(assessments).map((assessment) => {
@@ -3332,794 +3583,346 @@ function PerformanceIntelligenceView({
     [assessments, selectedEngine, bioBandingStrategy, state.athletes],
   );
 
+  // All intelligence insights
   const intelligence = useMemo(
     () => buildPerformanceIntelligence(latestEngineResolved, assessments, state, locale),
     [latestEngineResolved, assessments, state, locale],
   );
 
-  const filteredInsights = useMemo(
-    () =>
-      intelligence.insights.filter((insight) => {
-        if (!activeCategories.includes(insight.category)) return false;
-        if (teamFilter && insight.teamName !== teamFilter) return false;
-        if (dateFrom && insight.createdAt < dateFrom) return false;
-        if (dateTo && insight.createdAt > dateTo) return false;
+  // Filter insights to the selected area (null = all)
+  const areaFilteredInsights = useMemo(() => {
+    if (!activeArea) return intelligence.insights;
+    return intelligence.insights.filter((i) => categoryToArea(i.category) === activeArea);
+  }, [intelligence.insights, activeArea]);
 
-        const normalizedQuery = deferredSearchTerm.trim().toLowerCase();
-        if (!normalizedQuery) return true;
-
-        const haystack = [
-          insight.title,
-          insight.description,
-          insight.teamName,
-          insight.recommendation,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return haystack.includes(normalizedQuery);
-      }),
-    [intelligence.insights, activeCategories, teamFilter, dateFrom, dateTo, deferredSearchTerm],
-  );
-
-  const filteredRecommendations = useMemo(
-    () => intelligence.recommendations.filter((item) => item.relatedInsightIds.some((id) => filteredInsights.some((insight) => insight.id === id))),
-    [intelligence.recommendations, filteredInsights],
-  );
-
-  const filteredTrends = useMemo(() => {
-    const relevantTeams = new Set(filteredInsights.map((insight) => insight.teamName).filter(Boolean));
-    const relevantTalent = filteredInsights.some((insight) => insight.category === "talent");
-    return intelligence.trends.filter((trend) => {
-      if (trend.id === "trend-talent") return relevantTalent;
-      if (trend.id.startsWith("trend-load-")) {
-        const teamName = trend.id.replace("trend-load-", "");
-        return relevantTeams.has(teamName);
-      }
-      return true;
-    });
-  }, [intelligence.trends, filteredInsights]);
-
-  const filteredSummary = useMemo(() => {
-    const monitoredAthletes = new Set(
-      filteredInsights
-        .filter((insight) => insight.severity !== "low" && insight.athleteId)
-        .map((insight) => insight.athleteId as string),
-    );
-
-    return {
-      criticalAlerts: filteredInsights.filter((insight) => insight.severity === "critical").length,
-      patternsDetected: filteredInsights.length,
-      athletesToMonitor: monitoredAthletes.size,
-      emergingTalents: filteredInsights.filter((insight) => insight.category === "talent").length,
+  // Summary counts per area
+  const countsByArea = useMemo(() => {
+    const counts: Record<IntelligenceArea, { total: number; critical: number }> = {
+      maturation: { total: 0, critical: 0 },
+      performance: { total: 0, critical: 0 },
+      load: { total: 0, critical: 0 },
     };
-  }, [filteredInsights]);
+    intelligence.insights.forEach((i) => {
+      const area = categoryToArea(i.category);
+      counts[area].total++;
+      if (i.severity === "critical") counts[area].critical++;
+    });
+    return counts;
+  }, [intelligence.insights]);
 
-  const topFeedInsights = filteredInsights.slice(0, 5);
-  const teamRoster = useMemo(() => {
-    if (!teamFilter) return [];
+  // Global summary
+  const summary = useMemo(() => ({
+    critical: intelligence.insights.filter((i) => i.severity === "critical").length,
+    total: intelligence.insights.length,
+    athletes: new Set(intelligence.insights.filter((i) => i.severity !== "low" && i.athleteId).map((i) => i.athleteId)).size,
+  }), [intelligence.insights]);
 
+  // Team grid: athletes for the selected team with their insight counts
+  const teamAthletes = useMemo(() => {
+    if (!selectedTeam) return [];
     return latestEngineResolved
-      .filter((assessment) => assessment.inputs.teamName === teamFilter)
-      .map((assessment) => {
-        const athleteInsights = filteredInsights.filter((insight) => insight.athleteId === assessment.inputs.athleteId);
+      .filter((a) => a.inputs.teamName === selectedTeam)
+      .map((a) => {
+        const playerInsights = areaFilteredInsights.filter((i) => i.athleteId === a.inputs.athleteId);
+        const criticalCount = playerInsights.filter((i) => i.severity === "critical").length;
         return {
-          athleteId: assessment.inputs.athleteId,
-          name: assessment.inputs.athleteName,
-          position: assessment.inputs.position,
-          band: assessment.classification.maturityBand,
-          insightCount: athleteInsights.length,
-          criticalCount: athleteInsights.filter((insight) => insight.severity === "critical").length,
-          categories: Array.from(new Set(athleteInsights.map((insight) => insight.category))),
+          assessment: a,
+          insightCount: playerInsights.length,
+          criticalCount,
+          categories: Array.from(new Set(playerInsights.map((i) => i.category))),
         };
       })
-      .filter((athlete) => {
-        if (!deferredSearchTerm.trim()) return true;
-        const query = deferredSearchTerm.trim().toLowerCase();
-        return [athlete.name, athlete.position, athlete.band]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(query);
+      .filter((item) => {
+        if (!deferredSearch.trim()) return true;
+        const q = deferredSearch.toLowerCase();
+        return [item.assessment.inputs.athleteName, item.assessment.inputs.position, item.assessment.classification.maturityBand]
+          .filter(Boolean).join(" ").toLowerCase().includes(q);
       })
-      .sort((left, right) => right.criticalCount - left.criticalCount || right.insightCount - left.insightCount || left.name.localeCompare(right.name));
-  }, [teamFilter, latestEngineResolved, filteredInsights, deferredSearchTerm]);
+      .sort((a, b) => b.criticalCount - a.criticalCount || b.insightCount - a.insightCount || a.assessment.inputs.athleteName.localeCompare(b.assessment.inputs.athleteName));
+  }, [selectedTeam, latestEngineResolved, areaFilteredInsights, deferredSearch]);
 
-  const selectedTeamAthlete = useMemo(
-    () => latestEngineResolved.find((assessment) => assessment.inputs.athleteId === selectedTeamAthleteId) ?? null,
-    [latestEngineResolved, selectedTeamAthleteId],
+  // Selected player for modal
+  const selectedPlayer = useMemo(
+    () => latestEngineResolved.find((a) => a.inputs.athleteId === selectedPlayerId) ?? null,
+    [latestEngineResolved, selectedPlayerId],
   );
 
-  const selectedTeamAthleteInsights = useMemo(
-    () => filteredInsights.filter((insight) => insight.athleteId === selectedTeamAthleteId),
-    [filteredInsights, selectedTeamAthleteId],
+  const selectedPlayerInsights = useMemo(
+    () => intelligence.insights.filter((i) => i.athleteId === selectedPlayerId),
+    [intelligence.insights, selectedPlayerId],
   );
 
-  const selectedTeamAthleteSummary = useMemo(() => {
-    return {
-      total: selectedTeamAthleteInsights.length,
-      critical: selectedTeamAthleteInsights.filter((insight) => insight.severity === "critical").length,
-      high: selectedTeamAthleteInsights.filter((insight) => insight.severity === "high").length,
-      recommendations: selectedTeamAthleteInsights.filter((insight) => insight.recommendation).length,
-    };
-  }, [selectedTeamAthleteInsights]);
-
-  useEffect(() => {
-    setSelectedTeamAthleteId(null);
-  }, [teamFilter]);
-
-  const categoryConfig: Array<{
-    id: Insight["category"];
-    label: string;
-    icon: React.ReactNode;
-    activeClass: string;
-    idleClass: string;
-  }> = [
-    {
-      id: "growth",
-      label: es ? "Crecimiento" : "Growth",
-      icon: <Activity className="h-3.5 w-3.5" />,
-      activeClass: "border-violet-600 bg-violet-600 text-white",
-      idleClass: "border-violet-200 bg-violet-50 text-violet-700",
-    },
-    {
-      id: "load",
-      label: es ? "Carga" : "Load",
-      icon: <Dumbbell className="h-3.5 w-3.5" />,
-      activeClass: "border-amber-500 bg-amber-500 text-white",
-      idleClass: "border-amber-200 bg-amber-50 text-amber-700",
-    },
-    {
-      id: "performance",
-      label: es ? "Rendimiento" : "Performance",
-      icon: <TrendingUp className="h-3.5 w-3.5" />,
-      activeClass: "border-sky-600 bg-sky-600 text-white",
-      idleClass: "border-sky-200 bg-sky-50 text-sky-700",
-    },
-    {
-      id: "risk",
-      label: es ? "Riesgo" : "Risk",
-      icon: <Shield className="h-3.5 w-3.5" />,
-      activeClass: "border-rose-600 bg-rose-600 text-white",
-      idleClass: "border-rose-200 bg-rose-50 text-rose-700",
-    },
-    {
-      id: "talent",
-      label: es ? "Talento" : "Talent",
-      icon: <Trophy className="h-3.5 w-3.5" />,
-      activeClass: "border-emerald-600 bg-emerald-600 text-white",
-      idleClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    },
-  ];
-
-  const severityStyles: Record<Insight["severity"], string> = {
-    critical: "border-rose-300 bg-rose-50/80",
-    high: "border-amber-300 bg-amber-50/80",
-    medium: "border-sky-200 bg-white",
-    low: "border-slate-200 bg-white",
+  // Band color helper
+  const bandBg = (band: string | null) => {
+    if (band === "Pre-PHV") return "bg-teal-500";
+    if (band === "Mid-PHV") return "bg-amber-500";
+    return "bg-slate-500";
   };
-
-  const severityLabels: Record<Insight["severity"], string> = {
-    critical: es ? "Crítico" : "Critical",
-    high: es ? "Importante" : "High",
-    medium: es ? "Seguimiento" : "Monitor",
-    low: es ? "Oportunidad" : "Opportunity",
-  };
-
-  const summaryCards = [
-    {
-      label: es ? "Alertas críticas" : "Critical alerts",
-      value: filteredSummary.criticalAlerts,
-      hint: es ? "requieren revisión inmediata" : "require immediate review",
-      tone: "text-rose-700 bg-rose-50 border-rose-200",
-      icon: <AlertTriangle className="h-4 w-4" />,
-    },
-    {
-      label: es ? "Patrones detectados" : "Patterns detected",
-      value: filteredSummary.patternsDetected,
-      hint: es ? "hallazgos activos en la academia" : "active findings across the academy",
-      tone: "text-slate-800 bg-white border-slate-200",
-      icon: <Activity className="h-4 w-4" />,
-    },
-    {
-      label: es ? "Atletas en seguimiento" : "Athletes to monitor",
-      value: filteredSummary.athletesToMonitor,
-      hint: es ? "con señales de riesgo o carga" : "with risk or load signals",
-      tone: "text-amber-700 bg-amber-50 border-amber-200",
-      icon: <Users className="h-4 w-4" />,
-    },
-    {
-      label: es ? "Talentos emergentes" : "Emerging talents",
-      value: filteredSummary.emergingTalents,
-      hint: es ? "mejoras sin más carga" : "improvement without extra load",
-      tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
-      icon: <Trophy className="h-4 w-4" />,
-    },
-  ];
-
-  function toggleCategory(category: Insight["category"]) {
-    setActiveCategories((current) =>
-      current.includes(category)
-        ? current.filter((item) => item !== category)
-        : [...current, category],
-    );
-  }
-
-  function openInsight(insight: Insight) {
-    if (insight.athleteId) {
-      router.push(`/analysis?tab=individual&player=${insight.athleteId}`);
-      return;
-    }
-
-    if (insight.teamName) {
-      sessionStorage.setItem("analysis_collective_team", insight.teamName);
-      router.push("/analysis?tab=collective");
-    }
-  }
-
-  const sectionCards = [
-    {
-      id: "feed" as const,
-      kicker: "Priority Feed",
-      title: es ? "Hallazgos priorizados" : "Prioritised findings",
-      description: es ? "Entra para ver el detalle completo de insights filtrados." : "Open the complete filtered insight detail.",
-      count: filteredInsights.length,
-      tone: "border-slate-200 bg-white",
-    },
-    {
-      id: "trends" as const,
-      kicker: "Trends",
-      title: es ? "Tendencias colectivas" : "Collective trends",
-      description: es ? "Resumen estratégico por equipo y banda madurativa." : "Strategic overview by team and maturity band.",
-      count: filteredTrends.length,
-      tone: "border-blue-200 bg-blue-50/60",
-    },
-    {
-      id: "recommendations" as const,
-      kicker: "Recommendations",
-      title: es ? "Acciones sugeridas" : "Suggested actions",
-      description: es ? "Recomendaciones accionables para el staff." : "Actionable recommendations for staff.",
-      count: filteredRecommendations.length,
-      tone: "border-emerald-200 bg-emerald-50/60",
-    },
-  ];
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_40%),linear-gradient(135deg,#0f172a,#1e293b_55%,#334155)] px-5 py-6 text-white shadow-xl sm:px-7">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      {/* ── HERO HEADER ── */}
+      <section className="rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_40%),linear-gradient(135deg,#0f172a,#1e293b_55%,#334155)] px-6 py-7 text-white shadow-xl">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-300">
               Performance Intelligence
             </p>
             <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
-              {es ? "Qué está pasando en tu academia que merece atención" : "What is happening in your academy that deserves attention"}
+              {es ? "¿Qué merece atención hoy?" : "What deserves attention today?"}
             </h2>
             <p className="mt-2 text-sm text-slate-300">
               {es
-                ? "Una capa de descubrimiento automático sobre maduración, rendimiento y carga."
-                : "An automatic discovery layer across maturation, performance, and load."}
+                ? "Descubrimiento automático sobre maduración, rendimiento y carga."
+                : "Automatic discovery across maturation, performance, and load."}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {summaryCards.map((card) => (
-              <div key={card.label} className={`min-w-[150px] rounded-2xl border px-4 py-3 ${card.tone}`}>
-                <div className="flex items-center gap-2 text-xs font-semibold">
-                  {card.icon}
-                  <span>{card.label}</span>
-                </div>
-                <p className="mt-2 text-3xl font-bold">{card.value}</p>
-                <p className="mt-1 text-[11px] opacity-80">{card.hint}</p>
+          {/* Global KPI pills */}
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: es ? "Alertas críticas" : "Critical alerts", value: summary.critical, tone: "border-rose-200 bg-rose-50/20 text-white" },
+              { label: es ? "Señales activas" : "Active signals", value: summary.total, tone: "border-slate-300/40 bg-white/10 text-white" },
+              { label: es ? "Atletas a seguir" : "Athletes to watch", value: summary.athletes, tone: "border-amber-200/60 bg-amber-50/20 text-white" },
+            ].map((kpi) => (
+              <div key={kpi.label} className={`min-w-[130px] rounded-2xl border px-4 py-3 ${kpi.tone}`}>
+                <p className="text-[11px] font-semibold opacity-80">{kpi.label}</p>
+                <p className="mt-1.5 text-3xl font-bold">{kpi.value}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-              {es ? "Filtros globales" : "Global filters"}
-            </p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-900">
-              {es ? "Resume primero, profundiza después" : "Summarise first, drill down after"}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSearchTerm("");
-              setDateFrom("");
-              setDateTo("");
-              setTeamFilter("");
-              setSelectedTeamAthleteId(null);
-              setActiveCategories(["growth", "load", "performance", "risk", "talent"]);
-            }}
-            className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-          >
-            {es ? "Limpiar filtros" : "Clear filters"}
-          </button>
+      {/* ── AREA HUB ── */}
+      <section>
+        <div className="mb-3">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+            {es ? "Área de análisis" : "Analysis area"}
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-slate-900">
+            {es ? "Elige el área que quieres explorar" : "Choose the area you want to explore"}
+          </h3>
         </div>
-
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(180px,0.8fr)_repeat(2,minmax(160px,1fr))]">
-          <label className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-slate-500">{es ? "Nombre / equipo / insight" : "Name / team / insight"}</span>
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={es ? "Buscar jugador, equipo o patrón..." : "Search athlete, team, or pattern..."}
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </div>
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-slate-500">{es ? "Equipo" : "Team"}</span>
-            <select
-              value={teamFilter}
-              onChange={(event) => setTeamFilter(event.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none"
-            >
-              <option value="">{es ? "Todos los equipos" : "All teams"}</option>
-              {teamOptions.map((team) => (
-                <option key={team} value={team}>
-                  {team}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-slate-500">{es ? "Desde" : "From"}</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none"
-            />
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-slate-500">{es ? "Hasta" : "To"}</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none"
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <div className="flex flex-wrap gap-2">
-            {categoryConfig.map((item) => {
-              const active = activeCategories.includes(item.id);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => toggleCategory(item.id)}
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold transition-colors ${active ? item.activeClass : item.idleClass}`}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {[
-            { id: "overview", label: es ? "Resumen" : "Overview" },
-            { id: "feed", label: "Priority Feed" },
-            { id: "trends", label: "Trends" },
-            { id: "recommendations", label: "Recommendations" },
-          ].map((section) => {
-            const active = activeSection === section.id;
+        <div className="grid gap-4 sm:grid-cols-3">
+          {intelligenceAreas.map((area) => {
+            const counts = countsByArea[area.id];
+            const active = activeArea === area.id;
             return (
               <button
-                key={section.id}
+                key={area.id}
                 type="button"
-                onClick={() => setActiveSection(section.id as typeof activeSection)}
-                className={`rounded-full border px-3 py-2 text-xs font-bold transition-colors ${active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+                onClick={() => setActiveArea(active ? null : area.id)}
+                className={`group rounded-3xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                  active ? area.activeTone : area.tone
+                }`}
               >
-                {section.label}
+                <div className="flex items-start justify-between gap-2">
+                  <div className={`rounded-2xl p-3 ${active ? "bg-white/20" : "bg-white/70"}`}>
+                    {area.icon}
+                  </div>
+                  {counts.critical > 0 && (
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                      active ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700"
+                    }`}>
+                      {counts.critical} {es ? "crítico" : "critical"}
+                    </span>
+                  )}
+                </div>
+                <h4 className="mt-4 text-lg font-bold">
+                  {es ? area.labelEs : area.labelEn}
+                </h4>
+                <p className={`mt-1 text-sm ${active ? "opacity-90" : "opacity-70"}`}>
+                  {es ? area.descEs : area.descEn}
+                </p>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-2xl font-bold">{counts.total}</span>
+                  <span className={`text-xs font-semibold flex items-center gap-1 ${active ? "opacity-90" : "opacity-60"}`}>
+                    {active ? (es ? "Filtrando" : "Filtering") : (es ? "Explorar" : "Explore")}
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </span>
+                </div>
               </button>
             );
           })}
         </div>
+        {activeArea && (
+          <button
+            type="button"
+            onClick={() => setActiveArea(null)}
+            className="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+          >
+            <X className="h-3.5 w-3.5" />
+            {es ? "Quitar filtro de área" : "Remove area filter"}
+          </button>
+        )}
       </section>
 
-      {teamFilter && !selectedTeamAthlete && (
-        <section className="space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                {es ? "Plantilla del equipo" : "Team roster"}
-              </p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                {teamFilter}
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                {es
-                  ? "Selecciona un jugador para ver todos sus análisis en Performance Intelligence."
-                  : "Select a player to see all of their Performance Intelligence analysis."}
-              </p>
-            </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-              {teamRoster.length} {es ? "jugadores" : "players"}
-            </span>
+      {/* ── TEAM + PLAYER GRID ── */}
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              {es ? "Explorar por equipo" : "Explore by team"}
+            </p>
+            <h3 className="mt-1 text-lg font-semibold text-slate-900">
+              {selectedTeam
+                ? (es ? `Plantilla — ${selectedTeam}` : `Squad — ${selectedTeam}`)
+                : (es ? "Selecciona un equipo para ver sus jugadores" : "Select a team to see its players")}
+            </h3>
           </div>
-
-          {teamRoster.length === 0 ? (
-            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white px-6 py-14 text-center text-slate-400">
-              <Users className="mx-auto h-8 w-8 opacity-30" />
-              <p className="mt-3 text-sm font-medium">
-                {es ? "No hay jugadores que coincidan con los filtros actuales." : "No players match the current filters."}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {teamRoster.map((athlete) => (
-                <button
-                  key={athlete.athleteId}
-                  type="button"
-                  onClick={() => setSelectedTeamAthleteId(athlete.athleteId)}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h4 className="text-lg font-semibold text-slate-900">{athlete.name}</h4>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {[athlete.position, athlete.band].filter(Boolean).join(" · ") || (es ? "Sin contexto adicional" : "No extra context")}
-                      </p>
-                    </div>
-                    {athlete.criticalCount > 0 && (
-                      <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700">
-                        {athlete.criticalCount} {es ? "crítico" : "critical"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-3xl font-bold text-slate-900">{athlete.insightCount}</p>
-                      <p className="text-xs text-slate-500">{es ? "insights activos" : "active insights"}</p>
-                    </div>
-                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
-                      {es ? "Ver análisis" : "View analysis"}
-                      <ArrowRight className="h-4 w-4" />
-                    </span>
-                  </div>
-                  {athlete.categories.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {athlete.categories.slice(0, 3).map((category) => (
-                        <span key={category} className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                          {category}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Team selector */}
+            <select
+              value={selectedTeam}
+              onChange={(e) => { setSelectedTeam(e.target.value); setSearchTerm(""); }}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/10"
+            >
+              <option value="">{es ? "— Seleccionar equipo —" : "— Select team —"}</option>
+              {teamOptions.map((t) => (
+                <option key={t} value={t}>{t}</option>
               ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {teamFilter && selectedTeamAthlete && (
-        <section className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setSelectedTeamAthleteId(null)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                {es ? "Volver a la plantilla" : "Back to roster"}
-              </button>
-              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{teamFilter}</span>
-            </div>
-
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h3 className="text-2xl font-semibold text-slate-900">{selectedTeamAthlete.inputs.athleteName}</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  {[selectedTeamAthlete.inputs.position, selectedTeamAthlete.classification.maturityBand].filter(Boolean).join(" · ")}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/analysis?tab=individual&player=${selectedTeamAthlete.inputs.athleteId}&subtab=maturation`)}
-                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  {es ? "Abrir maduración" : "Open maturation"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/analysis?tab=individual&player=${selectedTeamAthlete.inputs.athleteId}&subtab=performance`)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  {es ? "Abrir rendimiento" : "Open performance"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/analysis?tab=individual&player=${selectedTeamAthlete.inputs.athleteId}&subtab=load`)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  {es ? "Abrir carga" : "Open load"}
-                </button>
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <p className="text-xs font-semibold text-slate-500">{es ? "Insights" : "Insights"}</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{selectedTeamAthleteSummary.total}</p>
-              </div>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
-                <p className="text-xs font-semibold text-rose-700">{es ? "Críticos" : "Critical"}</p>
-                <p className="mt-1 text-3xl font-bold text-rose-800">{selectedTeamAthleteSummary.critical}</p>
-              </div>
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                <p className="text-xs font-semibold text-amber-700">{es ? "Importantes" : "High"}</p>
-                <p className="mt-1 text-3xl font-bold text-amber-800">{selectedTeamAthleteSummary.high}</p>
-              </div>
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
-                <p className="text-xs font-semibold text-emerald-700">{es ? "Recomendaciones" : "Recommendations"}</p>
-                <p className="mt-1 text-3xl font-bold text-emerald-800">{selectedTeamAthleteSummary.recommendations}</p>
-              </div>
-            </div>
-          </div>
-
-          {selectedTeamAthleteInsights.length === 0 ? (
-            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white px-6 py-14 text-center text-slate-400">
-              <Shield className="mx-auto h-8 w-8 opacity-30" />
-              <p className="mt-3 text-sm font-medium">
-                {es ? "Este jugador no tiene insights activos con los filtros actuales." : "This player has no active insights with the current filters."}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {selectedTeamAthleteInsights.map((insight) => (
-                <article key={insight.id} className={`rounded-3xl border p-5 shadow-sm ${severityStyles[insight.severity]}`}>
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
-                          {severityLabels[insight.severity]}
-                        </span>
-                        <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                          {insight.category}
-                        </span>
-                      </div>
-                      <h4 className="mt-3 text-lg font-semibold text-slate-900">{insight.title}</h4>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{insight.description}</p>
-                      {insight.recommendation && (
-                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                            {es ? "Recomendación" : "Recommendation"}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-700">{insight.recommendation}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                        {es ? "Confianza" : "Confidence"}
-                      </p>
-                      <p className="mt-1 text-2xl font-bold text-slate-900">{Math.round(insight.confidence * 100)}%</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatDate(insight.createdAt)}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {!teamFilter && activeSection === "overview" && (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <section className="space-y-4">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                {es ? "Vista global" : "Global view"}
-              </p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                {es ? "Entra solo donde haga falta" : "Only drill down where needed"}
-              </h3>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {sectionCards.map((section) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => setActiveSection(section.id)}
-                  className={`rounded-3xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${section.tone}`}
-                >
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">{section.kicker}</p>
-                  <h4 className="mt-2 text-lg font-semibold text-slate-900">{section.title}</h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
-                  <div className="mt-5 flex items-center justify-between">
-                    <span className="text-3xl font-bold text-slate-900">{section.count}</span>
-                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
-                      {es ? "Abrir" : "Open"}
-                      <ArrowRight className="h-4 w-4" />
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <aside className="space-y-4">
-            <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                {es ? "Vista rápida" : "Quick view"}
-              </p>
-              <h4 className="mt-1 text-lg font-semibold text-slate-900">
-                {es ? "Top 3 del feed" : "Top 3 from the feed"}
-              </h4>
-              <div className="mt-4 space-y-3">
-                {topFeedInsights.slice(0, 3).map((insight) => (
-                  <button
-                    key={insight.id}
-                    type="button"
-                    onClick={() => setActiveSection("feed")}
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:bg-slate-50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-white">
-                        {severityLabels[insight.severity]}
-                      </span>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{insight.category}</span>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{insight.title}</p>
+            </select>
+            {/* Search within team */}
+            {selectedTeam && (
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder={es ? "Buscar jugador..." : "Search player..."}
+                  className="w-36 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                />
+                {searchTerm && (
+                  <button type="button" onClick={() => setSearchTerm("")}>
+                    <X className="h-3.5 w-3.5 text-slate-400" />
                   </button>
-                ))}
-                {topFeedInsights.length === 0 && (
-                  <p className="rounded-2xl bg-white px-4 py-5 text-sm text-slate-500">
-                    {es ? "No hay señales con los filtros actuales." : "No signals with the current filters."}
-                  </p>
                 )}
               </div>
-            </section>
-          </aside>
-        </div>
-      )}
-
-      {!teamFilter && activeSection === "feed" && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                Priority Feed
-              </p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                {es ? "Hallazgos priorizados" : "Prioritised findings"}
-              </h3>
-            </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-              {filteredInsights.length} {es ? "activos" : "active"}
-            </span>
+            )}
           </div>
+        </div>
 
-          {filteredInsights.length === 0 ? (
-            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white px-6 py-14 text-center text-slate-400">
-              <Shield className="mx-auto h-8 w-8 opacity-30" />
-              <p className="mt-3 text-sm font-medium">
-                {es ? "No hay hallazgos para los filtros seleccionados." : "No findings for the selected filters."}
-              </p>
-            </div>
-          ) : (
-            filteredInsights.map((insight) => (
-              <article key={insight.id} className={`rounded-3xl border p-5 shadow-sm ${severityStyles[insight.severity]}`}>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
-                        {severityLabels[insight.severity]}
-                      </span>
-                      <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                        {insight.category}
-                      </span>
-                      {insight.teamName && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                          {insight.teamName}
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="mt-3 text-lg font-semibold text-slate-900">{insight.title}</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{insight.description}</p>
-                    {insight.recommendation && (
-                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                          {es ? "Recomendación" : "Recommendation"}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-700">{insight.recommendation}</p>
+        {!selectedTeam ? (
+          /* No team selected — show quick team overview */
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {teamOptions.map((teamName) => {
+              const teamInsights = areaFilteredInsights.filter((i) => i.teamName === teamName);
+              const critCount = teamInsights.filter((i) => i.severity === "critical").length;
+              const playerCount = latestEngineResolved.filter((a) => a.inputs.teamName === teamName).length;
+              return (
+                <button
+                  key={teamName}
+                  type="button"
+                  onClick={() => setSelectedTeam(teamName)}
+                  className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 text-left transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-xl bg-teal-50 p-2.5">
+                        <Users className="h-4 w-4 text-teal-600" />
                       </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900">{teamName}</h4>
+                        <p className="text-xs text-slate-500">{playerCount} {es ? "jugadores" : "players"}</p>
+                      </div>
+                    </div>
+                    {critCount > 0 && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                        {critCount} {es ? "crítico" : "critical"}
+                      </span>
                     )}
                   </div>
-
-                  <div className="flex w-full flex-shrink-0 flex-col gap-3 sm:w-44">
-                    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                        {es ? "Confianza" : "Confidence"}
-                      </p>
-                      <p className="mt-1 text-2xl font-bold text-slate-900">{Math.round(insight.confidence * 100)}%</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatDate(insight.createdAt)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openInsight(insight)}
-                      disabled={!insight.athleteId && !insight.teamName}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {es ? "Abrir análisis" : "Open analysis"}
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-2xl font-bold text-slate-900">{teamInsights.length}</span>
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                      {es ? "Ver plantilla" : "View squad"} <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
                   </div>
-                </div>
-              </article>
-            ))
-          )}
-        </section>
-      )}
-
-      {!teamFilter && activeSection === "trends" && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-            Trends
-          </p>
-          <h3 className="mt-1 text-xl font-semibold text-slate-900">
-            {es ? "Tendencias detectadas" : "Detected trends"}
-          </h3>
-          <div className="mt-4 space-y-3">
-            {filteredTrends.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                {es ? "Todavía no hay suficiente señal colectiva para mostrar tendencias." : "There is not enough collective signal to show trends yet."}
-              </p>
-            ) : (
-              filteredTrends.map((trend) => (
-                <div key={trend.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-sm font-semibold text-slate-900">{trend.title}</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">{trend.description}</p>
-                </div>
-              ))
+                </button>
+              );
+            })}
+            {teamOptions.length === 0 && (
+              <div className="col-span-3 rounded-2xl border-2 border-dashed border-slate-200 px-6 py-12 text-center text-slate-400">
+                <Users className="mx-auto h-8 w-8 opacity-20 mb-3" />
+                <p className="text-sm">{es ? "No hay equipos disponibles." : "No teams available."}</p>
+              </div>
             )}
           </div>
-        </section>
-      )}
-
-      {!teamFilter && activeSection === "recommendations" && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-            Recommendations
-          </p>
-          <h3 className="mt-1 text-xl font-semibold text-slate-900">
-            {es ? "Acciones sugeridas" : "Suggested actions"}
-          </h3>
-          <div className="mt-4 space-y-3">
-            {filteredRecommendations.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
-                {es ? "No hay recomendaciones accionables con los filtros actuales." : "There are no actionable recommendations with the current filters."}
-              </p>
-            ) : (
-              filteredRecommendations.map((item) => (
-                <div key={item.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4">
-                  <p className="text-sm font-semibold text-emerald-900">{item.title}</p>
-                  <p className="mt-1 text-sm leading-6 text-emerald-800">{item.description}</p>
-                </div>
-              ))
-            )}
+        ) : teamAthletes.length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-slate-200 px-6 py-12 text-center text-slate-400">
+            <Users className="mx-auto h-8 w-8 opacity-20 mb-3" />
+            <p className="text-sm font-medium">
+              {deferredSearch
+                ? (es ? "Ningún jugador coincide con la búsqueda." : "No players match the search.")
+                : (es ? "No hay jugadores en este equipo." : "No players in this team.")}
+            </p>
           </div>
-        </section>
+        ) : (
+          /* Player grid */
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {teamAthletes.map(({ assessment, insightCount, criticalCount, categories }) => (
+              <button
+                key={assessment.inputs.athleteId}
+                type="button"
+                onClick={() => setSelectedPlayerId(assessment.inputs.athleteId)}
+                className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
+              >
+                {/* Avatar + name */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-white text-sm flex-shrink-0 ${bandBg(assessment.classification.maturityBand)}`}>
+                    {assessment.inputs.athleteName.charAt(0)}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-slate-900 truncate text-sm">{assessment.inputs.athleteName}</h4>
+                    <p className="text-xs text-slate-500 truncate">
+                      {[assessment.inputs.position, assessment.classification.maturityBand].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                  </div>
+                  {criticalCount > 0 && (
+                    <span className="ml-auto flex-shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                      {criticalCount}
+                    </span>
+                  )}
+                </div>
+
+                {/* Insight count */}
+                <div className="flex items-end justify-between">
+                  <div>
+                    <span className="text-2xl font-bold text-slate-900">{insightCount}</span>
+                    <p className="text-xs text-slate-500">{es ? "señales activas" : "active signals"}</p>
+                  </div>
+                  <span className="text-xs font-semibold text-teal-600 flex items-center gap-1">
+                    {es ? "Ver análisis" : "View analysis"} <ArrowRight className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+
+                {/* Category chips */}
+                {categories.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {categories.slice(0, 3).map((cat) => (
+                      <span key={cat} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── PLAYER MODAL ── */}
+      {selectedPlayer && (
+        <PlayerIntelligenceModal
+          athlete={selectedPlayer}
+          insights={selectedPlayerInsights}
+          allAssessments={assessments}
+          state={state}
+          locale={locale}
+          defaultArea={activeArea ?? "maturation"}
+          onClose={() => setSelectedPlayerId(null)}
+        />
       )}
     </div>
   );
