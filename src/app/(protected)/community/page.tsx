@@ -241,14 +241,44 @@ function DocumentationTab({ t }: { t: (key: string) => string }) {
           <Formula>{"Vel. Crecimiento = (Estatura₂ − Estatura₁) / (Fecha₂ − Fecha₁ en años)"}</Formula>
           <p className="text-sm text-slate-700 leading-relaxed">
             Requiere al menos <strong>2 registros</strong> del mismo deportista con un mínimo de 6 meses
-            de separación para ser fiable. En el PHV, los chicos alcanzan típicamente 8–12 cm/año;
-            las chicas, 6–10 cm/año.
+            de separación. Para anualizar la tasa, se utiliza el registro previo cuyo intervalo respecto
+            a la medición actual sea el más cercano a 1 año.
           </p>
-          <div className="p-3 bg-teal-50 border border-teal-200 rounded text-xs text-teal-800">
-            <strong>Interpretación práctica:</strong> Una velocidad superior a 6 cm/año indica que el
-            deportista está atravesando el estirón puberal. Una reducción brusca a menos de 2 cm/año en
-            un jugador joven puede indicar entrada en fase post-PHV o un intervalo de medición demasiado corto.
+          <p className="text-sm text-slate-700 leading-relaxed">
+            La velocidad de crecimiento se clasifica en tres categorías según Monasterio et al. (2024, <em>Biology of Sport</em>):
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border border-slate-200 rounded bg-white">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Categoría</th>
+                  <th className="px-3 py-2 text-center font-semibold">Rango (cm/año)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-medium text-rose-700">Rápido (fast)</td>
+                  <td className="px-3 py-2 text-center">{"> 7.2"}</td>
+                </tr>
+                <tr className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-medium text-amber-700">Moderado (moderate)</td>
+                  <td className="px-3 py-2 text-center">3.5 – 7.2</td>
+                </tr>
+                <tr className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-medium text-teal-700">Lento (slow)</td>
+                  <td className="px-3 py-2 text-center">{"< 3.5"}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded text-xs text-teal-800">
+            <strong>Interpretación práctica:</strong> Una velocidad de crecimiento clasificada como rápida
+            (&gt; 7.2 cm/año) se asoció con un mayor riesgo de lesión en jugadores de fútbol de una
+            academia de élite (Monasterio et al., 2024), especialmente durante la ventana de Pico de
+            Velocidad de Crecimiento (PHV). En TalentOS, esta categoría activa los avisos de
+            &quot;crecimiento acelerado&quot; en Performance Intelligence.
+          </div>
+          <Ref title="The combined effects of growth and maturity status on injury risk in an elite football academy" authors="Monasterio X, Cumming SP, Larruskain J, Johnson DM, Gil SM, Bidaurrazaga-Letona I, Lekue JA, Diaz-Beitia G, Santisteban JM, Williams S" year={2023} doi="10.5114/biolsport.2024.129472" />
         </Collapsible>
 
         <Collapsible title="Grupo madurativo — Clasificación Pre / Circa / Post-PHV">

@@ -1,4 +1,5 @@
 import type { MaturationResult } from "@/lib/types";
+import { GROWTH_RATE_THRESHOLDS_CM_PER_YEAR } from "@/lib/maturation/sitar-constants";
 
 // ---------------------------------------------------------------------------
 // Alert generation
@@ -155,12 +156,36 @@ export interface RapidGrowthAlert {
   dateTo: string;
   statureGain: number;
   monthsBetween: number;
-  monthlyRate: number;
+  /** Growth velocity in cm/year, annualised from the selected interval. */
+  yearlyRate: number;
 }
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const MS_PER_YEAR = MS_PER_DAY * 365.25;
+
+function isCalendarMonthsApart(dateA: number, dateB: number, months = 6) {
+  const earlier = new Date(Math.min(dateA, dateB));
+  const later = new Date(Math.max(dateA, dateB));
+
+  const threshold = new Date(earlier);
+  threshold.setMonth(threshold.getMonth() + months);
+
+  return later.getTime() >= threshold.getTime();
+}
+
+/**
+ * Detects rapid growth using the same reference window as the individual
+ * analysis growth velocity: for each record, the prior record whose interval
+ * is at least 6 months and closest to 1 year is used to annualise the rate
+ * (cm/year). This keeps Performance Intelligence alerts consistent with the
+ * growth velocity shown in Individual Analysis.
+ *
+ * Threshold follows Monasterio et al. (2024, Biology of Sport): fast growth
+ * is > 7.2 cm/year.
+ */
 export function detectRapidGrowth(
   assessments: MaturationResult[],
-  monthlyThreshold = 0.8,
+  yearlyThreshold = GROWTH_RATE_THRESHOLDS_CM_PER_YEAR.fast,
 ): RapidGrowthAlert[] {
   const byAthlete = new Map<string, MaturationResult[]>();
   for (const a of assessments) {
@@ -178,15 +203,38 @@ export function detectRapidGrowth(
     );
 
     for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i - 1];
       const curr = sorted[i];
+      const currDate = new Date(curr.inputs.dataCollectionDate).getTime();
+
+      let bestPrevIndex = -1;
+      let bestDelta = Infinity;
+
+      for (let j = 0; j < i; j++) {
+        const prevDate = new Date(sorted[j].inputs.dataCollectionDate).getTime();
+        const gap = currDate - prevDate;
+
+        if (!isCalendarMonthsApart(prevDate, currDate, 6)) continue; // minimum 6 months
+
+        const delta = Math.abs(gap - MS_PER_YEAR);
+        if (
+          delta < bestDelta ||
+          (delta === bestDelta && gap > currDate - new Date(sorted[bestPrevIndex].inputs.dataCollectionDate).getTime())
+        ) {
+          bestDelta = delta;
+          bestPrevIndex = j;
+        }
+      }
+
+      if (bestPrevIndex === -1) continue; // no candidate ≥6 months apart
+
+      const prev = sorted[bestPrevIndex];
+      const prevDate = new Date(prev.inputs.dataCollectionDate).getTime();
       const gain = curr.inputs.statureCm - prev.inputs.statureCm;
+      const diffYears = (currDate - prevDate) / MS_PER_YEAR;
+      const yearlyRate = gain / diffYears;
 
-      const d1 = new Date(prev.inputs.dataCollectionDate);
-      const d2 = new Date(curr.inputs.dataCollectionDate);
-      const months = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
-
-      if (months > 0 && gain / months > monthlyThreshold) {
+      if (yearlyRate > yearlyThreshold) {
+        const months = (currDate - prevDate) / (MS_PER_DAY * 30.44);
         alerts.push({
           id: `rapid-${counter++}`,
           athleteId,
@@ -196,7 +244,7 @@ export function detectRapidGrowth(
           dateTo: curr.inputs.dataCollectionDate,
           statureGain: gain,
           monthsBetween: Math.round(months * 10) / 10,
-          monthlyRate: Math.round((gain / months) * 100) / 100,
+          yearlyRate: Math.round(yearlyRate * 100) / 100,
         });
       }
     }

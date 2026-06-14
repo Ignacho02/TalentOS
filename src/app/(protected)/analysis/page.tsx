@@ -26,6 +26,7 @@ import {
   getUniqueAthleteTeams,
 } from "@/lib/maturation/selectors";
 import { createUnifiedProfile, getGroupingBand } from "@/lib/maturation/unified-maturation";
+import { categorizeGrowthRate } from "@/lib/maturation/sitar-constants";
 import type { Insight, MaturityBand, PerformanceArea, TrainingLoadEntry, PerformanceEntry, MaturationResult, Sex } from "@/lib/types";
 
 const bandColors: Record<string, string> = {
@@ -1550,13 +1551,51 @@ function IndividualView({
                           : '—'}
                       </div>
                       <div className="text-xs text-slate-400">{t("maturationMethods.growthVelocityUnit")}</div>
+                      {selectedLatest.derivedMetrics.growthVelocityCmPerYear != null && (() => {
+                        const category = categorizeGrowthRate(selectedLatest.derivedMetrics.growthVelocityCmPerYear);
+                        const badgeStyles: Record<string, string> = {
+                          fast: "bg-rose-100 text-rose-700",
+                          moderate: "bg-amber-100 text-amber-700",
+                          slow: "bg-teal-100 text-teal-700",
+                        };
+                        const badgeLabels: Record<string, string> = {
+                          fast: t("analysis.individual.growthRateFast"),
+                          moderate: t("analysis.individual.growthRateModerate"),
+                          slow: t("analysis.individual.growthRateSlow"),
+                        };
+                        return (
+                          <span className={`mt-2 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${badgeStyles[category]}`}>
+                            {badgeLabels[category]}
+                          </span>
+                        );
+                      })()}
                     </div>
-                    <div className="text-center p-3 bg-slate-50 rounded-xl">
-                      <div className="text-xs text-slate-500 mb-1">{t("analysis.individual.phvReference")}</div>
-                      <div className="text-3xl font-bold text-slate-400">
-                        {selectedLatest.inputs.sex === 'male' ? '10.1' : '~8.3'}
+                    <div className="p-3 bg-slate-50 rounded-xl flex flex-col justify-center">
+                      <div className="text-xs text-slate-500 mb-2 text-center">
+                        {locale === 'es' ? 'Escala de referencia' : 'Reference scale'}
                       </div>
-                      <div className="text-xs text-slate-400">{t("maturationMethods.growthVelocityUnit")}</div>
+                      <div className="flex h-2.5 w-full overflow-hidden rounded-full">
+                        <div className="bg-teal-400" style={{ width: '33.3%' }} />
+                        <div className="bg-amber-400" style={{ width: '33.4%' }} />
+                        <div className="bg-rose-400" style={{ width: '33.3%' }} />
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 text-center">
+                        <div>
+                          <div className="text-[10px] font-bold text-teal-600 uppercase tracking-wider">{t("analysis.individual.growthRateSlow")}</div>
+                          <div className="text-[10px] text-slate-400">{'< 3.5'}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">{t("analysis.individual.growthRateModerate")}</div>
+                          <div className="text-[10px] text-slate-400">3.5–7.2</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider">{t("analysis.individual.growthRateFast")}</div>
+                          <div className="text-[10px] text-slate-400">{'> 7.2'}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[9px] text-slate-400 text-center">
+                        {t("maturationMethods.growthVelocityUnit")} · Monasterio et al. (2024)
+                      </div>
                     </div>
                   </div>
                   {/* Stature evolution chart (cm over time) */}
@@ -4141,8 +4180,8 @@ function PerformanceIntelligenceView({
                 <ul className="list-disc list-inside mt-2 text-xs leading-relaxed text-slate-600 space-y-1 pl-1">
                   <li>
                     <strong>{es ? "Crecimiento + Carga" : "Growth + Load"}:</strong> {es 
-                      ? "Si un atleta crece rápido (>0.8 cm/mes) y tiene carga alta, su alerta de crecimiento sube a Roja (Riesgo) por estrés en cartílagos."
-                      : "If an athlete grows fast (>0.8 cm/month) and has high load, their growth alert escalates to Red (Risk) due to growth plate stress."}
+                      ? "Si un atleta crece rápido (>7.2 cm/año) y tiene carga alta, su alerta de crecimiento sube a Roja (Riesgo) por estrés en cartílagos."
+                      : "If an athlete grows fast (>7.2 cm/year) and has high load, their growth alert escalates to Red (Risk) due to growth plate stress."}
                   </li>
                   <li>
                     <strong>{es ? "Rendimiento + Carga" : "Performance + Load"}:</strong> {es 

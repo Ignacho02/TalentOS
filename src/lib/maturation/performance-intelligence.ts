@@ -120,7 +120,7 @@ function buildPerformanceIntelligenceInsights(
     // Sort:
     // 1. dateTo descending (latest first)
     // 2. hasElevatedLoad first (loadRatio >= 1.22)
-    // 3. monthlyRate descending
+    // 3. yearlyRate descending
     items.sort((a, b) => {
       const dateCompare = b.dateTo.localeCompare(a.dateTo);
       if (dateCompare !== 0) return dateCompare;
@@ -129,7 +129,7 @@ function buildPerformanceIntelligenceInsights(
       const bLoad = (athleteLoadRatios.get(b.athleteId) ?? 1) >= 1.22;
       if (aLoad !== bLoad) return bLoad ? 1 : -1;
 
-      return b.monthlyRate - a.monthlyRate;
+      return b.yearlyRate - a.yearlyRate;
     });
 
     // Keep only the first one
@@ -209,13 +209,13 @@ function buildPerformanceIntelligenceInsights(
       }),
       description: copy(locale, {
         es: hasElevatedLoad
-          ? `+${formatNumber(item.statureGain, 1)} cm en ${formatNumber(item.monthsBetween, 1)} meses (${formatNumber(item.monthlyRate, 2)} cm/mes) coincidiendo con un aumento de carga del ${Math.round((loadRatio - 1) * 100)}%.`
-          : `+${formatNumber(item.statureGain, 1)} cm entre ${formatDate(item.dateFrom)} y ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/mes).`,
+          ? `+${formatNumber(item.statureGain, 1)} cm en ${formatNumber(item.monthsBetween, 1)} meses (${formatNumber(item.yearlyRate, 1)} cm/año, categoría rápida > 7.2 cm/año) coincidiendo con un aumento de carga del ${Math.round((loadRatio - 1) * 100)}%.`
+          : `+${formatNumber(item.statureGain, 1)} cm entre ${formatDate(item.dateFrom)} y ${formatDate(item.dateTo)} (${formatNumber(item.yearlyRate, 1)} cm/año, categoría rápida > 7.2 cm/año).`,
         en: hasElevatedLoad
-          ? `+${formatNumber(item.statureGain, 1)} cm in ${formatNumber(item.monthsBetween, 1)} months (${formatNumber(item.monthlyRate, 2)} cm/month) with a ${Math.round((loadRatio - 1) * 100)}% load increase.`
-          : `+${formatNumber(item.statureGain, 1)} cm between ${formatDate(item.dateFrom)} and ${formatDate(item.dateTo)} (${formatNumber(item.monthlyRate, 2)} cm/month).`,
+          ? `+${formatNumber(item.statureGain, 1)} cm in ${formatNumber(item.monthsBetween, 1)} months (${formatNumber(item.yearlyRate, 1)} cm/year, fast category > 7.2 cm/year) with a ${Math.round((loadRatio - 1) * 100)}% load increase.`
+          : `+${formatNumber(item.statureGain, 1)} cm between ${formatDate(item.dateFrom)} and ${formatDate(item.dateTo)} (${formatNumber(item.yearlyRate, 1)} cm/year, fast category > 7.2 cm/year).`,
       }),
-      confidence: clampConfidence(0.78 + Math.min(item.monthlyRate / 10, 0.1)),
+      confidence: clampConfidence(0.78 + Math.min((item.yearlyRate - 7.2) / 50, 0.1)),
       recommendation: copy(locale, {
         es: hasElevatedLoad
           ? `Reducir de inmediato la carga excéntrica e impactos fuertes para proteger los cartílagos de crecimiento.`

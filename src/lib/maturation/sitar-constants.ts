@@ -9,6 +9,34 @@ export const SITAR_BASE = {
   meanAdultHeight: 179.5, // Monasterio (2026): 179.5 vs Berkeley 180.0
 };
 
+// ---------------------------------------------------------------------------
+// Growth rate categorisation (cm/year)
+// Source: Monasterio, X., Cumming, S.P., Larruskain, J., Johnson, D.M., Gil, S.M.,
+// Bidaurrazaga-Letona, I., Lekue, J.A., Diaz-Beitia, G., Santisteban, J.M., & Williams, S. (2023).
+// The combined effects of growth and maturity status on injury risk in an elite football academy.
+// Biology of Sport, 41(1), 235–244. https://doi.org/10.5114/biolsport.2024.129472
+//
+// Growth rate was categorised into three groups: fast (> 7.2 cm/year),
+// moderate (3.5–7.2 cm/year) and slow (< 3.5 cm/year).
+// ---------------------------------------------------------------------------
+
+export const GROWTH_RATE_THRESHOLDS_CM_PER_YEAR = {
+  fast: 7.2,    // > 7.2 cm/year
+  slow: 3.5,    // < 3.5 cm/year (3.5–7.2 cm/year = moderate)
+};
+
+export type GrowthRateCategory = "fast" | "moderate" | "slow";
+
+/**
+ * Categorises a growth velocity (cm/year) into fast / moderate / slow bands
+ * following Monasterio et al. (2024, Biology of Sport).
+ */
+export function categorizeGrowthRate(cmPerYear: number): GrowthRateCategory {
+  if (cmPerYear > GROWTH_RATE_THRESHOLDS_CM_PER_YEAR.fast) return "fast";
+  if (cmPerYear < GROWTH_RATE_THRESHOLDS_CM_PER_YEAR.slow) return "slow";
+  return "moderate";
+}
+
 /**
  * Returns the mean stature M(t) at a given age `t`.
  * This is a simplified logistical/spline approximation of the mean growth curve

@@ -458,6 +458,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
         athleteName: "Nombre del atleta",
         latestMeasurement: "Última medición",
         phvReference: "PHV referencia",
+        growthRateFast: "Crecimiento rápido",
+        growthRateModerate: "Crecimiento moderado",
+        growthRateSlow: "Crecimiento lento",
       },
       collective: {
         selectTeam: "Seleccionar equipo",
@@ -1268,6 +1271,9 @@ export const dictionaries: Record<Locale, Record<string, unknown>> = {
         athleteName: "Athlete name",
         latestMeasurement: "Latest",
         phvReference: "PHV reference",
+        growthRateFast: "Fast growth",
+        growthRateModerate: "Moderate growth",
+        growthRateSlow: "Slow growth",
       },
       collective: {
         selectTeam: "Select team",

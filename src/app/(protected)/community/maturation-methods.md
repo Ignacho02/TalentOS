@@ -15,6 +15,7 @@ Guía científica completa de los algoritmos, fundamentos y limitaciones de cada
 4. [Khamis-Roche (1994) — Predicted Adult Height (PAH)](#4-khamis-roche-1994--predicted-adult-height-pah)
 5. [WHO BMI Z-Score (2007)](#5-who-bmi-z-score-2007)
 6. [SITAR — Modelo longitudinal individual](#6-sitar--modelo-longitudinal-individual)
+   - [6.1. Categorización de la Velocidad de Crecimiento (cm/año)](#61-categorización-de-la-velocidad-de-crecimiento-cmaño)
 7. [Motor de Consenso Ponderado](#7-motor-de-consenso-ponderado)
 8. [Estrategias de Bio-banding](#8-estrategias-de-bio-banding)
 9. [Tabla Comparativa](#9-tabla-comparativa)
@@ -411,6 +412,31 @@ Modelo matemático verificado. Parámetros de referencia actualizados a valores 
 
 ---
 
+## 6.1. Categorización de la Velocidad de Crecimiento (cm/año)
+
+La velocidad de crecimiento (Δestatura / Δtiempo, expresada en cm/año) se clasifica en tres categorías siguiendo a Monasterio et al. (2024, *Biology of Sport*):
+
+| Categoría | Rango (cm/año) |
+|-----------|-----------------|
+| **Rápido (fast)** | > 7.2 cm/año |
+| **Moderado (moderate)** | 3.5 – 7.2 cm/año |
+| **Lento (slow)** | < 3.5 cm/año |
+
+### Uso en la aplicación
+
+- **Análisis individual:** la tarjeta de Velocidad de Crecimiento muestra el valor estimado en cm/año junto con una etiqueta de categoría (Rápido / Moderado / Lento) calculada según los umbrales anteriores.
+- **Performance Intelligence:** las alertas de "crecimiento acelerado" se generan cuando la velocidad supera el umbral de la categoría rápida (> 7.2 cm/año), reemplazando el umbral previo equivalente a 9.6 cm/año.
+
+### Contexto clínico
+
+En el estudio original, una velocidad de crecimiento rápida (> 7.2 cm/año) se asoció con un mayor riesgo de lesión en jugadores de fútbol de una academia de élite, especialmente durante la ventana de Pico de Velocidad de Crecimiento (PHV). Estas categorías ayudan a contextualizar las alertas de carga y maduración dentro de TalentOS.
+
+### Referencias
+
+- **Monasterio, X., Cumming, S.P., Larruskain, J., Johnson, D.M., Gil, S.M., Bidaurrazaga-Letona, I., Lekue, J.A., Diaz-Beitia, G., Santisteban, J.M., & Williams, S. (2023).** The combined effects of growth and maturity status on injury risk in an elite football academy. *Biology of Sport*, 41(1), 235–244. [doi:10.5114/biolsport.2024.129472](https://doi.org/10.5114/biolsport.2024.129472)
+
+---
+
 ## 7. Motor de Consenso Ponderado
 
 **Estado:** ✅ Activo (modo de visualización complementario)
@@ -575,6 +601,8 @@ Las ecuaciones de offset tienen menor precisión general en chicas que en chicos
 **Koziel, S.M. & Malina, R.M. (2018).** Modified Maturity Offset Prediction Equations: Validation in Independent Longitudinal Samples of Boys and Girls. *Sports Medicine*, 48(1), 221–236. https://doi.org/10.1007/s40279-017-0797-4
 
 **Mirwald, R.L., Baxter-Jones, A.D.G., Bailey, D.A., & Beunen, G. (2002).** An assessment of maturity from anthropometric measurements. *Medicine & Science in Sports & Exercise*, 34(4), 689–694. https://doi.org/10.1097/00005768-200204000-00020
+
+**Monasterio, X., Cumming, S.P., Larruskain, J., Johnson, D.M., Gil, S.M., Bidaurrazaga-Letona, I., Lekue, J.A., Diaz-Beitia, G., Santisteban, J.M., & Williams, S. (2023).** The combined effects of growth and maturity status on injury risk in an elite football academy. *Biology of Sport*, 41(1), 235–244. https://doi.org/10.5114/biolsport.2024.129472
 
 **Monasterio, X. et al. (2026).** Application of the SITAR model for estimating APHV, PHV, and adult height in elite male football players. *Science and Performance in Sport Research*, 287.
 
