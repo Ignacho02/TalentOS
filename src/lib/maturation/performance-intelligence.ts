@@ -1,4 +1,11 @@
-import { buildAlerts, detectRapidGrowth } from "@/lib/maturation/analysis-helpers";
+import {
+  buildAlerts,
+  buildGroupBenchmarks,
+  detectGroupDeviations,
+  detectRapidGrowth,
+  trendDirection,
+  type GroupDeviation,
+} from "@/lib/maturation/analysis-helpers";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type {
   AppState,
@@ -49,20 +56,12 @@ const severityPriority: Record<InsightSeverity, number> = {
   low: 3,
 };
 
-const lowerIsBetterTokens = ["sprint", "agility", "illinois", "slalom", "time"];
-
 function copy(locale: string, text: LocalizedText) {
   return locale === "es" ? text.es : text.en;
 }
 
 function clampConfidence(value: number) {
   return Math.max(0.55, Math.min(0.96, value));
-}
-
-function trendDirection(entry: PerformanceEntry) {
-  const token = `${entry.testName} ${entry.unit}`.toLowerCase();
-  if (entry.unit.toLowerCase() === "s") return -1;
-  return lowerIsBetterTokens.some((candidate) => token.includes(candidate)) ? -1 : 1;
 }
 
 function normalisePerformanceChange(previous: PerformanceEntry, current: PerformanceEntry) {
@@ -463,6 +462,125 @@ function buildPerformanceIntelligenceInsights(
         sourceIds: [strongestImprovement.latest.id, strongestImprovement.previous.id],
       });
     }
+  });
+
+  // 4. Process group comparisons: training load & test performance vs team / maturity band
+  const benchmarks = buildGroupBenchmarks(latestAssessments, state);
+  const groupDeviations = detectGroupDeviations(latestAssessments, state, benchmarks);
+
+  // Keep only the most extreme deviation per athlete + metric (+ test name) + group kind,
+  // so each athlete gets at most one "vs team" and one "vs maturity band" alert per metric.
+  const dedupedByKey = new Map<string, GroupDeviation>();
+  groupDeviations.forEach((deviation) => {
+    const key = [
+      deviation.athleteId,
+      deviation.metric,
+      deviation.testName ?? "",
+      deviation.groupKind,
+    ].join("|");
+    const existing = dedupedByKey.get(key);
+    if (!existing || Math.abs(deviation.zScore) > Math.abs(existing.zScore)) {
+      dedupedByKey.set(key, deviation);
+    }
+  });
+
+  const maturityBandLabel = (locale: string, band: string) => {
+    if (locale !== "es") return band;
+    return band === "Pre-PHV" ? "Pre-PHV" : band === "Mid-PHV" ? "Mid-PHV (pico de crecimiento)" : "Post-PHV";
+  };
+
+  const groupLabelText = (locale: string, deviation: GroupDeviation) =>
+    deviation.groupKind === "team"
+      ? copy(locale, { es: `su equipo (${deviation.groupLabel})`, en: `their team (${deviation.groupLabel})` })
+      : copy(locale, {
+          es: `su grupo madurativo (${maturityBandLabel("es", deviation.groupLabel)})`,
+          en: `their maturity group (${maturityBandLabel("en", deviation.groupLabel)})`,
+        });
+
+  dedupedByKey.forEach((deviation) => {
+    const athlete = latestByAthlete.get(deviation.athleteId);
+    const isHigh = deviation.direction === "high";
+    const groupText = groupLabelText(locale, deviation);
+    const pctDiff = deviation.groupMean !== 0
+      ? Math.round(((deviation.athleteValue - deviation.groupMean) / Math.abs(deviation.groupMean)) * 100)
+      : 0;
+
+    let severity: InsightSeverity;
+    let category: InsightCategory;
+    let titleEs: string;
+    let titleEn: string;
+    let descEs: string;
+    let descEn: string;
+    let recEs: string;
+    let recEn: string;
+
+    if (deviation.metric === "load") {
+      category = "load";
+      if (isHigh) {
+        // High load vs the group: risk signal, magnitude-dependent severity.
+        severity = deviation.magnitude === "high" ? "critical" : "medium";
+        titleEs = `${deviation.athleteName}: carga muy por encima de ${deviation.groupKind === "team" ? "su equipo" : "su grupo madurativo"}`;
+        titleEn = `${deviation.athleteName}: load well above ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
+        descEs = `Carga media reciente de ${formatNumber(deviation.athleteValue, 1)} frente a ${formatNumber(deviation.groupMean, 1)} de ${groupText} (${pctDiff >= 0 ? "+" : ""}${pctDiff}%, ${formatNumber(Math.abs(deviation.zScore), 1)}σ por encima, n=${deviation.groupSize}).`;
+        descEn = `Recent average load of ${formatNumber(deviation.athleteValue, 1)} vs ${formatNumber(deviation.groupMean, 1)} for ${groupText} (${pctDiff >= 0 ? "+" : ""}${pctDiff}%, ${formatNumber(Math.abs(deviation.zScore), 1)}σ above, n=${deviation.groupSize}).`;
+        recEs = deviation.magnitude === "high"
+          ? `Revisar de inmediato el reparto de minutos y sesiones; valorar descarga para igualar al grupo de referencia.`
+          : `Vigilar la planificación semanal y comparar con ${deviation.groupKind === "team" ? "el resto del equipo" : "compañeros de su grupo madurativo"}.`;
+        recEn = deviation.magnitude === "high"
+          ? `Review minutes and session load immediately; consider a deload to bring it in line with the reference group.`
+          : `Monitor weekly planning and compare against ${deviation.groupKind === "team" ? "the rest of the team" : "peers in their maturity group"}.`;
+      } else {
+        // Low load vs the group: under-loading signal, lower severity.
+        severity = deviation.magnitude === "high" ? "medium" : "low";
+        titleEs = `${deviation.athleteName}: carga muy por debajo de ${deviation.groupKind === "team" ? "su equipo" : "su grupo madurativo"}`;
+        titleEn = `${deviation.athleteName}: load well below ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
+        descEs = `Carga media reciente de ${formatNumber(deviation.athleteValue, 1)} frente a ${formatNumber(deviation.groupMean, 1)} de ${groupText} (${pctDiff}%, ${formatNumber(Math.abs(deviation.zScore), 1)}σ por debajo, n=${deviation.groupSize}).`;
+        descEn = `Recent average load of ${formatNumber(deviation.athleteValue, 1)} vs ${formatNumber(deviation.groupMean, 1)} for ${groupText} (${pctDiff}%, ${formatNumber(Math.abs(deviation.zScore), 1)}σ below, n=${deviation.groupSize}).`;
+        recEs = `Revisar asistencia, lesiones o minutos de juego; valorar si necesita recuperar volumen progresivamente.`;
+        recEn = `Check attendance, injury status, or playing time; consider progressively restoring training volume.`;
+      }
+    } else {
+      // Test performance
+      category = isHigh ? "talent" : "performance";
+      const testLabel = deviation.testName ?? "";
+      if (isHigh) {
+        // Notably above the group: positive signal (Talent), low severity.
+        severity = "low";
+        titleEs = `${deviation.athleteName}: ${testLabel} muy por encima de ${deviation.groupKind === "team" ? "su equipo" : "su grupo madurativo"}`;
+        titleEn = `${deviation.athleteName}: ${testLabel} well above ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
+        descEs = `Su resultado en ${testLabel} está ${formatNumber(Math.abs(deviation.zScore), 1)}σ por encima de ${groupText} (n=${deviation.groupSize}).`;
+        descEn = `Their ${testLabel} result is ${formatNumber(Math.abs(deviation.zScore), 1)}σ above ${groupText} (n=${deviation.groupSize}).`;
+        recEs = `Destacar como referencia técnica/física en ${testLabel} y valorar progresión hacia exigencias mayores.`;
+        recEn = `Highlight as a physical/technical reference in ${testLabel} and consider progressing to higher demands.`;
+      } else {
+        // Notably below the group: attention signal, magnitude-dependent severity.
+        severity = deviation.magnitude === "high" ? "high" : "medium";
+        titleEs = `${deviation.athleteName}: ${testLabel} muy por debajo de ${deviation.groupKind === "team" ? "su equipo" : "su grupo madurativo"}`;
+        titleEn = `${deviation.athleteName}: ${testLabel} well below ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
+        descEs = `Su resultado en ${testLabel} está ${formatNumber(Math.abs(deviation.zScore), 1)}σ por debajo de ${groupText} (n=${deviation.groupSize}).`;
+        descEn = `Their ${testLabel} result is ${formatNumber(Math.abs(deviation.zScore), 1)}σ below ${groupText} (n=${deviation.groupSize}).`;
+        recEs = deviation.magnitude === "high"
+          ? `Revisar técnica de ejecución, posibles molestias y planificar refuerzo específico en ${testLabel}.`
+          : `Incluir trabajo complementario en ${testLabel} y repetir el test en próximas semanas.`;
+        recEn = deviation.magnitude === "high"
+          ? `Review execution technique, rule out discomfort, and plan specific work on ${testLabel}.`
+          : `Add complementary work on ${testLabel} and re-test in the coming weeks.`;
+      }
+    }
+
+    insights.push({
+      id: `group-${deviation.id}`,
+      severity,
+      category,
+      athleteId: deviation.athleteId,
+      teamName: deviation.teamName,
+      title: copy(locale, { es: titleEs, en: titleEn }),
+      description: copy(locale, { es: descEs, en: descEn }),
+      confidence: clampConfidence(0.6 + Math.min(Math.abs(deviation.zScore) / 6, 0.25)),
+      recommendation: copy(locale, { es: recEs, en: recEn }),
+      createdAt: athlete?.inputs.dataCollectionDate ?? new Date().toISOString().slice(0, 10),
+      sourceIds: [deviation.id],
+    });
   });
 
   return insights;

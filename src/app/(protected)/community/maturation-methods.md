@@ -18,6 +18,7 @@ Guía científica completa de los algoritmos, fundamentos y limitaciones de cada
    - [6.1. Categorización de la Velocidad de Crecimiento (cm/año)](#61-categorización-de-la-velocidad-de-crecimiento-cmaño)
 7. [Motor de Consenso Ponderado](#7-motor-de-consenso-ponderado)
 8. [Estrategias de Bio-banding](#8-estrategias-de-bio-banding)
+   - [8.3. Comparativas de Grupo en Performance Intelligence](#83-comparativas-de-grupo-en-performance-intelligence)
 9. [Tabla Comparativa](#9-tabla-comparativa)
 10. [Consideraciones Prácticas](#10-consideraciones-prácticas)
 11. [Limitaciones Generales y Avisos Clínicos](#11-limitaciones-generales-y-avisos-clínicos)
@@ -491,6 +492,57 @@ Agrupa deportistas por el porcentaje de su talla adulta estimada ya alcanzado:
 
 **Uso óptimo:** estimación del potencial de crecimiento futuro y planificación de desarrollo a largo plazo.  
 **Ventaja para chicas:** menos sesgado que el offset, especialmente en maduradores extremos.
+
+### 8.3 Comparativas de Grupo en Performance Intelligence
+
+A partir de las bandas madurativas (8.1) y de la pertenencia a equipo, Performance Intelligence compara
+a cada jugador frente a dos grupos de referencia internos del club:
+
+- **Su equipo:** el resto de jugadores del mismo equipo.
+- **Su grupo madurativo:** los jugadores que comparten la misma banda (Pre-PHV, Mid-PHV o Post-PHV),
+  independientemente del equipo al que pertenezcan.
+
+Se comparan dos tipos de métrica:
+
+- **Carga de entrenamiento:** la carga media absoluta del jugador en sus últimas 4 sesiones registradas,
+  frente a la media del grupo (mismo cálculo de media absoluta para cada miembro del grupo).
+- **Rendimiento en tests físicos:** el último valor registrado de cada test, orientado de forma que un
+  valor mayor siempre signifique "mejor" (p. ej. los tiempos de sprint se invierten), frente a la media
+  del grupo en ese mismo test.
+
+Para cada métrica se calcula la media (μ) y la desviación estándar (σ) del grupo, y la posición del
+jugador como **z-score**:
+
+```
+z = (valor del jugador − μ del grupo) / σ del grupo
+```
+
+**Requisito mínimo:** un grupo necesita al menos **4 jugadores** con datos válidos para esa métrica;
+si no se alcanza este tamaño, no se genera ninguna comparación para ese grupo (para evitar conclusiones
+poco fiables con muestras pequeñas).
+
+**Umbrales de aviso:**
+
+| |z| | Magnitud | Interpretación |
+|-----|----------|-----------------|
+| < 1 | — | Dentro de lo normal del grupo. Sin aviso. |
+| 1 – 2 | Media | Por encima o por debajo de lo habitual en el grupo. |
+| ≥ 2 | Alta | Desviación marcada respecto al grupo. |
+
+**Dirección del aviso según métrica:**
+
+- **Carga:** por encima del grupo → posible riesgo de sobrecarga (magnitud alta = Rojo/Riesgo, magnitud
+  media = Amarillo/Seguimiento). Por debajo del grupo → posible infracarga (informativo, Verde).
+- **Rendimiento:** por debajo del grupo → señal de atención (magnitud alta = Rojo/Riesgo, magnitud media
+  = Amarillo/Seguimiento). Por encima del grupo → señal positiva de talento (Verde/Oportunidad),
+  independientemente de la magnitud.
+
+Por cada jugador, métrica (y test, en el caso de rendimiento) y tipo de grupo (equipo / grupo
+madurativo), solo se muestra la desviación más extrema, evitando duplicar avisos.
+
+**Nota importante:** esta comparación es **interna y relativa al club**, no frente a referencias
+poblacionales externas. Un jugador puede estar "por encima de la media de su grupo madurativo" sin que
+ello implique que su rendimiento sea excepcional a nivel general, y viceversa.
 
 ---
 

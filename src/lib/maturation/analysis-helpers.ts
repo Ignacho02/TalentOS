@@ -1,5 +1,23 @@
-import type { MaturationResult } from "@/lib/types";
+import type { AppState, MaturationResult, MaturityBand, PerformanceEntry, TrainingLoadEntry } from "@/lib/types";
 import { GROWTH_RATE_THRESHOLDS_CM_PER_YEAR } from "@/lib/maturation/sitar-constants";
+
+// ---------------------------------------------------------------------------
+// Shared performance helpers
+// ---------------------------------------------------------------------------
+
+export const lowerIsBetterTokens = ["sprint", "agility", "illinois", "slalom", "time"];
+
+/**
+ * Returns +1 if a higher value is "better" for this test, -1 if a lower
+ * value is "better" (e.g. sprint times). Used to orient comparisons so that
+ * "above normal" consistently means "better" and "below normal" means
+ * "needs attention" for performance metrics.
+ */
+export function trendDirection(entry: PerformanceEntry) {
+  const token = `${entry.testName} ${entry.unit}`.toLowerCase();
+  if (entry.unit.toLowerCase() === "s") return -1;
+  return lowerIsBetterTokens.some((candidate) => token.includes(candidate)) ? -1 : 1;
+}
 
 // ---------------------------------------------------------------------------
 // Alert generation
@@ -251,4 +269,273 @@ export function detectRapidGrowth(
   }
 
   return alerts;
+}
+
+// ---------------------------------------------------------------------------
+// Group benchmarks: training load & test performance vs team / maturity band
+// ---------------------------------------------------------------------------
+
+/** Minimum number of athletes required in a group for a benchmark to be meaningful. */
+export const GROUP_BENCHMARK_MIN_SIZE = 4;
+
+/** |z| ranges that define alert magnitude. */
+export const DEVIATION_Z_MEDIUM = 1;
+export const DEVIATION_Z_HIGH = 2;
+
+export type GroupKind = "team" | "maturityBand";
+
+interface GroupStats {
+  mean: number;
+  sd: number;
+  n: number;
+}
+
+export interface GroupBenchmark {
+  kind: GroupKind;
+  /** Team name, or the MaturityBand label, identifying this group. */
+  label: string;
+  /** Average training load over the lookback window (absolute units). */
+  load: GroupStats | null;
+  /** Latest value per test name, oriented so higher = better. */
+  tests: Map<string, GroupStats>;
+}
+
+function mean(values: number[]): number {
+  return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+function stdDev(values: number[], avg: number): number {
+  if (values.length < 2) return 0;
+  const variance = values.reduce((sum, v) => sum + (v - avg) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function buildStats(values: number[]): GroupStats | null {
+  if (values.length < GROUP_BENCHMARK_MIN_SIZE) return null;
+  const avg = mean(values);
+  return { mean: avg, sd: stdDev(values, avg), n: values.length };
+}
+
+/**
+ * Average absolute training load per athlete over the last `windowSize`
+ * recorded sessions (default 4, matching the recent-load window used
+ * elsewhere for load-ratio alerts).
+ */
+function athleteAverageLoad(
+  athleteId: string,
+  trainingLoadEntries: TrainingLoadEntry[],
+  windowSize = 4,
+): number | null {
+  const entries = trainingLoadEntries
+    .filter((entry) => entry.athleteId === athleteId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (entries.length === 0) return null;
+
+  const recent = entries.slice(-windowSize);
+  return mean(recent.map((entry) => entry.load));
+}
+
+/** Latest recorded value per test for an athlete, oriented so higher = better. */
+function athleteLatestTestValues(
+  athleteId: string,
+  performanceEntries: PerformanceEntry[],
+): Map<string, number> {
+  const byTest = new Map<string, PerformanceEntry[]>();
+  performanceEntries
+    .filter((entry) => entry.athleteId === athleteId)
+    .forEach((entry) => {
+      const list = byTest.get(entry.testName) ?? [];
+      list.push(entry);
+      byTest.set(entry.testName, list);
+    });
+
+  const result = new Map<string, number>();
+  byTest.forEach((entries, testName) => {
+    const sorted = [...entries].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
+    const latest = sorted[sorted.length - 1];
+    result.set(testName, latest.value * trendDirection(latest));
+  });
+
+  return result;
+}
+
+/**
+ * Builds training-load and test-performance benchmarks (mean & standard
+ * deviation) for every team and every maturity band represented in
+ * `latestAssessments`. Groups smaller than `GROUP_BENCHMARK_MIN_SIZE`
+ * athletes are skipped (their benchmark is `null` / absent).
+ */
+export function buildGroupBenchmarks(
+  latestAssessments: MaturationResult[],
+  state: AppState,
+): Map<string, GroupBenchmark> {
+  const benchmarks = new Map<string, GroupBenchmark>();
+
+  const groupsByKey = new Map<string, { kind: GroupKind; label: string; athleteIds: string[] }>();
+
+  latestAssessments.forEach((assessment) => {
+    const athleteId = assessment.inputs.athleteId;
+    const teamName = assessment.inputs.teamName;
+    const band = assessment.classification.maturityBand;
+
+    if (teamName) {
+      const key = `team:${teamName}`;
+      const group = groupsByKey.get(key) ?? { kind: "team" as const, label: teamName, athleteIds: [] };
+      group.athleteIds.push(athleteId);
+      groupsByKey.set(key, group);
+    }
+
+    if (band) {
+      const key = `maturityBand:${band}`;
+      const group = groupsByKey.get(key) ?? { kind: "maturityBand" as const, label: band, athleteIds: [] };
+      group.athleteIds.push(athleteId);
+      groupsByKey.set(key, group);
+    }
+  });
+
+  groupsByKey.forEach((group, key) => {
+    const loadValues = group.athleteIds
+      .map((id) => athleteAverageLoad(id, state.trainingLoadEntries))
+      .filter((v): v is number => v !== null);
+
+    const testValuesByName = new Map<string, number[]>();
+    group.athleteIds.forEach((id) => {
+      athleteLatestTestValues(id, state.performanceEntries).forEach((value, testName) => {
+        const list = testValuesByName.get(testName) ?? [];
+        list.push(value);
+        testValuesByName.set(testName, list);
+      });
+    });
+
+    const tests = new Map<string, GroupStats>();
+    testValuesByName.forEach((values, testName) => {
+      const stats = buildStats(values);
+      if (stats) tests.set(testName, stats);
+    });
+
+    benchmarks.set(key, {
+      kind: group.kind,
+      label: group.label,
+      load: buildStats(loadValues),
+      tests,
+    });
+  });
+
+  return benchmarks;
+}
+
+export interface GroupDeviation {
+  id: string;
+  athleteId: string;
+  athleteName: string;
+  teamName: string | undefined;
+  groupKind: GroupKind;
+  groupLabel: string;
+  metric: "load" | "test";
+  /** Test name when metric === "test". */
+  testName?: string;
+  /** Athlete's value (absolute load, or test value oriented higher = better). */
+  athleteValue: number;
+  groupMean: number;
+  groupSd: number;
+  groupSize: number;
+  /** (athleteValue - groupMean) / groupSd */
+  zScore: number;
+  /** "high" => athlete above group mean, "low" => athlete below group mean. */
+  direction: "high" | "low";
+  /** "medium" for 1 ≤ |z| < 2, "high" for |z| ≥ 2. */
+  magnitude: "medium" | "high";
+}
+
+/**
+ * Compares each athlete's average training load and latest test results
+ * against the team and maturity-band benchmarks, returning one deviation
+ * record per metric where |z| ≥ DEVIATION_Z_MEDIUM (1 standard deviation).
+ *
+ * For each athlete + metric + group kind (team / maturity band), only the
+ * single most extreme deviation is returned (callers typically keep at most
+ * one alert per athlete/metric/group).
+ */
+export function detectGroupDeviations(
+  latestAssessments: MaturationResult[],
+  state: AppState,
+  benchmarks: Map<string, GroupBenchmark>,
+): GroupDeviation[] {
+  const deviations: GroupDeviation[] = [];
+  let counter = 0;
+
+  latestAssessments.forEach((assessment) => {
+    const athleteId = assessment.inputs.athleteId;
+    const athleteName = assessment.inputs.athleteName;
+    const teamName = assessment.inputs.teamName;
+    const band = assessment.classification.maturityBand;
+
+    const groupKeys: Array<{ kind: GroupKind; key: string; label: string }> = [];
+    if (teamName) groupKeys.push({ kind: "team", key: `team:${teamName}`, label: teamName });
+    if (band) groupKeys.push({ kind: "maturityBand", key: `maturityBand:${band}`, label: band });
+
+    // --- Training load ---
+    const athleteLoad = athleteAverageLoad(athleteId, state.trainingLoadEntries);
+    if (athleteLoad !== null) {
+      groupKeys.forEach(({ kind, key, label }) => {
+        const benchmark = benchmarks.get(key);
+        const stats = benchmark?.load;
+        if (!stats || stats.sd === 0) return;
+
+        const z = (athleteLoad - stats.mean) / stats.sd;
+        if (Math.abs(z) < DEVIATION_Z_MEDIUM) return;
+
+        deviations.push({
+          id: `deviation-${counter++}`,
+          athleteId,
+          athleteName,
+          teamName,
+          groupKind: kind,
+          groupLabel: label,
+          metric: "load",
+          athleteValue: athleteLoad,
+          groupMean: stats.mean,
+          groupSd: stats.sd,
+          groupSize: stats.n,
+          zScore: z,
+          direction: z > 0 ? "high" : "low",
+          magnitude: Math.abs(z) >= DEVIATION_Z_HIGH ? "high" : "medium",
+        });
+      });
+    }
+
+    // --- Test performance (latest value per test, oriented higher = better) ---
+    const latestTestValues = athleteLatestTestValues(athleteId, state.performanceEntries);
+    latestTestValues.forEach((value, testName) => {
+      groupKeys.forEach(({ kind, key, label }) => {
+        const benchmark = benchmarks.get(key);
+        const stats = benchmark?.tests.get(testName);
+        if (!stats || stats.sd === 0) return;
+
+        const z = (value - stats.mean) / stats.sd;
+        if (Math.abs(z) < DEVIATION_Z_MEDIUM) return;
+
+        deviations.push({
+          id: `deviation-${counter++}`,
+          athleteId,
+          athleteName,
+          teamName,
+          groupKind: kind,
+          groupLabel: label,
+          metric: "test",
+          testName,
+          athleteValue: value,
+          groupMean: stats.mean,
+          groupSd: stats.sd,
+          groupSize: stats.n,
+          zScore: z,
+          direction: z > 0 ? "high" : "low",
+          magnitude: Math.abs(z) >= DEVIATION_Z_HIGH ? "high" : "medium",
+        });
+      });
+    });
+  });
+
+  return deviations;
 }

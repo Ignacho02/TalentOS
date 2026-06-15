@@ -4105,16 +4105,16 @@ function PerformanceIntelligenceView({
                     <span className="font-semibold text-sky-800">{es ? "Rendimiento" : "Performance"}</span>
                     <p className="text-xs text-slate-600 mt-1">
                       {es 
-                        ? "Desarrollo atlético. Cambios notables (mejoras o retrocesos) en test físicos (fuerza, velocidad, CMJ, resistencia). Permite identificar tanto adaptaciones positivas como señales de alerta neuromuscular."
-                        : "Athletic development. Significant changes (improvements or drops) in physical tests (strength, speed, CMJ, endurance). Identifies positive adaptations as well as neuromuscular warning signals."}
+                        ? "Desarrollo atlético. Cambios notables (mejoras o retrocesos) en test físicos (fuerza, velocidad, CMJ, resistencia), y comparación del resultado más reciente de cada test frente a su equipo y su grupo madurativo (Pre/Mid/Post-PHV). Permite identificar tanto adaptaciones positivas como señales de alerta neuromuscular o de rendimiento por debajo de lo esperado."
+                        : "Athletic development. Significant changes (improvements or drops) in physical tests (strength, speed, CMJ, endurance), plus a comparison of each test's most recent result against the athlete's team and maturity group (Pre/Mid/Post-PHV). Identifies positive adaptations as well as neuromuscular warning signals or below-expected performance."}
                     </p>
                   </div>
                   <div className="rounded-xl border border-amber-100 bg-amber-50/20 p-3">
                     <span className="font-semibold text-amber-800">{es ? "Carga de Entrenamiento" : "Training Load"}</span>
                     <p className="text-xs text-slate-600 mt-1">
                       {es 
-                        ? "Riesgo físico general. Incrementos en el ratio de carga de las últimas 4 sesiones y el riesgo específico por sobreesfuerzo de articulaciones en picos de crecimiento."
-                        : "General physical risk. Increases in recent load ratios (last 4 sessions) and specific risks regarding joint overload during peak growth spurts."}
+                        ? "Riesgo físico general. Incrementos en el ratio de carga de las últimas 4 sesiones, el riesgo específico por sobreesfuerzo de articulaciones en picos de crecimiento, y comparación de la carga media reciente de cada jugador frente a la media de su equipo y de su grupo madurativo."
+                        : "General physical risk. Increases in recent load ratios (last 4 sessions), specific risks regarding joint overload during peak growth spurts, and a comparison of each player's recent average load against their team's and maturity group's average."}
                     </p>
                   </div>
                 </div>
@@ -4196,10 +4196,51 @@ function PerformanceIntelligenceView({
                 </ul>
               </div>
 
+              {/* Section: Group comparisons */}
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
+                  {es ? "4. Comparativas de Grupo (Equipo y Grupo Madurativo)" : "4. Group Comparisons (Team and Maturity Group)"}
+                </h4>
+                <p className="text-xs leading-relaxed text-slate-600 mb-2">
+                  {es
+                    ? "Además del seguimiento individual, el sistema compara la carga de entrenamiento media y el último resultado de cada test físico de cada jugador frente a dos grupos de referencia internos:"
+                    : "Beyond individual tracking, the system compares each player's average training load and most recent result in every physical test against two internal reference groups:"}
+                </p>
+                <ul className="list-disc list-inside text-xs leading-relaxed text-slate-600 space-y-1 pl-1 mb-2">
+                  <li>
+                    <strong>{es ? "Su equipo:" : "Their team:"}</strong> {es
+                      ? "el resto de jugadores del mismo equipo."
+                      : "the rest of the players in the same team."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Su grupo madurativo:" : "Their maturity group:"}</strong> {es
+                      ? "los jugadores que comparten la misma banda (Pre-PHV, Mid-PHV o Post-PHV)."
+                      : "players sharing the same band (Pre-PHV, Mid-PHV or Post-PHV)."}
+                  </li>
+                </ul>
+                <p className="text-xs leading-relaxed text-slate-600 mb-2">
+                  {es
+                    ? "Para cada métrica se calcula la media y la desviación estándar (σ) del grupo, y la posición del jugador como z-score: z = (valor del jugador − media del grupo) / σ. Solo se generan avisos si el grupo tiene al menos 4 jugadores con datos suficientes."
+                    : "For each metric, the group's mean and standard deviation (σ) are calculated, and the player's position is expressed as a z-score: z = (player value − group mean) / σ. Alerts are only generated when the group has at least 4 players with sufficient data."}
+                </p>
+                <ul className="list-disc list-inside text-xs leading-relaxed text-slate-600 space-y-1 pl-1">
+                  <li>
+                    <strong>{es ? "1σ – 2σ (Magnitud media):" : "1σ – 2σ (Medium magnitude):"}</strong> {es
+                      ? "el jugador está por encima o por debajo de lo normal en su grupo. En carga, por encima genera Amarillo (Seguimiento) y por debajo Verde (informativo); en rendimiento, por debajo genera Amarillo y por encima Verde (Talento)."
+                      : "the player is above or below normal for their group. For load, above generates Yellow (Monitoring) and below generates Green (informational); for performance, below generates Yellow and above generates Green (Talent)."}
+                  </li>
+                  <li>
+                    <strong>{es ? "≥ 2σ (Magnitud alta):" : "≥ 2σ (High magnitude):"}</strong> {es
+                      ? "desviación marcada. En carga por encima del grupo sube a Rojo (Riesgo); en rendimiento por debajo del grupo también sube a Rojo (Riesgo), como atención prioritaria. Por encima en rendimiento se mantiene en Verde (Talento), ya que es una señal positiva."
+                      : "marked deviation. For load above the group it escalates to Red (Risk); for performance below the group it also escalates to Red (Risk), as priority attention. Above-group performance stays Green (Talent), as it is a positive signal."}
+                  </li>
+                </ul>
+              </div>
+
               {/* Section: Confidence Calculation */}
               <div>
                 <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 border-b pb-1">
-                  {es ? "4. Cálculo del % de Confianza" : "4. Confidence % Calculation"}
+                  {es ? "5. Cálculo del % de Confianza" : "5. Confidence % Calculation"}
                 </h4>
                 <p className="text-xs leading-relaxed text-slate-600 mb-2">
                   {es 
@@ -4219,8 +4260,8 @@ function PerformanceIntelligenceView({
                   </li>
                   <li>
                     <strong>{es ? "Crecimiento Rápido (78% - 88%):" : "Rapid Growth (78% - 88%):"}</strong> {es 
-                      ? "Arranca en un 78% y sube hasta un 10% adicional cuanto mayor sea la velocidad de crecimiento mensual en cm respecto al límite base."
-                      : "Starts at 78% and increases by up to an additional 10% depending on how fast the monthly growth rate in cm exceeds the baseline."}
+                      ? "Arranca en un 78% y sube hasta un 10% adicional cuanto mayor sea la velocidad de crecimiento en cm/año respecto al límite base de 7.2 cm/año."
+                      : "Starts at 78% and increases by up to an additional 10% depending on how far the growth rate in cm/year exceeds the 7.2 cm/year baseline."}
                   </li>
                   <li>
                     <strong>{es ? "Rendimiento Deportivo (72% - 90%):" : "Sports Performance (72% - 90%):"}</strong> {es 
@@ -4231,6 +4272,11 @@ function PerformanceIntelligenceView({
                     <strong>{es ? "Cargas de Entrenamiento (73% - 85%):" : "Training Load (73% - 85%):"}</strong> {es 
                       ? "Parte de un 73% y aumenta proporcionalmente según la magnitud de la subida de carga de las últimas 4 sesiones vs. bloque base."
                       : "Starts at 73% and increases proportionally based on the magnitude of the training load increase of the last 4 sessions vs. baseline."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Comparativas de Grupo (60% - 85%):" : "Group Comparisons (60% - 85%):"}</strong> {es
+                      ? "Parte de un 60% y aumenta cuanto mayor sea la desviación (|z|) del jugador respecto a la media de su equipo o grupo madurativo."
+                      : "Starts at 60% and increases the larger the player's deviation (|z|) from their team's or maturity group's average."}
                   </li>
                 </ul>
               </div>
@@ -4373,13 +4419,15 @@ function AnalysisSidebar({
               onClick={() => handleSelect(item.id)}
               title={collapsed ? t(`analysis.tabs.${item.id}`) : undefined}
               className={cn(
-                "w-full flex items-center rounded-xl py-3 text-sm font-medium transition",
-                collapsed ? "justify-center px-2" : "gap-3 px-4",
+                "w-full flex items-center rounded-xl py-3 text-sm font-medium transition text-left",
+                collapsed ? "justify-center px-2" : "gap-2 px-3",
                 active ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-100",
               )}
             >
-              {item.icon}
-              {!collapsed && <span>{t(`analysis.tabs.${item.id}`)}</span>}
+              <span className="flex-shrink-0">{item.icon}</span>
+              {!collapsed && (
+                <span style={{lineHeight: "1.2", wordBreak: "break-word"}}>{t(`analysis.tabs.${item.id}`)}</span>
+              )}
             </button>
           );
         })}
@@ -4454,7 +4502,7 @@ function AnalysisSidebar({
       <nav
         className={cn(
           "hidden md:flex flex-col border-r border-slate-200 bg-white/95 flex-shrink-0 transition-all duration-200 ease-in-out",
-          collapsed ? "w-14" : "w-56",
+          collapsed ? "w-14" : "w-60",
         )}
         aria-label="Analysis sections"
       >
