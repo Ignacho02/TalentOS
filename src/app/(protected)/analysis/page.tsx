@@ -3817,6 +3817,132 @@ function PerformanceIntelligenceView({
         </div>
       </section>
 
+      {/* ── VISTA GLOBAL ── */}
+      <section className="rounded-[2rem] border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-400">
+            {es ? "Resumen ejecutivo" : "Executive summary"}
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-slate-900">
+            {es ? "Vista global" : "Global overview"}
+          </h3>
+        </div>
+
+        {/* Three quick-access cards */}
+        <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+          {/* Card 1 — Priority feed */}
+          <button
+            type="button"
+            onClick={() => setActiveArea("maturation")}
+            className="group flex flex-col gap-2 px-6 py-5 text-left hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                <AlertCircle className="h-4 w-4" />
+              </span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                {es ? "Avisos críticos" : "Critical alerts"}
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-slate-900">{summary.critical}</p>
+            <p className="text-xs text-slate-400 group-hover:text-slate-600 transition-colors flex items-center gap-1">
+              {es ? "Ver señales prioritarias" : "See priority signals"}
+              <ArrowRight className="h-3 w-3" />
+            </p>
+          </button>
+
+          {/* Card 2 — Tendencias colectivas */}
+          <button
+            type="button"
+            onClick={() => setActiveArea("performance")}
+            className="group flex flex-col gap-2 px-6 py-5 text-left hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                {es ? "Tendencias colectivas" : "Collective trends"}
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-slate-900">{summary.athletes}</p>
+            <p className="text-xs text-slate-400 group-hover:text-slate-600 transition-colors flex items-center gap-1">
+              {es ? "Atletas con señales activas" : "Athletes with active signals"}
+              <ArrowRight className="h-3 w-3" />
+            </p>
+          </button>
+
+          {/* Card 3 — Recomendaciones generales */}
+          <button
+            type="button"
+            onClick={() => setActiveArea("load")}
+            className="group flex flex-col gap-2 px-6 py-5 text-left hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                {es ? "Recomendaciones" : "Recommendations"}
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-slate-900">
+              {intelligence.insights.filter((i) => i.recommendation).length}
+            </p>
+            <p className="text-xs text-slate-400 group-hover:text-slate-600 transition-colors flex items-center gap-1">
+              {es ? "Acciones sugeridas disponibles" : "Suggested actions available"}
+              <ArrowRight className="h-3 w-3" />
+            </p>
+          </button>
+        </div>
+
+        {/* Top critical alerts sorted by confidence */}
+        {intelligence.insights.filter((i) => i.severity === "critical" || i.severity === "high").length > 0 && (
+          <div className="border-t border-slate-100 px-6 py-5">
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              {es ? "Principales avisos — ordenados por confianza" : "Top alerts — sorted by confidence"}
+            </p>
+            <div className="space-y-2">
+              {intelligence.insights
+                .filter((i) => i.severity === "critical" || i.severity === "high")
+                .sort((a, b) => b.confidence - a.confidence)
+                .slice(0, 4)
+                .map((insight) => (
+                  <div
+                    key={insight.id}
+                    className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${
+                      insight.severity === "critical"
+                        ? "border-rose-200 bg-rose-50/60"
+                        : "border-amber-200 bg-amber-50/60"
+                    }`}
+                  >
+                    <span className={`mt-0.5 flex-shrink-0 ${insight.severity === "critical" ? "text-rose-500" : "text-amber-500"}`}>
+                      {insight.severity === "critical"
+                        ? <AlertCircle className="h-4 w-4" />
+                        : <AlertTriangle className="h-4 w-4" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-sm font-semibold ${insight.severity === "critical" ? "text-rose-900" : "text-amber-900"}`}>
+                        {insight.title}
+                      </p>
+                      {insight.teamName && (
+                        <p className="mt-0.5 text-xs text-slate-500">{insight.teamName}</p>
+                      )}
+                    </div>
+                    <span className={`flex-shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold tabular-nums ${
+                      insight.severity === "critical"
+                        ? "bg-rose-100 text-rose-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}>
+                      {Math.round(insight.confidence * 100)}%
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* ── AREA HUB ── */}
       <section>
         <div className="mb-3">
