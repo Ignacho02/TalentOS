@@ -1,4 +1,4 @@
-import type { AppState, MaturationResult, MaturityBand, PerformanceEntry, TrainingLoadEntry } from "@/lib/types";
+import type { AppState, MaturationResult, MaturityBand, PerformanceArea, PerformanceEntry, TrainingLoadEntry } from "@/lib/types";
 import { GROWTH_RATE_THRESHOLDS_CM_PER_YEAR } from "@/lib/maturation/sitar-constants";
 
 // ---------------------------------------------------------------------------
@@ -278,9 +278,17 @@ export function detectRapidGrowth(
 /** Minimum number of athletes required in a group for a benchmark to be meaningful. */
 export const GROUP_BENCHMARK_MIN_SIZE = 4;
 
-/** |z| ranges that define alert magnitude. */
-export const DEVIATION_Z_MEDIUM = 1;
-export const DEVIATION_Z_HIGH = 2;
+/** |z| ranges that define alert magnitude (training load). */
+export const DEVIATION_Z_MEDIUM = 1.5;
+export const DEVIATION_Z_HIGH = 2.5;
+
+/**
+ * |z| ranges for test performance deviations. Slightly stricter than load
+ * thresholds, since many tests are evaluated per athlete and this is the
+ * main source of alert noise.
+ */
+export const DEVIATION_Z_MEDIUM_TEST = 1.75;
+export const DEVIATION_Z_HIGH_TEST = 2.5;
 
 export type GroupKind = "team" | "maturityBand";
 
@@ -336,11 +344,11 @@ function athleteAverageLoad(
   return mean(recent.map((entry) => entry.load));
 }
 
-/** Latest recorded value per test for an athlete, oriented so higher = better. */
+/** Latest recorded value (and performance area) per test for an athlete, oriented so higher = better. */
 function athleteLatestTestValues(
   athleteId: string,
   performanceEntries: PerformanceEntry[],
-): Map<string, number> {
+): Map<string, { value: number; area: PerformanceArea }> {
   const byTest = new Map<string, PerformanceEntry[]>();
   performanceEntries
     .filter((entry) => entry.athleteId === athleteId)
@@ -350,11 +358,11 @@ function athleteLatestTestValues(
       byTest.set(entry.testName, list);
     });
 
-  const result = new Map<string, number>();
+  const result = new Map<string, { value: number; area: PerformanceArea }>();
   byTest.forEach((entries, testName) => {
     const sorted = [...entries].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
     const latest = sorted[sorted.length - 1];
-    result.set(testName, latest.value * trendDirection(latest));
+    result.set(testName, { value: latest.value * trendDirection(latest), area: latest.area });
   });
 
   return result;
@@ -401,7 +409,7 @@ export function buildGroupBenchmarks(
 
     const testValuesByName = new Map<string, number[]>();
     group.athleteIds.forEach((id) => {
-      athleteLatestTestValues(id, state.performanceEntries).forEach((value, testName) => {
+      athleteLatestTestValues(id, state.performanceEntries).forEach(({ value }, testName) => {
         const list = testValuesByName.get(testName) ?? [];
         list.push(value);
         testValuesByName.set(testName, list);
@@ -435,6 +443,8 @@ export interface GroupDeviation {
   metric: "load" | "test";
   /** Test name when metric === "test". */
   testName?: string;
+  /** Performance area of the test (e.g. "physical", "psychological") when metric === "test". */
+  testArea?: PerformanceArea;
   /** Athlete's value (absolute load, or test value oriented higher = better). */
   athleteValue: number;
   groupMean: number;
@@ -444,14 +454,16 @@ export interface GroupDeviation {
   zScore: number;
   /** "high" => athlete above group mean, "low" => athlete below group mean. */
   direction: "high" | "low";
-  /** "medium" for 1 ≤ |z| < 2, "high" for |z| ≥ 2. */
+  /** "medium" or "high" depending on metric-specific |z| thresholds (see DEVIATION_Z_* constants). */
   magnitude: "medium" | "high";
 }
 
 /**
  * Compares each athlete's average training load and latest test results
  * against the team and maturity-band benchmarks, returning one deviation
- * record per metric where |z| ≥ DEVIATION_Z_MEDIUM (1 standard deviation).
+ * record per metric where |z| ≥ DEVIATION_Z_MEDIUM (load, 1.5 standard
+ * deviations) or |z| ≥ DEVIATION_Z_MEDIUM_TEST (tests, 1.75 standard
+ * deviations).
  *
  * For each athlete + metric + group kind (team / maturity band), only the
  * single most extreme deviation is returned (callers typically keep at most
@@ -507,14 +519,14 @@ export function detectGroupDeviations(
 
     // --- Test performance (latest value per test, oriented higher = better) ---
     const latestTestValues = athleteLatestTestValues(athleteId, state.performanceEntries);
-    latestTestValues.forEach((value, testName) => {
+    latestTestValues.forEach(({ value, area }, testName) => {
       groupKeys.forEach(({ kind, key, label }) => {
         const benchmark = benchmarks.get(key);
         const stats = benchmark?.tests.get(testName);
         if (!stats || stats.sd === 0) return;
 
         const z = (value - stats.mean) / stats.sd;
-        if (Math.abs(z) < DEVIATION_Z_MEDIUM) return;
+        if (Math.abs(z) < DEVIATION_Z_MEDIUM_TEST) return;
 
         deviations.push({
           id: `deviation-${counter++}`,
@@ -525,13 +537,14 @@ export function detectGroupDeviations(
           groupLabel: label,
           metric: "test",
           testName,
+          testArea: area,
           athleteValue: value,
           groupMean: stats.mean,
           groupSd: stats.sd,
           groupSize: stats.n,
           zScore: z,
           direction: z > 0 ? "high" : "low",
-          magnitude: Math.abs(z) >= DEVIATION_Z_HIGH ? "high" : "medium",
+          magnitude: Math.abs(z) >= DEVIATION_Z_HIGH_TEST ? "high" : "medium",
         });
       });
     });

@@ -4185,13 +4185,18 @@ function PerformanceIntelligenceView({
                   </li>
                   <li>
                     <strong>{es ? "Rendimiento + Carga" : "Performance + Load"}:</strong> {es 
-                      ? "Un descanso en un test físico con carga alta se asocia a fatiga neuromuscular, elevándose a Roja (Riesgo) para recomendar descarga."
+                      ? "Un descenso en un test físico con carga alta se asocia a fatiga neuromuscular, elevándose a Roja (Riesgo) para recomendar descarga."
                       : "A performance drop in a physical test with high load is associated with neuromuscular fatigue, raising it to Red (Risk) to recommend a deload."}
                   </li>
                   <li>
                     <strong>{es ? "Rendimiento + Maduración" : "Performance + Maturation"}:</strong> {es 
-                      ? "Un descenso de rendimiento durante el PHV se atribuye a descoordinación transitoria (torpeza adolescente). Una mejora en la misma banda se asocia a fuerza madurativa."
-                      : "A performance drop during PHV is attributed to adolescent awkwardness. An improvement in the same band is associated with maturation-driven force gains."}
+                      ? "En tests físicos, un descenso de rendimiento durante el PHV se atribuye a descoordinación transitoria (torpeza adolescente). Una mejora en la misma banda se asocia a fuerza madurativa."
+                      : "For physical tests, a performance drop during PHV is attributed to adolescent awkwardness. An improvement in the same band is associated with maturation-driven force gains."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Tests psicológicos" : "Psychological tests"}:</strong> {es
+                      ? "Para tests del área psicológica, el sistema no atribuye los cambios a fatiga neuromuscular, molestias físicas o descoordinación motriz. En su lugar, relaciona el cambio con factores como presión, contexto personal o de grupo, y emocionalidad propia de la etapa madurativa, y recomienda conversar con el jugador en vez de ajustes de carga o técnica."
+                      : "For tests in the psychological area, the system does not attribute changes to neuromuscular fatigue, physical discomfort, or motor coordination. Instead, it links the change to factors such as pressure, personal or group context, and emotional changes typical of the maturity stage, and recommends talking with the player rather than load or technique adjustments."}
                   </li>
                 </ul>
               </div>
@@ -4223,16 +4228,31 @@ function PerformanceIntelligenceView({
                     ? "Para cada métrica se calcula la media y la desviación estándar (σ) del grupo, y la posición del jugador como z-score: z = (valor del jugador − media del grupo) / σ. Solo se generan avisos si el grupo tiene al menos 4 jugadores con datos suficientes."
                     : "For each metric, the group's mean and standard deviation (σ) are calculated, and the player's position is expressed as a z-score: z = (player value − group mean) / σ. Alerts are only generated when the group has at least 4 players with sufficient data."}
                 </p>
+                <p className="text-xs leading-relaxed text-slate-600 mb-2">
+                  {es
+                    ? "Para reducir el ruido, los umbrales mínimos para generar un aviso son más exigentes que ±1σ, y son distintos para carga y para rendimiento en tests:"
+                    : "To reduce noise, the minimum thresholds for generating an alert are stricter than ±1σ, and differ between load and test performance:"}
+                </p>
                 <ul className="list-disc list-inside text-xs leading-relaxed text-slate-600 space-y-1 pl-1">
                   <li>
-                    <strong>{es ? "1σ – 2σ (Magnitud media):" : "1σ – 2σ (Medium magnitude):"}</strong> {es
-                      ? "el jugador está por encima o por debajo de lo normal en su grupo. En carga, por encima genera Amarillo (Seguimiento) y por debajo Verde (informativo); en rendimiento, por debajo genera Amarillo y por encima Verde (Talento)."
-                      : "the player is above or below normal for their group. For load, above generates Yellow (Monitoring) and below generates Green (informational); for performance, below generates Yellow and above generates Green (Talent)."}
+                    <strong>{es ? "Carga — 1.5σ a 2.5σ (Magnitud media):" : "Load — 1.5σ to 2.5σ (Medium magnitude):"}</strong> {es
+                      ? "el jugador está por encima o por debajo de lo normal en su grupo. Por encima genera Amarillo (Seguimiento); por debajo genera Verde (informativo)."
+                      : "the player is above or below normal for their group. Above generates Yellow (Monitoring); below generates Green (informational)."}
                   </li>
                   <li>
-                    <strong>{es ? "≥ 2σ (Magnitud alta):" : "≥ 2σ (High magnitude):"}</strong> {es
-                      ? "desviación marcada. En carga por encima del grupo sube a Rojo (Riesgo); en rendimiento por debajo del grupo también sube a Rojo (Riesgo), como atención prioritaria. Por encima en rendimiento se mantiene en Verde (Talento), ya que es una señal positiva."
-                      : "marked deviation. For load above the group it escalates to Red (Risk); for performance below the group it also escalates to Red (Risk), as priority attention. Above-group performance stays Green (Talent), as it is a positive signal."}
+                    <strong>{es ? "Carga — ≥ 2.5σ (Magnitud alta):" : "Load — ≥ 2.5σ (High magnitude):"}</strong> {es
+                      ? "desviación marcada. Por encima del grupo sube a Rojo (Riesgo); por debajo del grupo se mantiene en Verde, pero con mayor prioridad informativa."
+                      : "marked deviation. Above the group it escalates to Red (Risk); below the group it stays Green, but with higher informational priority."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Rendimiento en tests — 1.75σ a 2.5σ (Magnitud media):" : "Test performance — 1.75σ to 2.5σ (Medium magnitude):"}</strong> {es
+                      ? "por debajo del grupo genera Amarillo (Seguimiento); por encima del grupo genera Verde (Talento)."
+                      : "below the group generates Yellow (Monitoring); above the group generates Green (Talent)."}
+                  </li>
+                  <li>
+                    <strong>{es ? "Rendimiento en tests — ≥ 2.5σ (Magnitud alta):" : "Test performance — ≥ 2.5σ (High magnitude):"}</strong> {es
+                      ? "por debajo del grupo sube a Rojo (Riesgo), como atención prioritaria. Por encima del grupo se mantiene en Verde (Talento), ya que es una señal positiva."
+                      : "below the group escalates to Red (Risk), as priority attention. Above the group stays Green (Talent), as it is a positive signal."}
                   </li>
                 </ul>
               </div>

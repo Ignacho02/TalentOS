@@ -523,16 +523,24 @@ poco fiables con muestras pequeñas).
 
 **Umbrales de aviso:**
 
-| |z| | Magnitud | Interpretación |
-|-----|----------|-----------------|
-| < 1 | — | Dentro de lo normal del grupo. Sin aviso. |
-| 1 – 2 | Media | Por encima o por debajo de lo habitual en el grupo. |
-| ≥ 2 | Alta | Desviación marcada respecto al grupo. |
+Para reducir el ruido (con el umbral anterior de |z| ≥ 1, ~32% de los jugadores generaban un aviso
+en cada test y cada tipo de grupo), los umbrales mínimos son más exigentes que ±1σ y son distintos
+para carga y para rendimiento en tests:
+
+| Métrica | |z| | Magnitud | Interpretación |
+|---------|-----|----------|-----------------|
+| Carga | < 1.5 | — | Dentro de lo normal del grupo. Sin aviso. |
+| Carga | 1.5 – 2.5 | Media | Por encima o por debajo de lo habitual en el grupo. |
+| Carga | ≥ 2.5 | Alta | Desviación marcada respecto al grupo. |
+| Rendimiento en tests | < 1.75 | — | Dentro de lo normal del grupo. Sin aviso. |
+| Rendimiento en tests | 1.75 – 2.5 | Media | Por encima o por debajo de lo habitual en el grupo. |
+| Rendimiento en tests | ≥ 2.5 | Alta | Desviación marcada respecto al grupo. |
 
 **Dirección del aviso según métrica:**
 
 - **Carga:** por encima del grupo → posible riesgo de sobrecarga (magnitud alta = Rojo/Riesgo, magnitud
-  media = Amarillo/Seguimiento). Por debajo del grupo → posible infracarga (informativo, Verde).
+  media = Amarillo/Seguimiento). Por debajo del grupo → posible infracarga (informativo, Verde; magnitud
+  alta = mayor prioridad informativa, magnitud media = prioridad menor).
 - **Rendimiento:** por debajo del grupo → señal de atención (magnitud alta = Rojo/Riesgo, magnitud media
   = Amarillo/Seguimiento). Por encima del grupo → señal positiva de talento (Verde/Oportunidad),
   independientemente de la magnitud.

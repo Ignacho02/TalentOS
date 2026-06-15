@@ -358,7 +358,51 @@ function buildPerformanceIntelligenceInsights(
       let recEs = "";
       let recEn = "";
 
-      if (hasElevatedLoad && hasPHV) {
+      const isPsychological = strongestDrop.latest.area === "psychological";
+
+      if (isPsychological) {
+        // Psychological tests: never attribute the drop to growth-spurt motor/coordination
+        // effects, joint discomfort, or neuromuscular fatigue — those explanations don't
+        // apply to a psychological metric (e.g. self-confidence, motivation).
+        if (hasElevatedLoad && hasPHV) {
+          titleEs = `${athleteName}: Alerta crítica: descenso psicológico durante pico de crecimiento y carga elevada`;
+          titleEn = `${athleteName}: Critical: psychological drop during growth spurt and elevated load`;
+          descEs = `El resultado en ${strongestDrop.testName} ha bajado un ${pctChange}%, coincidiendo con el pico de crecimiento (Mid-PHV) y un aumento reciente de la carga de entrenamiento; ambos factores pueden generar estrés o desgaste añadido.`;
+          descEn = `The result in ${strongestDrop.testName} dropped by ${pctChange}%, coinciding with peak growth (Mid-PHV) and a recent increase in training load; both factors can add stress or strain.`;
+          recEs = `Conversar con el jugador para entender qué hay detrás (presión, cansancio, contexto personal o de grupo) y valorar aligerar la exigencia mientras se aborda.`;
+          recEn = `Talk with the player to understand what's behind it (pressure, fatigue, personal or group context) and consider easing demands while it's addressed.`;
+        } else if (hasElevatedLoad) {
+          titleEs = `${athleteName}: Descenso psicológico coincidiendo con carga elevada`;
+          titleEn = `${athleteName}: Psychological drop coinciding with elevated load`;
+          descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName} coincidiendo con un aumento reciente de la carga de entrenamiento. Podría estar relacionado con el desgaste físico y mental acumulado.`;
+          descEn = `Drop of ${pctChange}% in ${strongestDrop.testName} coinciding with a recent increase in training load. It could be related to accumulated physical and mental strain.`;
+          recEs = `Conversar con el jugador y valorar si necesita una sesión de descarga o apoyo adicional en este aspecto.`;
+          recEn = `Talk with the player and consider whether they need a lighter session or additional support in this area.`;
+        } else if (hasPHV) {
+          titleEs = `${athleteName}: Descenso psicológico durante el pico de crecimiento`;
+          titleEn = `${athleteName}: Psychological drop during growth spurt`;
+          descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName}, coincidiendo con el pico de crecimiento (Mid-PHV). Esta etapa puede ir acompañada de cambios emocionales o de autoimagen.`;
+          descEn = `Drop of ${pctChange}% in ${strongestDrop.testName}, coinciding with peak growth (Mid-PHV). This stage can come with emotional or self-image changes.`;
+          recEs = `Conversar con el jugador para entender cómo está viviendo esta etapa y valorar apoyo específico en ${strongestDrop.testName}.`;
+          recEn = `Talk with the player to understand how they're experiencing this stage and consider specific support around ${strongestDrop.testName}.`;
+        } else {
+          const isBigDrop = Math.abs(strongestDrop.change) >= 0.15;
+          titleEs = isBigDrop
+            ? `${athleteName}: Descenso psicológico significativo en ${strongestDrop.testName}`
+            : `${athleteName}: Descenso psicológico moderado en ${strongestDrop.testName}`;
+          titleEn = isBigDrop
+            ? `${athleteName}: Significant psychological drop in ${strongestDrop.testName}`
+            : `${athleteName}: Moderate psychological drop in ${strongestDrop.testName}`;
+          descEs = `Descenso del ${pctChange}% en ${strongestDrop.testName} respecto a la última medición.`;
+          descEn = `Drop of ${pctChange}% in ${strongestDrop.testName} vs the previous test.`;
+          recEs = isBigDrop
+            ? `Conversar con el jugador para entender qué hay detrás (presión, contexto personal o de grupo) y valorar apoyo específico en ${strongestDrop.testName}.`
+            : `Mantener seguimiento cercano en ${strongestDrop.testName} y repetir la evaluación en próximas semanas para confirmar si es puntual o una tendencia.`;
+          recEn = isBigDrop
+            ? `Talk with the player to understand what's behind it (pressure, personal or group context) and consider specific support around ${strongestDrop.testName}.`
+            : `Keep close follow-up on ${strongestDrop.testName} and re-assess in the coming weeks to confirm whether this is a one-off or a trend.`;
+        }
+      } else if (hasElevatedLoad && hasPHV) {
         titleEs = `${athleteName}: Alerta crítica: Caída de rendimiento por sobrecarga en PHV`;
         titleEn = `${athleteName}: Critical: Performance drop under overload in PHV`;
         descEs = `El rendimiento en ${strongestDrop.testName} ha bajado un ${pctChange}% debido a la combinación de crecimiento acelerado (Mid-PHV) y aumento reciente de carga de entrenamiento.`;
@@ -425,7 +469,35 @@ function buildPerformanceIntelligenceInsights(
       let recEs = "";
       let recEn = "";
 
-      if (!hasElevatedLoad && isGrowingOrPost) {
+      const isPsychological = strongestImprovement.latest.area === "psychological";
+
+      if (isPsychological) {
+        // Psychological tests: don't attribute the gain to physical maturation,
+        // structural strength, or "technical" adaptation — frame it in
+        // psychological terms instead.
+        if (!hasElevatedLoad && isGrowingOrPost) {
+          titleEs = `${athleteName}: Mejora psicológica durante el desarrollo (Talento)`;
+          titleEn = `${athleteName}: Psychological improvement during development (Talent)`;
+          descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} sin aumento de carga, en una etapa (banda ${band}) que suele venir acompañada de cambios importantes a nivel personal.`;
+          descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} without a load increase, during a stage (band ${band}) that often comes with significant personal changes.`;
+          recEs = `Reforzar positivamente este progreso y aprovechar el momento para consolidar hábitos y confianza.`;
+          recEn = `Reinforce this progress positively and use the moment to consolidate habits and confidence.`;
+        } else if (!hasElevatedLoad) {
+          titleEs = `${athleteName}: Mejora psicológica (Talento)`;
+          titleEn = `${athleteName}: Psychological improvement (Talent)`;
+          descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} sin incremento paralelo de carga. Buena señal a nivel psicológico.`;
+          descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} without a parallel load increase. A positive psychological signal.`;
+          recEs = `Felicitar al jugador. Mantener su progresión y valorar si se sostiene en el próximo ciclo.`;
+          recEn = `Congratulate the player. Maintain progression and see if it holds in the next cycle.`;
+        } else {
+          titleEs = `${athleteName}: Mejora psicológica con carga elevada`;
+          titleEn = `${athleteName}: Psychological improvement under elevated load`;
+          descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} a pesar de la carga de entrenamiento elevada. Buena gestión personal de la exigencia.`;
+          descEn = `Improvement of ${pctChange}% in ${strongestImprovement.testName} despite elevated training load. Good personal management of the demands.`;
+          recEs = `Felicitar al jugador y seguir vigilando que la carga elevada no termine afectando a este aspecto a medio plazo.`;
+          recEn = `Congratulate the player and keep monitoring that the elevated load doesn't affect this area in the medium term.`;
+        }
+      } else if (!hasElevatedLoad && isGrowingOrPost) {
         titleEs = `${athleteName}: Mejora por desarrollo biológico (Talento)`;
         titleEn = `${athleteName}: Growth spurt performance gain (Talent)`;
         descEs = `Mejora del ${pctChange}% en ${strongestImprovement.testName} sin aumento de carga, probablemente potenciada por su desarrollo y maduración biológica (banda ${band}).`;
@@ -543,6 +615,7 @@ function buildPerformanceIntelligenceInsights(
       // Test performance
       category = isHigh ? "talent" : "performance";
       const testLabel = deviation.testName ?? "";
+      const isPsychological = deviation.testArea === "psychological";
       if (isHigh) {
         // Notably above the group: positive signal (Talent), low severity.
         severity = "low";
@@ -550,8 +623,13 @@ function buildPerformanceIntelligenceInsights(
         titleEn = `${deviation.athleteName}: ${testLabel} well above ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
         descEs = `Su resultado en ${testLabel} está ${formatNumber(Math.abs(deviation.zScore), 1)}σ por encima de ${groupText} (n=${deviation.groupSize}).`;
         descEn = `Their ${testLabel} result is ${formatNumber(Math.abs(deviation.zScore), 1)}σ above ${groupText} (n=${deviation.groupSize}).`;
-        recEs = `Destacar como referencia técnica/física en ${testLabel} y valorar progresión hacia exigencias mayores.`;
-        recEn = `Highlight as a physical/technical reference in ${testLabel} and consider progressing to higher demands.`;
+        if (isPsychological) {
+          recEs = `Destacar como referencia psicológica en ${testLabel} y valorar su papel como ejemplo o apoyo para compañeros en este aspecto.`;
+          recEn = `Highlight as a psychological reference in ${testLabel} and consider their role as an example or support for teammates in this area.`;
+        } else {
+          recEs = `Destacar como referencia técnica/física en ${testLabel} y valorar progresión hacia exigencias mayores.`;
+          recEn = `Highlight as a physical/technical reference in ${testLabel} and consider progressing to higher demands.`;
+        }
       } else {
         // Notably below the group: attention signal, magnitude-dependent severity.
         severity = deviation.magnitude === "high" ? "high" : "medium";
@@ -559,12 +637,21 @@ function buildPerformanceIntelligenceInsights(
         titleEn = `${deviation.athleteName}: ${testLabel} well below ${deviation.groupKind === "team" ? "their team" : "their maturity group"}`;
         descEs = `Su resultado en ${testLabel} está ${formatNumber(Math.abs(deviation.zScore), 1)}σ por debajo de ${groupText} (n=${deviation.groupSize}).`;
         descEn = `Their ${testLabel} result is ${formatNumber(Math.abs(deviation.zScore), 1)}σ below ${groupText} (n=${deviation.groupSize}).`;
-        recEs = deviation.magnitude === "high"
-          ? `Revisar técnica de ejecución, posibles molestias y planificar refuerzo específico en ${testLabel}.`
-          : `Incluir trabajo complementario en ${testLabel} y repetir el test en próximas semanas.`;
-        recEn = deviation.magnitude === "high"
-          ? `Review execution technique, rule out discomfort, and plan specific work on ${testLabel}.`
-          : `Add complementary work on ${testLabel} and re-test in the coming weeks.`;
+        if (isPsychological) {
+          recEs = deviation.magnitude === "high"
+            ? `Conversar con el jugador para entender qué hay detrás (presión, contexto personal, dinámica de grupo) y valorar apoyo específico en ${testLabel}.`
+            : `Mantener seguimiento cercano en ${testLabel} y repetir la evaluación en próximas semanas para confirmar si es puntual o una tendencia.`;
+          recEn = deviation.magnitude === "high"
+            ? `Talk with the player to understand what's behind it (pressure, personal context, group dynamics) and consider specific support around ${testLabel}.`
+            : `Keep close follow-up on ${testLabel} and re-assess in the coming weeks to confirm whether this is a one-off or a trend.`;
+        } else {
+          recEs = deviation.magnitude === "high"
+            ? `Revisar técnica de ejecución, posibles molestias y planificar refuerzo específico en ${testLabel}.`
+            : `Incluir trabajo complementario en ${testLabel} y repetir el test en próximas semanas.`;
+          recEn = deviation.magnitude === "high"
+            ? `Review execution technique, rule out discomfort, and plan specific work on ${testLabel}.`
+            : `Add complementary work on ${testLabel} and re-test in the coming weeks.`;
+        }
       }
     }
 
